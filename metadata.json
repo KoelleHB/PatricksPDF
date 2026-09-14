@@ -1,0 +1,6 @@
+{
+  "name": "PDF Signature Editor",
+  "description": "Local, offline-ready tool for signing PDFs, adding customizable text overlays (regular and script fonts in blue or black), and filling native PDF form fields.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
