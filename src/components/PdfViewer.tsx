@@ -99,13 +99,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Gestures: Swipe for page turning & Pinch-to-zoom
   const [swipeOffset, setSwipeOffset] = useState<number>(0);
   const [isSwiping, setIsSwiping] = useState<boolean>(false);
-  const [swipeHint, setSwipeHint] = useState<{
-    text: string;
-    direction: 'left' | 'right';
-    disabled?: boolean;
-  } | null>(null);
-  const [pinchFeedback, setPinchFeedback] = useState<{ active: boolean; zoom: number } | null>(null);
-  const [showGestureHint, setShowGestureHint] = useState<boolean>(false);
 
   // References to keep event listeners up-to-date without recreation
   const zoomLevelRef = useRef<number>(zoomLevel);
@@ -181,17 +174,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     }
   }, [pdfState.currentPage]);
 
-  // Show transient gesture hint for multi-page documents on initial load
-  useEffect(() => {
-    if (pdfState.numPages > 1) {
-      setShowGestureHint(true);
-      const timer = setTimeout(() => {
-        setShowGestureHint(false);
-      }, 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [pdfState.numPages, pdfState.name]);
-
   // Attach non-passive touch listeners for reliable pinch-to-zoom and swiping
   useEffect(() => {
     const container = containerRef.current;
@@ -204,7 +186,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         swipeRef.current.active = false;
         setIsSwiping(false);
         setSwipeOffset(0);
-        setSwipeHint(null);
 
         const d = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -215,8 +196,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           startDist: Math.max(10, d),
           startZoom: zoomLevelRef.current,
         };
-        setPinchFeedback({ active: true, zoom: zoomLevelRef.current });
-        setShowGestureHint(false);
         return;
       }
 
@@ -255,7 +234,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         const scale = currentDist / pinchRef.current.startDist;
         const newZoom = Math.min(250, Math.max(35, Math.round(pinchRef.current.startZoom * scale)));
         setZoomLevel(newZoom);
-        setPinchFeedback({ active: true, zoom: newZoom });
         return;
       }
 
@@ -281,7 +259,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               swipeRef.current.directionLocked = 'horizontal';
               swipeRef.current.active = true;
               setIsSwiping(true);
-              setShowGestureHint(false);
             }
           }
         }
@@ -296,19 +273,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             // Swiping right -> Turn to PREVIOUS page
             if (cur <= 1) {
               calculatedOffset = dx * 0.18; // Rubber-band bounce at boundary
-              setSwipeHint({ text: 'First Page', direction: 'right', disabled: true });
             } else {
               calculatedOffset = dx * 0.55;
-              setSwipeHint({ text: `Page ${cur - 1}`, direction: 'right', disabled: false });
             }
           } else {
             // Swiping left -> Turn to NEXT page
             if (cur >= total) {
               calculatedOffset = dx * 0.18; // Rubber-band bounce at boundary
-              setSwipeHint({ text: 'Last Page', direction: 'left', disabled: true });
             } else {
               calculatedOffset = dx * 0.55;
-              setSwipeHint({ text: `Page ${cur + 1}`, direction: 'left', disabled: false });
             }
           }
 
@@ -321,9 +294,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       if (pinchRef.current.active && e.touches.length < 2) {
         pinchRef.current.active = false;
         if (pinchTimeoutRef.current) clearTimeout(pinchTimeoutRef.current);
-        pinchTimeoutRef.current = setTimeout(() => {
-          setPinchFeedback(null);
-        }, 650);
       }
 
       if (swipeRef.current.directionLocked === 'horizontal') {
@@ -349,7 +319,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
         setSwipeOffset(0);
         setIsSwiping(false);
-        setSwipeHint(null);
         swipeRef.current.active = false;
         swipeRef.current.directionLocked = null;
       }
@@ -360,15 +329,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       if (e.ctrlKey) {
         e.preventDefault();
         const factor = -e.deltaY * 0.35;
-        setZoomLevel((prev) => {
-          const next = Math.min(250, Math.max(35, Math.round(prev + factor)));
-          setPinchFeedback({ active: true, zoom: next });
-          return next;
-        });
-        if (pinchTimeoutRef.current) clearTimeout(pinchTimeoutRef.current);
-        pinchTimeoutRef.current = setTimeout(() => {
-          setPinchFeedback(null);
-        }, 650);
+        setZoomLevel((prev) => Math.min(250, Math.max(35, Math.round(prev + factor))));
       } else if (e.shiftKey && container) {
         // Shift + vertical wheel -> horizontal scroll
         e.preventDefault();
@@ -613,20 +574,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   return (
     <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
       {/* Top Floating Page Navigation & Zoom Toolbar */}
-      <div className="bg-white/95 backdrop-blur border-b border-slate-200 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 shadow-xs z-10">
+      <div className="bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
         {/* Page Switcher */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           <button
             id="prev-page-btn"
             disabled={pdfState.currentPage <= 1 || isLoadingPage}
             onClick={() => onChangePage(pdfState.currentPage - 1)}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
+            className="p-1 sm:p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
             title="Previous Page"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <span className="text-xs sm:text-sm font-semibold text-slate-700 px-2 select-none">
+          <span className="text-xs sm:text-sm font-semibold text-slate-700 px-1 sm:px-2 select-none whitespace-nowrap">
             Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
             <span className="font-mono">{pdfState.numPages}</span>
           </span>
@@ -635,7 +596,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             id="next-page-btn"
             disabled={pdfState.currentPage >= pdfState.numPages || isLoadingPage}
             onClick={() => onChangePage(pdfState.currentPage + 1)}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
+            className="p-1 sm:p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
             title="Next Page"
           >
             <ChevronRight className="w-4 h-4" />
@@ -643,7 +604,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         </div>
 
         {/* Action Controls, Undo/Redo & Zoom */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Undo & Redo Controls */}
           <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
             <button
@@ -681,7 +642,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           </div>
 
           {/* Zoom Buttons & Responsive Fit */}
-          <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
             {/* Pan / Hand Tool Toggle */}
             <button
               id="viewer-pan-tool-btn"
@@ -693,8 +654,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               }`}
               title={
                 isPanToolActive
-                  ? 'Hand Tool active: Drag anywhere to pan (press H to toggle)'
-                  : 'Hand Tool: Drag to pan side-to-side (press H or hold Space)'
+                  ? 'Hand (Pan) Tool active: Drag anywhere to pan/move around the zoomed PDF (press H to toggle)'
+                  : 'Hand (Pan) Tool: Drag anywhere to move zoomed pages without clicking items (press H or hold Space)'
               }
             >
               <Hand className="w-4 h-4" />
@@ -709,7 +670,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             </button>
             <button
               onClick={handleResetZoom}
-              className="text-xs font-mono font-semibold px-1.5 text-slate-700 hover:text-blue-600 transition"
+              className="text-xs font-mono font-semibold px-1 sm:px-1.5 text-slate-700 hover:text-blue-600 transition"
               title="Reset Zoom to 100%"
             >
               {zoomLevel}%
@@ -724,7 +685,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
             <button
               onClick={handleFitWidth}
-              className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition"
+              className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition whitespace-nowrap"
               title="Fit Page Width to Screen"
             >
               Fit Width
@@ -738,29 +699,27 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             </button>
           </div>
 
-          {/* Add Text shortcut button in viewer */}
+          {/* Add Text shortcut button (hidden on mobile, visible on desktop) */}
           {onOpenTextModal && (
             <button
               id="viewer-add-text-btn"
               onClick={onOpenTextModal}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition"
               title="Add text overlay (Regular or Script font)"
             >
               <Type className="w-4 h-4 text-blue-600" />
-              <span className="hidden sm:inline">Add Text</span>
-              <span className="sm:hidden">Text</span>
+              <span>Add Text</span>
             </button>
           )}
 
-          {/* Add Signature shortcut button in viewer */}
+          {/* Add Signature shortcut button (hidden on mobile, visible on desktop) */}
           <button
             id="viewer-add-sig-btn"
             onClick={onOpenSignatureModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition"
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Signature</span>
-            <span className="sm:hidden">Add</span>
+            <span>Add Signature</span>
           </button>
         </div>
       </div>
@@ -782,62 +741,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               : 'cursor-default'
         }`}
       >
-        {/* Floating Notice / Toast for Undo / Redo */}
-        {historyNotice && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none animate-in fade-in slide-in-from-top-2 duration-150">
-            <div className="bg-slate-900/95 text-white px-3.5 py-1.5 rounded-full text-xs font-medium shadow-xl flex items-center gap-2 border border-slate-700/60 backdrop-blur">
-              {historyNotice.type === 'undo' ? (
-                <Undo2 className="w-3.5 h-3.5 text-blue-400" />
-              ) : (
-                <Redo2 className="w-3.5 h-3.5 text-emerald-400" />
-              )}
-              <span>{historyNotice.message}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Pinch to Zoom Live Floating Badge */}
-        {pinchFeedback && (
-          <div className="fixed sm:absolute top-16 sm:top-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none transition-all duration-150 animate-in fade-in zoom-in-95">
-            <div className="bg-slate-900/90 text-white px-4 py-2 rounded-full text-xs font-semibold shadow-2xl flex items-center gap-2 border border-slate-700/80 backdrop-blur">
-              <ZoomIn className="w-4 h-4 text-blue-400" />
-              <span>
-                Pinch Zoom: <span className="text-blue-400 font-mono font-bold">{pinchFeedback.zoom}%</span>
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Swiping Page Turn Dynamic Edge Badge */}
-        {swipeHint && (
-          <div
-            className={`fixed sm:absolute top-1/2 -translate-y-1/2 z-40 pointer-events-none transition-all duration-150 flex items-center gap-2 px-4 py-2.5 rounded-full shadow-2xl text-xs sm:text-sm font-semibold backdrop-blur ${
-              swipeHint.direction === 'right' ? 'left-4 sm:left-8' : 'right-4 sm:right-8'
-            } ${
-              swipeHint.disabled
-                ? 'bg-slate-800/85 text-slate-300 border border-slate-700'
-                : 'bg-blue-600/95 text-white border border-blue-400/50 scale-105 shadow-blue-500/25'
-            }`}
-          >
-            {swipeHint.direction === 'right' && <ChevronLeft className="w-4 h-4 stroke-[2.5]" />}
-            <span>{swipeHint.text}</span>
-            {swipeHint.direction === 'left' && <ChevronRight className="w-4 h-4 stroke-[2.5]" />}
-          </div>
-        )}
-
-        {/* Multi-page Gesture Discovery Toast */}
-        {showGestureHint && !swipeHint && !pinchFeedback && (
-          <div className="fixed sm:absolute bottom-16 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-none transition-all duration-200 animate-in fade-in slide-in-from-bottom-2">
-            <div className="bg-slate-900/90 text-white px-4 py-2 rounded-full text-xs font-medium shadow-xl flex items-center gap-2.5 border border-slate-700/70 backdrop-blur">
-              <span className="text-blue-400 font-bold">⇄</span>
-              <span>Swipe left / right to turn pages</span>
-              <span className="text-slate-500">•</span>
-              <ZoomIn className="w-3.5 h-3.5 text-blue-400" />
-              <span>Pinch to zoom</span>
-            </div>
-          </div>
-        )}
-
         {/* Loading Spinner */}
         {isLoadingPage && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-xs">
@@ -942,16 +845,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               />
             ))}
           </div>
-
-          {/* Helper callout when page is empty */}
-          {pageSignatures.length === 0 && pageTextOverlays.length === 0 && pageFormFields.length === 0 && !isLoadingPage && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none opacity-80 hover:opacity-100 transition z-20">
-              <div className="bg-slate-900/80 backdrop-blur text-white px-3.5 py-1.5 rounded-full text-xs font-medium shadow-md flex items-center gap-1.5">
-                <Plus className="w-3.5 h-3.5 text-blue-400" />
-                <span>Add a signature or text to this page</span>
-              </div>
-            </div>
-          )}
         </motion.div>
         </div>
       </div>

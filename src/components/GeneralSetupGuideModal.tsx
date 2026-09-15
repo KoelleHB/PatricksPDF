@@ -1,5 +1,6 @@
 import React from 'react';
-import { X, Cpu, Smartphone, Layers, ShieldCheck, FileCheck, ArrowRight, Sparkles } from 'lucide-react';
+import { X, Cpu, Smartphone, Layers, ShieldCheck, Download, Sparkles, Check, ExternalLink } from 'lucide-react';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface GeneralSetupGuideModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ export const GeneralSetupGuideModal: React.FC<GeneralSetupGuideModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { isInstallable, isInstalled, isIOS, isAndroid, install } = usePWAInstall();
+
   if (!isOpen) return null;
 
   return (
@@ -23,10 +26,10 @@ export const GeneralSetupGuideModal: React.FC<GeneralSetupGuideModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 leading-tight">
-                General Architecture & Setup Guide
+                PatricksPDF Guide & Instructions
               </h3>
               <p className="text-xs text-slate-500">
-                How this local web app is structured to run on Android phones
+                Installation, offline setup, and security architecture
               </p>
             </div>
           </div>
@@ -40,16 +43,84 @@ export const GeneralSetupGuideModal: React.FC<GeneralSetupGuideModalProps> = ({
 
         {/* Content */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-5 text-sm text-slate-700">
-          {/* Section 1: Running Locally on Android */}
-          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-blue-50/50 border border-blue-100">
-            <Smartphone className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <h4 className="font-bold text-slate-900 text-xs sm:text-sm">
-                1. Progressive Web App (PWA) on Android
-              </h4>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                By packaging the app as a PWA (with a Web App Manifest and Service Worker caching via <code>vite-plugin-pwa</code>), you can tap <strong>"Install app"</strong> or <strong>"Add to Home Screen"</strong> in Chrome on Android. Once installed, it behaves just like a native Android APK: it launches full-screen without browser address bars, functions 100% offline, and integrates directly with Android's system file picker and share drawer.
-              </p>
+          {/* Section 1: Step-by-Step App Installation */}
+          <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50/80 to-indigo-50/50 border border-blue-200/80 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                  How to Install PatricksPDF
+                </h4>
+              </div>
+              {isInstalled ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <Check className="w-3.5 h-3.5" /> Installed
+                </span>
+              ) : isInstallable ? (
+                <button
+                  onClick={async () => {
+                    await install();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Install App Now</span>
+                </button>
+              ) : null}
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              PatricksPDF is a Progressive Web App (PWA) that installs directly on your device like a native application, with full offline functionality and zero data leaving your phone.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Android Instructions */}
+              <div className="bg-white/90 p-3 rounded-xl border border-blue-100 shadow-2xs space-y-1.5">
+                <span className="font-semibold text-xs text-blue-900 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[11px] font-bold inline-flex items-center justify-center">
+                    A
+                  </span>
+                  On Android (Chrome / Firefox / Samsung)
+                </span>
+                <ol className="text-xs text-slate-600 space-y-1 list-decimal list-inside leading-normal">
+                  <li>
+                    Tap the <strong>three dots (⋮)</strong> menu in your browser.
+                  </li>
+                  <li>
+                    Select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.
+                  </li>
+                  <li>
+                    Tap <strong>Add / Install</strong> to place the icon on your screen.
+                  </li>
+                </ol>
+              </div>
+
+              {/* iOS / iPhone Instructions */}
+              <div className="bg-white/90 p-3 rounded-xl border border-blue-100 shadow-2xs space-y-1.5">
+                <span className="font-semibold text-xs text-blue-900 flex items-center gap-1.5">
+                  <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-[11px] font-bold inline-flex items-center justify-center">
+                    B
+                  </span>
+                  On iPhone & iPad (Safari)
+                </span>
+                <ol className="text-xs text-slate-600 space-y-1 list-decimal list-inside leading-normal">
+                  <li>
+                    Tap the <strong>Share</strong> button (box with upward arrow).
+                  </li>
+                  <li>
+                    Scroll down and tap <strong>"Add to Home Screen"</strong>.
+                  </li>
+                  <li>
+                    Tap <strong>Add</strong> in the top-right corner.
+                  </li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-500 bg-white/60 p-2 rounded-lg border border-blue-100">
+              💡 <strong>On PC / Mac:</strong> Look for the small computer/install icon in your browser address bar on the right to install PatricksPDF as a desktop app.
             </div>
           </div>
 
@@ -58,23 +129,20 @@ export const GeneralSetupGuideModal: React.FC<GeneralSetupGuideModalProps> = ({
             <Sparkles className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <h4 className="font-bold text-slate-900 text-xs sm:text-sm">
-                2. White-to-Transparent Chroma Engine (HTML5 Canvas)
+                White-to-Transparent Chroma Engine
               </h4>
               <p className="text-xs text-slate-600 leading-relaxed">
-                When you choose a signature JPG:
+                When you snap a photo or upload a picture of a handwritten signature on paper:
               </p>
               <ul className="text-xs text-slate-600 list-disc list-inside space-y-1 pl-1">
                 <li>
-                  The image is drawn to an offscreen <code>&lt;canvas&gt;</code> and inspected via <code>getImageData()</code>.
+                  The image is rendered on an offscreen canvas and inspected pixel-by-pixel.
                 </li>
                 <li>
-                  For every pixel, its perceptual luminance is computed (<code>0.299R + 0.587G + 0.114B</code>).
+                  Pixels exceeding the background luminance threshold are converted to pure transparency, preserving dark ink strokes cleanly.
                 </li>
                 <li>
-                  Pixels exceeding the white threshold (e.g. &gt; 230) have their alpha set to <code>0</code> (transparent), with a feathered gradient to prevent jagged halos around pen strokes.
-                </li>
-                <li>
-                  The processed signature is converted to a lossless transparent PNG (data URL + raw bytes) for insertion into the PDF.
+                  The vector-level transparent PNG embeds cleanly without obscuring underlying document text.
                 </li>
               </ul>
             </div>
@@ -85,10 +153,10 @@ export const GeneralSetupGuideModal: React.FC<GeneralSetupGuideModalProps> = ({
             <Layers className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <h4 className="font-bold text-slate-900 text-xs sm:text-sm">
-                3. Interactive Placement & PDF Vector Embedding
+                Interactive Placement & High-Res Embedding
               </h4>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Positioning is normalized into viewport percentages (0% to 100%) so responsiveness is guaranteed across phone screens, tablets, and desktop. During export, <code>pdf-lib</code> maps these percentages to exact PDF typographic points (72 points/inch), inverting the vertical axis to match the PDF coordinate system (where origin 0,0 is at the bottom-left).
+                Positioning is normalized into viewport percentages so your signatures and custom text overlays adapt fluidly across phones, tablets, and desktops. During PDF generation, coordinates are converted into precise 72-DPI PostScript points.
               </p>
             </div>
           </div>
@@ -98,10 +166,10 @@ export const GeneralSetupGuideModal: React.FC<GeneralSetupGuideModalProps> = ({
             <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <h4 className="font-bold text-emerald-950 text-xs sm:text-sm">
-                4. Absolute Privacy (No Server Processing)
+                100% Client-Side Privacy (Zero Cloud Uploads)
               </h4>
               <p className="text-xs text-emerald-800 leading-relaxed">
-                Traditional PDF editors upload your sensitive legal contracts and signatures to external cloud servers. In this setup, <strong>100% of the byte parsing, image processing, and PDF compilation occurs in your device's memory</strong>. Nothing leaves your phone.
+                Your contracts, documents, and signatures never leave your browser memory. All parsing, rendering, and vector modification happens locally on your device.
               </p>
             </div>
           </div>
