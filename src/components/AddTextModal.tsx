@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import {
   X,
   Type,
-  Sparkles,
   Check,
   Palette,
+  Sparkles,
 } from 'lucide-react';
 import { TextFontFamily, TextColor } from '../types';
 
@@ -32,18 +32,6 @@ export const AddTextModal: React.FC<AddTextModalProps> = ({
     onAddText(text, fontFamily, color, fontSize);
     setText('');
     onClose();
-  };
-
-  const setQuickPreset = (presetText: string) => {
-    setText(presetText);
-  };
-
-  const getTodayGerman = () => {
-    const d = new Date();
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}.${month}.${year}`;
   };
 
   return (
@@ -74,36 +62,6 @@ export const AddTextModal: React.FC<AddTextModalProps> = ({
 
         {/* Content Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {/* Quick suggestions */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Quick Suggestions
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setQuickPreset(getTodayGerman())}
-                className="px-2.5 py-1 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition"
-              >
-                Date ({getTodayGerman()})
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuickPreset('Gelesen und verstanden')}
-                className="px-2.5 py-1 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition"
-              >
-                Gelesen und verstanden
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuickPreset('Ort, Datum')}
-                className="px-2.5 py-1 text-xs rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition"
-              >
-                Ort, Datum
-              </button>
-            </div>
-          </div>
-
           {/* Text Input */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">

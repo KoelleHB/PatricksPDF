@@ -20,6 +20,7 @@ interface ExportModalProps {
   formValues?: FormValuesState;
   hasFormFields?: boolean;
   onClose: () => void;
+  onExportSuccess?: () => void;
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
@@ -30,6 +31,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   formValues = {},
   hasFormFields = false,
   onClose,
+  onExportSuccess,
 }) => {
   const [fileName, setFileName] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -98,6 +100,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    onExportSuccess?.();
   };
 
   const handleNativeShare = async () => {
@@ -115,6 +118,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           text: 'Here is the signed PDF document.',
         });
         setShareSuccess(true);
+        onExportSuccess?.();
         setTimeout(() => setShareSuccess(false), 3000);
       } else {
         handleDownload();

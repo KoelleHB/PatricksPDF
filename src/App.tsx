@@ -11,7 +11,8 @@ import { MobileBottomBar } from './components/MobileBottomBar';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor } from './types';
 import { loadPdfJsDoc, extractPdfFormFields } from './utils/pdfEngine';
 import { useSignatureHistory } from './hooks/useSignatureHistory';
-import { AlertCircle, X, Loader2, FileCheck, RotateCcw } from 'lucide-react';
+import { AlertCircle, X, Loader2 } from 'lucide-react';
+import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 
 export default function App() {
   const [pdfState, setPdfState] = useState<PdfDocumentState | null>(null);
@@ -24,7 +25,12 @@ export default function App() {
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
   const [formValues, setFormValues] = useState<FormValuesState>({});
   const initialFormValuesRef = useRef<FormValuesState>({});
-  const [hasFormNotice, setHasFormNotice] = useState(false);
+
+  // Export / unsaved changes tracking
+  const [isExported, setIsExported] = useState(true);
+  const markUnsaved = useCallback(() => {
+    setIsExported(false);
+  }, []);
 
   // Password-protected PDF support
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -51,6 +57,43 @@ export default function App() {
     resetHistory,
   } = useSignatureHistory([]);
 
+  // Check if form values differ from initial document state
+  const isFormModified = React.useMemo(() => {
+    const initial = initialFormValuesRef.current;
+    const currentKeys = Object.keys(formValues);
+    for (const k of currentKeys) {
+      if (formValues[k] !== initial[k]) return true;
+    }
+    return false;
+  }, [formValues]);
+
+  // Overall check: has user modified anything that has not been exported yet?
+  const hasUnsavedChanges = Boolean(
+    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified) && !isExported
+  );
+
+  // Browser beforeunload event listener (triggers browser's native leave confirmation)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  // Pending action for switching document or closing document with unsaved changes
+  const [pendingAction, setPendingAction] = useState<{
+    type: 'close' | 'switch';
+    file?: File;
+  } | null>(null);
+  const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
+
   // Modals state
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
@@ -62,7 +105,6 @@ export default function App() {
     setIsLoadingPdf(true);
     setPdfErrorMessage(null);
     setIsPasswordIncorrect(false);
-    setHasFormNotice(false);
 
     try {
       // If we already have the arrayBuffer from a pending password attempt, reuse it; otherwise read it
@@ -90,6 +132,7 @@ export default function App() {
       setSelectedTextId(null);
       setIsPasswordModalOpen(false);
       setPasswordPendingDoc(null);
+      setIsExported(true);
 
       // Extract native PDF AcroForm fields if present
       try {
@@ -97,9 +140,6 @@ export default function App() {
         setFormFields(fields);
         setFormValues(initialValues);
         initialFormValuesRef.current = { ...initialValues };
-        if (fields.length > 0) {
-          setHasFormNotice(true);
-        }
       } catch (err) {
         console.warn('Could not extract form fields:', err);
         setFormFields([]);
@@ -152,17 +192,20 @@ export default function App() {
     };
 
     commitAction([...signatures, newSignature], 'Add signature', pdfState.currentPage, newId);
+    markUnsaved();
   };
 
   // High-frequency live update during drag/resize (without pushing to history yet)
   const handleLiveUpdateSignature = (updated: SignatureItem) => {
     liveUpdate(signatures.map((s) => (s.id === updated.id ? updated : s)));
+    markUnsaved();
   };
 
   // Commit update when drag finishes, resize ends, or precision tool is clicked
   const handleCommitUpdateSignature = (updated: SignatureItem, actionName: string) => {
     const updatedList = signatures.map((s) => (s.id === updated.id ? updated : s));
     commitAction(updatedList, actionName, updated.pageNumber, updated.id);
+    markUnsaved();
   };
 
   // Delete a signature
@@ -171,7 +214,8 @@ export default function App() {
     const pageNum = targetSig?.pageNumber || pdfState?.currentPage || 1;
     const remaining = signatures.filter((s) => s.id !== id);
     commitAction(remaining, 'Delete signature', pageNum, null);
-  }, [signatures, pdfState, commitAction]);
+    markUnsaved();
+  }, [signatures, pdfState, commitAction, markUnsaved]);
 
   // Duplicate an existing signature
   const handleDuplicateSignature = (sig: SignatureItem) => {
@@ -183,6 +227,7 @@ export default function App() {
       yPercent: Math.min(80, sig.yPercent + 4),
     };
     commitAction([...signatures, cloned], 'Duplicate signature', sig.pageNumber, newId);
+    markUnsaved();
   };
 
   // Undo action with automatic page navigation if the affected signature was on another page
@@ -191,7 +236,8 @@ export default function App() {
     if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
       setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
     }
-  }, [undo, pdfState]);
+    markUnsaved();
+  }, [undo, pdfState, markUnsaved]);
 
   // Redo action with automatic page navigation
   const handleRedo = useCallback(() => {
@@ -199,12 +245,14 @@ export default function App() {
     if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
       setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
     }
-  }, [redo, pdfState]);
+    markUnsaved();
+  }, [redo, pdfState, markUnsaved]);
 
   const handleDeleteText = useCallback((id: string) => {
     setTextOverlays((prev) => prev.filter((t) => t.id !== id));
     setSelectedTextId(null);
-  }, []);
+    markUnsaved();
+  }, [markUnsaved]);
 
   // Global keyboard shortcuts (Ctrl+Z, Ctrl+Y, Delete)
   useEffect(() => {
@@ -278,10 +326,12 @@ export default function App() {
     setTextOverlays((prev) => [...prev, newTextItem]);
     setSelectedTextId(newId);
     setSelectedSignatureId(null);
+    markUnsaved();
   };
 
   const handleUpdateText = (updated: TextOverlayItem) => {
     setTextOverlays((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    markUnsaved();
   };
 
   const handleDuplicateText = (item: TextOverlayItem) => {
@@ -295,6 +345,7 @@ export default function App() {
     setTextOverlays((prev) => [...prev, cloned]);
     setSelectedTextId(newId);
     setSelectedSignatureId(null);
+    markUnsaved();
   };
 
   const handleFormFieldChange = (fieldName: string, value: any) => {
@@ -302,10 +353,12 @@ export default function App() {
       ...prev,
       [fieldName]: value,
     }));
+    markUnsaved();
   };
 
   const handleResetForm = () => {
     setFormValues({ ...initialFormValuesRef.current });
+    markUnsaved();
   };
 
   const handleChangePage = (newPage: number) => {
@@ -327,7 +380,27 @@ export default function App() {
     setFormFields([]);
     setFormValues({});
     initialFormValuesRef.current = {};
-    setHasFormNotice(false);
+    setIsExported(true);
+  };
+
+  // Safe request to close document with unsaved changes verification
+  const handleRequestCloseDocument = () => {
+    if (hasUnsavedChanges) {
+      setPendingAction({ type: 'close' });
+      setIsUnsavedModalOpen(true);
+    } else {
+      handleClearDocument();
+    }
+  };
+
+  // Safe request to open / switch document with unsaved changes verification
+  const handleRequestFileSelect = (file: File) => {
+    if (hasUnsavedChanges) {
+      setPendingAction({ type: 'switch', file });
+      setIsUnsavedModalOpen(true);
+    } else {
+      handleFileSelect(file);
+    }
   };
 
   return (
@@ -337,39 +410,12 @@ export default function App() {
         documentName={pdfState?.name || ''}
         hasDocument={!!pdfState}
         signatureCount={signatures.length}
+        hasUnsavedChanges={hasUnsavedChanges}
         onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
         onOpenExport={() => setIsExportModalOpen(true)}
-        onFileSelect={handleFileSelect}
+        onFileSelect={handleRequestFileSelect}
+        onCloseDocument={handleRequestCloseDocument}
       />
-
-      {/* AcroForm Detected Notification Banner */}
-      {hasFormNotice && formFields.length > 0 && (
-        <div className="shrink-0 bg-blue-50 border-b border-blue-200 px-4 py-2.5 flex items-center justify-between gap-3 text-blue-900 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
-          <div className="flex items-center gap-2">
-            <FileCheck className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>
-              <strong>Fillable Form Detected:</strong> Found {formFields.length} interactive form fields. You can click and type directly on the document.
-            </span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleResetForm}
-              className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 active:bg-blue-300 rounded transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              title="Reset all form fields to their original values"
-            >
-              <RotateCcw className="w-3 h-3" />
-              Reset Form
-            </button>
-            <button
-              onClick={() => setHasFormNotice(false)}
-              className="p-1 rounded text-blue-500 hover:text-blue-800 hover:bg-blue-100 transition cursor-pointer"
-              title="Dismiss notification"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Error Notification Toast/Banner */}
       {pdfErrorMessage && (
@@ -449,7 +495,7 @@ export default function App() {
           onAddText={() => setIsTextModalOpen(true)}
           onExport={() => setIsExportModalOpen(true)}
           onChangePage={handleChangePage}
-          onChangeDocument={handleClearDocument}
+          onChangeDocument={handleRequestCloseDocument}
         />
       )}
 
@@ -476,6 +522,7 @@ export default function App() {
           formValues={formValues}
           hasFormFields={formFields.length > 0}
           onClose={() => setIsExportModalOpen(false)}
+          onExportSuccess={() => setIsExported(true)}
         />
       )}
 
@@ -493,6 +540,32 @@ export default function App() {
         onClose={() => {
           setIsPasswordModalOpen(false);
           setPasswordPendingDoc(null);
+        }}
+      />
+
+      {/* Unsaved Changes Confirmation Modal */}
+      <UnsavedChangesModal
+        isOpen={isUnsavedModalOpen}
+        documentName={pdfState?.name || 'Document'}
+        actionType={pendingAction?.type || 'close'}
+        onKeepEditing={() => {
+          setIsUnsavedModalOpen(false);
+          setPendingAction(null);
+        }}
+        onDiscardChanges={() => {
+          setIsUnsavedModalOpen(false);
+          if (pendingAction?.type === 'switch' && pendingAction.file) {
+            const nextFile = pendingAction.file;
+            setPendingAction(null);
+            handleFileSelect(nextFile);
+          } else {
+            setPendingAction(null);
+            handleClearDocument();
+          }
+        }}
+        onExportFirst={() => {
+          setIsUnsavedModalOpen(false);
+          setIsExportModalOpen(true);
         }}
       />
     </div>

@@ -1,22 +1,26 @@
 import React, { useState, useRef } from 'react';
-import { FileSignature, Download, Wifi, WifiOff, HelpCircle, FolderOpen } from 'lucide-react';
+import { FileSignature, Download, Wifi, WifiOff, HelpCircle, FolderOpen, X } from 'lucide-react';
 
 interface HeaderProps {
   documentName: string;
   hasDocument: boolean;
   signatureCount: number;
+  hasUnsavedChanges?: boolean;
   onOpenSetupGuide: () => void;
   onOpenExport: () => void;
   onFileSelect?: (file: File) => void;
+  onCloseDocument?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   documentName,
   hasDocument,
   signatureCount,
+  hasUnsavedChanges = false,
   onOpenSetupGuide,
   onOpenExport,
   onFileSelect,
+  onCloseDocument,
 }) => {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,9 +63,27 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             {hasDocument && (
-              <p className="text-xs text-slate-500 truncate max-w-[180px] sm:max-w-xs md:max-w-md">
-                {documentName} {signatureCount > 0 && `• ${signatureCount} signature${signatureCount > 1 ? 's' : ''}`}
-              </p>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <p className="text-xs text-slate-500 truncate max-w-[180px] sm:max-w-xs md:max-w-md">
+                  {documentName} {signatureCount > 0 && `• ${signatureCount} signature${signatureCount > 1 ? 's' : ''}`}
+                </p>
+                {hasUnsavedChanges ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shrink-0"
+                    title="You have unsaved changes that have not been exported yet"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    <span className="hidden sm:inline">Unsaved</span>
+                  </span>
+                ) : (
+                  <span
+                    className="hidden sm:inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 shrink-0"
+                    title="All changes exported"
+                  >
+                    Exported
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -114,6 +136,20 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <FolderOpen className="w-4 h-4 text-slate-600 shrink-0" />
               <span className="hidden sm:inline">Open PDF</span>
+            </button>
+          )}
+
+          {/* Close Document Button */}
+          {hasDocument && onCloseDocument && (
+            <button
+              id="header-close-doc-btn"
+              onClick={onCloseDocument}
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+              title="Close current document"
+              aria-label="Close document"
+            >
+              <X className="w-4 h-4 shrink-0" />
+              <span className="hidden md:inline">Close</span>
             </button>
           )}
 
