@@ -7,7 +7,8 @@ interface HeaderProps {
   signatureCount: number;
   hasUnsavedChanges?: boolean;
   onOpenSetupGuide: () => void;
-  onOpenExport: () => void;
+  onOpenSave?: () => void;
+  onOpenExport?: () => void;
   onFileSelect?: (file: File) => void;
   onCloseDocument?: () => void;
 }
@@ -18,10 +19,12 @@ export const Header: React.FC<HeaderProps> = ({
   signatureCount,
   hasUnsavedChanges = false,
   onOpenSetupGuide,
+  onOpenSave,
   onOpenExport,
   onFileSelect,
   onCloseDocument,
 }) => {
+  const handleSaveClick = onOpenSave || onOpenExport;
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -70,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {hasUnsavedChanges ? (
                   <span
                     className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shrink-0"
-                    title="You have unsaved changes that have not been exported yet"
+                    title="You have unsaved changes that have not been saved yet"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                     <span className="hidden sm:inline">Unsaved</span>
@@ -78,9 +81,9 @@ export const Header: React.FC<HeaderProps> = ({
                 ) : (
                   <span
                     className="hidden sm:inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 shrink-0"
-                    title="All changes exported"
+                    title="All changes saved"
                   >
-                    Exported
+                    Saved
                   </span>
                 )}
               </div>
@@ -153,15 +156,16 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Export PDF Button (hidden on small screen where it's already in the mobile bottom bar) */}
-          {hasDocument && (
+          {/* Save PDF Button (hidden on small screen where it's already in the mobile bottom bar) */}
+          {hasDocument && handleSaveClick && (
             <button
-              id="header-export-btn"
-              onClick={onOpenExport}
-              className="hidden sm:flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition"
+              id="header-save-btn"
+              onClick={handleSaveClick}
+              className="hidden sm:flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition cursor-pointer"
+              title="Save signed PDF"
             >
               <Download className="w-4 h-4 shrink-0" />
-              <span>Export PDF</span>
+              <span>Save PDF</span>
             </button>
           )}
         </div>

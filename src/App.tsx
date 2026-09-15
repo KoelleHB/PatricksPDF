@@ -4,13 +4,13 @@ import { EmptyState } from './components/EmptyState';
 import { PdfViewer } from './components/PdfViewer';
 import { SignatureModal } from './components/SignatureModal';
 import { AddTextModal } from './components/AddTextModal';
-import { ExportModal } from './components/ExportModal';
+import { SaveModal } from './components/SaveModal';
 import { GeneralSetupGuideModal } from './components/GeneralSetupGuideModal';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor } from './types';
 import { loadPdfJsDoc, extractPdfFormFields } from './utils/pdfEngine';
-import { useSignatureHistory } from './hooks/useSignatureHistory';
+import { useDocumentHistory } from './hooks/useDocumentHistory';
 import { AlertCircle, X, Loader2 } from 'lucide-react';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 
@@ -19,17 +19,38 @@ export default function App() {
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
 
-  // Text Overlays & Native Form State
-  const [textOverlays, setTextOverlays] = useState<TextOverlayItem[]>([]);
-  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  // Native Form Fields metadata (structural fields from PDF)
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
-  const [formValues, setFormValues] = useState<FormValuesState>({});
   const initialFormValuesRef = useRef<FormValuesState>({});
 
-  // Export / unsaved changes tracking
-  const [isExported, setIsExported] = useState(true);
+  // Unified Document History Manager (Signatures, Text Overlays, and Form Values)
+  const {
+    signatures,
+    textOverlays,
+    formValues,
+    selectedSignatureId,
+    selectedTextId,
+    setSelectedSignatureId,
+    setSelectedTextId,
+    commitAction,
+    liveUpdateSignatures,
+    liveUpdateTextOverlays,
+    liveUpdateFormValue,
+    flushPendingFormCommit,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    undoActionName,
+    redoActionName,
+    historyNotice,
+    resetHistory,
+  } = useDocumentHistory();
+
+  // Save / unsaved changes tracking
+  const [isSaved, setIsSaved] = useState(true);
   const markUnsaved = useCallback(() => {
-    setIsExported(false);
+    setIsSaved(false);
   }, []);
 
   // Password-protected PDF support
@@ -39,23 +60,6 @@ export default function App() {
     arrayBuffer: ArrayBuffer;
   } | null>(null);
   const [isPasswordIncorrect, setIsPasswordIncorrect] = useState(false);
-
-  // Undo / Redo Signature History Manager
-  const {
-    signatures,
-    selectedSignatureId,
-    setSelectedSignatureId,
-    commitAction,
-    liveUpdate,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    undoActionName,
-    redoActionName,
-    historyNotice,
-    resetHistory,
-  } = useSignatureHistory([]);
 
   // Check if form values differ from initial document state
   const isFormModified = React.useMemo(() => {
@@ -67,9 +71,9 @@ export default function App() {
     return false;
   }, [formValues]);
 
-  // Overall check: has user modified anything that has not been exported yet?
+  // Overall check: has user modified anything that has not been saved yet?
   const hasUnsavedChanges = Boolean(
-    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified) && !isExported
+    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified) && !isSaved
   );
 
   // Browser beforeunload event listener (triggers browser's native leave confirmation)
@@ -97,7 +101,7 @@ export default function App() {
   // Modals state
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [isSetupGuideModalOpen, setIsSetupGuideModalOpen] = useState(false);
 
   // Load a user-selected PDF file with robust error handling and password detection
@@ -107,10 +111,10 @@ export default function App() {
     setIsPasswordIncorrect(false);
 
     try {
-      // If we already have the arrayBuffer from a pending password attempt, reuse it; otherwise read it
-      const arrayBuffer = passwordPendingDoc && passwordPendingDoc.file === file
-        ? passwordPendingDoc.arrayBuffer
-        : await file.arrayBuffer();
+      const arrayBuffer =
+        passwordPendingDoc && passwordPendingDoc.file === file
+          ? passwordPendingDoc.arrayBuffer
+          : await file.arrayBuffer();
 
       const pdfJsDoc = await loadPdfJsDoc(arrayBuffer, password);
       const page1 = await pdfJsDoc.getPage(1);
@@ -126,26 +130,29 @@ export default function App() {
         pageHeight: viewport.height,
       });
 
-      // Reset signatures and undo/redo history on new document
-      resetHistory([]);
-      setTextOverlays([]);
-      setSelectedTextId(null);
-      setIsPasswordModalOpen(false);
-      setPasswordPendingDoc(null);
-      setIsExported(true);
-
       // Extract native PDF AcroForm fields if present
+      let initialValues: FormValuesState = {};
       try {
-        const { fields, initialValues } = await extractPdfFormFields(arrayBuffer);
+        const { fields, initialValues: extractedVals } = await extractPdfFormFields(arrayBuffer);
         setFormFields(fields);
-        setFormValues(initialValues);
-        initialFormValuesRef.current = { ...initialValues };
+        initialValues = extractedVals;
+        initialFormValuesRef.current = { ...extractedVals };
       } catch (err) {
         console.warn('Could not extract form fields:', err);
         setFormFields([]);
-        setFormValues({});
         initialFormValuesRef.current = {};
       }
+
+      // Reset document history with clean initial state
+      resetHistory({
+        signatures: [],
+        textOverlays: [],
+        formValues: initialValues,
+      });
+
+      setIsPasswordModalOpen(false);
+      setPasswordPendingDoc(null);
+      setIsSaved(true);
     } catch (err: any) {
       console.error('Error loading PDF file:', err);
 
@@ -187,35 +194,60 @@ export default function App() {
       ...itemData,
       id: newId,
       pageNumber: pdfState.currentPage,
-      xPercent: 52, // Placed near right signature column by default
+      xPercent: 52,
       yPercent: 78,
     };
 
-    commitAction([...signatures, newSignature], 'Add signature', pdfState.currentPage, newId);
+    commitAction(
+      {
+        signatures: [...signatures, newSignature],
+        selectedSignatureId: newId,
+        selectedTextId: null,
+      },
+      'Add Signature',
+      pdfState.currentPage
+    );
     markUnsaved();
   };
 
   // High-frequency live update during drag/resize (without pushing to history yet)
   const handleLiveUpdateSignature = (updated: SignatureItem) => {
-    liveUpdate(signatures.map((s) => (s.id === updated.id ? updated : s)));
+    liveUpdateSignatures(signatures.map((s) => (s.id === updated.id ? updated : s)));
     markUnsaved();
   };
 
   // Commit update when drag finishes, resize ends, or precision tool is clicked
   const handleCommitUpdateSignature = (updated: SignatureItem, actionName: string) => {
     const updatedList = signatures.map((s) => (s.id === updated.id ? updated : s));
-    commitAction(updatedList, actionName, updated.pageNumber, updated.id);
+    commitAction(
+      {
+        signatures: updatedList,
+        selectedSignatureId: updated.id,
+      },
+      actionName || 'Move Signature',
+      updated.pageNumber
+    );
     markUnsaved();
   };
 
   // Delete a signature
-  const handleDeleteSignature = useCallback((id: string) => {
-    const targetSig = signatures.find((s) => s.id === id);
-    const pageNum = targetSig?.pageNumber || pdfState?.currentPage || 1;
-    const remaining = signatures.filter((s) => s.id !== id);
-    commitAction(remaining, 'Delete signature', pageNum, null);
-    markUnsaved();
-  }, [signatures, pdfState, commitAction, markUnsaved]);
+  const handleDeleteSignature = useCallback(
+    (id: string) => {
+      const targetSig = signatures.find((s) => s.id === id);
+      const pageNum = targetSig?.pageNumber || pdfState?.currentPage || 1;
+      const remaining = signatures.filter((s) => s.id !== id);
+      commitAction(
+        {
+          signatures: remaining,
+          selectedSignatureId: null,
+        },
+        'Delete Signature',
+        pageNum
+      );
+      markUnsaved();
+    },
+    [signatures, pdfState, commitAction, markUnsaved]
+  );
 
   // Duplicate an existing signature
   const handleDuplicateSignature = (sig: SignatureItem) => {
@@ -226,84 +258,18 @@ export default function App() {
       xPercent: Math.min(80, sig.xPercent + 4),
       yPercent: Math.min(80, sig.yPercent + 4),
     };
-    commitAction([...signatures, cloned], 'Duplicate signature', sig.pageNumber, newId);
+    commitAction(
+      {
+        signatures: [...signatures, cloned],
+        selectedSignatureId: newId,
+      },
+      'Duplicate Signature',
+      sig.pageNumber
+    );
     markUnsaved();
   };
 
-  // Undo action with automatic page navigation if the affected signature was on another page
-  const handleUndo = useCallback(() => {
-    const targetPage = undo();
-    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
-      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
-    }
-    markUnsaved();
-  }, [undo, pdfState, markUnsaved]);
-
-  // Redo action with automatic page navigation
-  const handleRedo = useCallback(() => {
-    const targetPage = redo();
-    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
-      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
-    }
-    markUnsaved();
-  }, [redo, pdfState, markUnsaved]);
-
-  const handleDeleteText = useCallback((id: string) => {
-    setTextOverlays((prev) => prev.filter((t) => t.id !== id));
-    setSelectedTextId(null);
-    markUnsaved();
-  }, [markUnsaved]);
-
-  // Global keyboard shortcuts (Ctrl+Z, Ctrl+Y, Delete)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is currently typing in an input or textarea
-      const target = e.target as HTMLElement;
-      if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-
-      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-      if (isCmdOrCtrl && e.key.toLowerCase() === 'z') {
-        if (e.shiftKey) {
-          // Redo: Ctrl+Shift+Z or Cmd+Shift+Z
-          e.preventDefault();
-          handleRedo();
-        } else {
-          // Undo: Ctrl+Z or Cmd+Z
-          e.preventDefault();
-          handleUndo();
-        }
-      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'y') {
-        // Redo: Ctrl+Y
-        e.preventDefault();
-        handleRedo();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        const activeTag = (document.activeElement?.tagName || '').toLowerCase();
-        if (activeTag === 'input' || activeTag === 'textarea') return;
-
-        if (selectedSignatureId) {
-          e.preventDefault();
-          handleDeleteSignature(selectedSignatureId);
-        } else if (selectedTextId) {
-          e.preventDefault();
-          handleDeleteText(selectedTextId);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, selectedSignatureId, selectedTextId, handleDeleteSignature, handleDeleteText]);
-
-  // Text Overlay Handlers
+  // Text Overlay Handlers with Undo/Redo tracking
   const handleAddText = (
     text: string,
     fontFamily: TextFontFamily,
@@ -323,16 +289,53 @@ export default function App() {
       fontFamily,
       color,
     };
-    setTextOverlays((prev) => [...prev, newTextItem]);
-    setSelectedTextId(newId);
-    setSelectedSignatureId(null);
+    commitAction(
+      {
+        textOverlays: [...textOverlays, newTextItem],
+        selectedTextId: newId,
+        selectedSignatureId: null,
+      },
+      'Add Text',
+      pdfState.currentPage
+    );
     markUnsaved();
   };
 
-  const handleUpdateText = (updated: TextOverlayItem) => {
-    setTextOverlays((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  const handleLiveUpdateText = (updated: TextOverlayItem) => {
+    liveUpdateTextOverlays(textOverlays.map((t) => (t.id === updated.id ? updated : t)));
     markUnsaved();
   };
+
+  const handleCommitUpdateText = (updated: TextOverlayItem, actionName: string) => {
+    const updatedList = textOverlays.map((t) => (t.id === updated.id ? updated : t));
+    commitAction(
+      {
+        textOverlays: updatedList,
+        selectedTextId: updated.id,
+      },
+      actionName || 'Edit Text',
+      updated.pageNumber
+    );
+    markUnsaved();
+  };
+
+  const handleDeleteText = useCallback(
+    (id: string) => {
+      const targetText = textOverlays.find((t) => t.id === id);
+      const pageNum = targetText?.pageNumber || pdfState?.currentPage || 1;
+      const remaining = textOverlays.filter((t) => t.id !== id);
+      commitAction(
+        {
+          textOverlays: remaining,
+          selectedTextId: null,
+        },
+        'Delete Text',
+        pageNum
+      );
+      markUnsaved();
+    },
+    [textOverlays, pdfState, commitAction, markUnsaved]
+  );
 
   const handleDuplicateText = (item: TextOverlayItem) => {
     const newId = `txt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
@@ -342,24 +345,124 @@ export default function App() {
       xPercent: Math.min(85, item.xPercent + 4),
       yPercent: Math.min(85, item.yPercent + 4),
     };
-    setTextOverlays((prev) => [...prev, cloned]);
-    setSelectedTextId(newId);
-    setSelectedSignatureId(null);
+    commitAction(
+      {
+        textOverlays: [...textOverlays, cloned],
+        selectedTextId: newId,
+        selectedSignatureId: null,
+      },
+      'Duplicate Text',
+      item.pageNumber
+    );
     markUnsaved();
   };
 
-  const handleFormFieldChange = (fieldName: string, value: any) => {
-    setFormValues((prev) => ({
-      ...prev,
-      [fieldName]: value,
-    }));
+  // Form Field Handlers with Undo/Redo tracking
+  const handleFormFieldChange = (fieldName: string, value: any, isDirectChoice?: boolean) => {
+    markUnsaved();
+    if (isDirectChoice) {
+      // Discrete interactive actions (checkbox toggle, radio option, dropdown, listbox, button)
+      const actionLabel =
+        typeof value === 'boolean'
+          ? value
+            ? `Check ${fieldName}`
+            : `Uncheck ${fieldName}`
+          : `Select ${fieldName}`;
+
+      commitAction(
+        {
+          formValues: {
+            ...formValues,
+            [fieldName]: value,
+          },
+        },
+        actionLabel,
+        pdfState?.currentPage || 1
+      );
+    } else {
+      // Continuous keyboard typing (text / textarea / comb): smooth live-update with debounced history commit
+      liveUpdateFormValue(fieldName, value, pdfState?.currentPage || 1);
+    }
+  };
+
+  const handleCommitFormField = (_fieldName: string, _value: any) => {
+    flushPendingFormCommit();
     markUnsaved();
   };
 
   const handleResetForm = () => {
-    setFormValues({ ...initialFormValuesRef.current });
+    commitAction(
+      {
+        formValues: { ...initialFormValuesRef.current },
+      },
+      'Reset Form',
+      pdfState?.currentPage || 1
+    );
     markUnsaved();
   };
+
+  // Undo action with automatic page navigation if the affected item was on another page
+  const handleUndo = useCallback(() => {
+    const targetPage = undo();
+    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
+      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    }
+    markUnsaved();
+  }, [undo, pdfState, markUnsaved]);
+
+  // Redo action with automatic page navigation
+  const handleRedo = useCallback(() => {
+    const targetPage = redo();
+    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
+      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    }
+    markUnsaved();
+  }, [redo, pdfState, markUnsaved]);
+
+  // Global keyboard shortcuts (Ctrl+Z, Ctrl+Y, Delete)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInputActive =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable);
+
+      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'z') {
+        if (!isInputActive) {
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleRedo();
+          } else {
+            e.preventDefault();
+            handleUndo();
+          }
+        }
+      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'y') {
+        if (!isInputActive) {
+          e.preventDefault();
+          handleRedo();
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (isInputActive) return;
+
+        if (selectedSignatureId) {
+          e.preventDefault();
+          handleDeleteSignature(selectedSignatureId);
+        } else if (selectedTextId) {
+          e.preventDefault();
+          handleDeleteText(selectedTextId);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, selectedSignatureId, selectedTextId, handleDeleteSignature, handleDeleteText]);
 
   const handleChangePage = (newPage: number) => {
     if (!pdfState) return;
@@ -374,13 +477,14 @@ export default function App() {
 
   const handleClearDocument = () => {
     setPdfState(null);
-    resetHistory([]);
-    setTextOverlays([]);
-    setSelectedTextId(null);
+    resetHistory({
+      signatures: [],
+      textOverlays: [],
+      formValues: {},
+    });
     setFormFields([]);
-    setFormValues({});
     initialFormValuesRef.current = {};
-    setIsExported(true);
+    setIsSaved(true);
   };
 
   // Safe request to close document with unsaved changes verification
@@ -412,7 +516,7 @@ export default function App() {
         signatureCount={signatures.length}
         hasUnsavedChanges={hasUnsavedChanges}
         onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
-        onOpenExport={() => setIsExportModalOpen(true)}
+        onOpenSave={() => setIsSaveModalOpen(true)}
         onFileSelect={handleRequestFileSelect}
         onCloseDocument={handleRequestCloseDocument}
       />
@@ -462,10 +566,12 @@ export default function App() {
             onDeleteSignature={handleDeleteSignature}
             onDuplicateSignature={handleDuplicateSignature}
             onSelectText={setSelectedTextId}
-            onUpdateText={handleUpdateText}
+            onUpdateText={handleLiveUpdateText}
+            onCommitUpdateText={handleCommitUpdateText}
             onDeleteText={handleDeleteText}
             onDuplicateText={handleDuplicateText}
             onFormFieldChange={handleFormFieldChange}
+            onCommitFormField={handleCommitFormField}
             onResetForm={handleResetForm}
             onChangePage={handleChangePage}
             onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
@@ -493,7 +599,7 @@ export default function App() {
           onRedo={handleRedo}
           onAddSignature={() => setIsSignatureModalOpen(true)}
           onAddText={() => setIsTextModalOpen(true)}
-          onExport={() => setIsExportModalOpen(true)}
+          onSave={() => setIsSaveModalOpen(true)}
           onChangePage={handleChangePage}
           onChangeDocument={handleRequestCloseDocument}
         />
@@ -514,15 +620,15 @@ export default function App() {
       />
 
       {pdfState && (
-        <ExportModal
-          isOpen={isExportModalOpen}
+        <SaveModal
+          isOpen={isSaveModalOpen}
           pdfState={pdfState}
           signatures={signatures}
           textOverlays={textOverlays}
           formValues={formValues}
           hasFormFields={formFields.length > 0}
-          onClose={() => setIsExportModalOpen(false)}
-          onExportSuccess={() => setIsExported(true)}
+          onClose={() => setIsSaveModalOpen(false)}
+          onSaveSuccess={() => setIsSaved(true)}
         />
       )}
 
@@ -563,9 +669,9 @@ export default function App() {
             handleClearDocument();
           }
         }}
-        onExportFirst={() => {
+        onSaveFirst={() => {
           setIsUnsavedModalOpen(false);
-          setIsExportModalOpen(true);
+          setIsSaveModalOpen(true);
         }}
       />
     </div>

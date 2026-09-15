@@ -5,7 +5,8 @@ import { PdfDocumentState } from '../types';
 interface MobileBottomBarProps {
   onAddSignature: () => void;
   onAddText?: () => void;
-  onExport: () => void;
+  onSave?: () => void;
+  onExport?: () => void;
   pdfState?: PdfDocumentState;
   signatureCount?: number;
   textCount?: number;
@@ -20,8 +21,10 @@ interface MobileBottomBarProps {
 export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
   onAddSignature,
   onAddText,
+  onSave,
   onExport,
 }) => {
+  const handleSave = onSave || onExport;
   return (
     <div
       id="bottom-action-toolbar"
@@ -53,15 +56,15 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           <span>Sign</span>
         </button>
 
-        {/* Export CTA */}
+        {/* Save CTA */}
         <button
-          id="mobile-export-btn"
-          onClick={onExport}
+          id="mobile-save-btn"
+          onClick={handleSave}
           className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-slate-900 active:bg-slate-800 text-white text-xs font-semibold shadow-xs transition active:scale-98 cursor-pointer"
-          title="Export PDF"
+          title="Save PDF"
         >
           <Download className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>Export</span>
+          <span>Save</span>
         </button>
       </div>
     </div>

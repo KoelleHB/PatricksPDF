@@ -8,7 +8,8 @@ interface InteractiveFormFieldProps {
   containerWidth: number;
   containerHeight: number;
   zoomLevel?: number;
-  onChange: (name: string, val: any) => void;
+  onChange: (name: string, val: any, isDirectChoice?: boolean) => void;
+  onCommitField?: (name: string, val: any) => void;
   onReset?: () => void;
 }
 
@@ -19,6 +20,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   containerHeight,
   zoomLevel = 100,
   onChange,
+  onCommitField,
   onReset,
 }) => {
   const scale = zoomLevel / 100;
@@ -40,7 +42,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         id={`form-field-${field.id}`}
         onClick={(e) => {
           e.stopPropagation();
-          onChange(field.name, !isChecked);
+          onChange(field.name, !isChecked, true);
         }}
         style={{
           left: `${pixelX}px`,
@@ -80,7 +82,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         id={`form-field-${field.id}`}
         onClick={(e) => {
           e.stopPropagation();
-          onChange(field.name, field.value || 'Yes');
+          onChange(field.name, field.value || 'Yes', true);
         }}
         style={{
           left: `${pixelX}px`,
@@ -136,7 +138,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           value={String(value || '')}
           onChange={(e) => {
             e.stopPropagation();
-            onChange(field.name, e.target.value);
+            onChange(field.name, e.target.value, true);
           }}
           onClick={(e) => e.stopPropagation()}
           style={{
@@ -196,7 +198,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onChange(field.name, opt);
+                  onChange(field.name, opt, true);
                 }}
                 style={{
                   fontSize: `${fontSize}px`,
@@ -247,7 +249,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
             if (isReset && onReset) {
               onReset();
             } else {
-              onChange(field.name, 'clicked');
+              onChange(field.name, 'clicked', true);
             }
           }}
           style={{
@@ -291,7 +293,8 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
       >
         <textarea
           value={String(value ?? '')}
-          onChange={(e) => onChange(field.name, e.target.value)}
+          onChange={(e) => onChange(field.name, e.target.value, false)}
+          onBlur={(e) => onCommitField?.(field.name, e.target.value)}
           onClick={(e) => e.stopPropagation()}
           style={{
             fontSize: `${fontSize}px`,
@@ -334,7 +337,8 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           type="text"
           maxLength={maxLen}
           value={strVal}
-          onChange={(e) => onChange(field.name, e.target.value)}
+          onChange={(e) => onChange(field.name, e.target.value, false)}
+          onBlur={(e) => onCommitField?.(field.name, e.target.value)}
           onClick={(e) => e.stopPropagation()}
           style={{
             fontSize: `${fontSize}px`,
@@ -372,7 +376,8 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         type="text"
         maxLength={field.maxLen}
         value={String(value ?? '')}
-        onChange={(e) => onChange(field.name, e.target.value)}
+        onChange={(e) => onChange(field.name, e.target.value, false)}
+        onBlur={(e) => onCommitField?.(field.name, e.target.value)}
         onClick={(e) => e.stopPropagation()}
         style={{
           fontSize: `${fontSize}px`,

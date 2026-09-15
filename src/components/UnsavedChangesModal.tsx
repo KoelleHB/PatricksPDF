@@ -7,7 +7,8 @@ interface UnsavedChangesModalProps {
   actionType: 'close' | 'switch';
   onKeepEditing: () => void;
   onDiscardChanges: () => void;
-  onExportFirst: () => void;
+  onSaveFirst?: () => void;
+  onExportFirst?: () => void;
 }
 
 export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
@@ -16,8 +17,11 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
   actionType,
   onKeepEditing,
   onDiscardChanges,
+  onSaveFirst,
   onExportFirst,
 }) => {
+  const handleSaveFirst = onSaveFirst || onExportFirst;
+
   if (!isOpen) return null;
 
   return (
@@ -48,7 +52,7 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
             <p className="text-xs sm:text-sm text-slate-600 mt-1.5 leading-relaxed">
               You have unsaved signatures or edits in{' '}
               <span className="font-semibold text-slate-800 break-all">"{documentName}"</span>{' '}
-              that have not been exported yet.
+              that have not been saved yet.
             </p>
             <p className="text-xs text-slate-500 mt-1">
               If you {actionType === 'switch' ? 'open another document' : 'close this document'} now, your changes will be permanently discarded.
@@ -75,15 +79,17 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
             <Trash2 className="w-4 h-4 shrink-0" />
             <span>Discard & {actionType === 'switch' ? 'Open' : 'Close'}</span>
           </button>
-          <button
-            id="unsaved-export-first-btn"
-            type="button"
-            onClick={onExportFirst}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-          >
-            <Download className="w-4 h-4 shrink-0" />
-            <span>Export First</span>
-          </button>
+          {handleSaveFirst && (
+            <button
+              id="unsaved-save-first-btn"
+              type="button"
+              onClick={handleSaveFirst}
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Download className="w-4 h-4 shrink-0" />
+              <span>Save First</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

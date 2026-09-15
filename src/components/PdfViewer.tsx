@@ -41,7 +41,8 @@ interface PdfViewerProps {
   onCommitUpdateText?: (item: TextOverlayItem, actionName: string) => void;
   onDeleteText?: (id: string) => void;
   onDuplicateText?: (item: TextOverlayItem) => void;
-  onFormFieldChange?: (name: string, value: any) => void;
+  onFormFieldChange?: (name: string, value: any, isDirectChoice?: boolean) => void;
+  onCommitFormField?: (name: string, value: any) => void;
   onChangePage: (newPage: number) => void;
   onOpenSignatureModal: () => void;
   onOpenTextModal?: () => void;
@@ -74,6 +75,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onDeleteText,
   onDuplicateText,
   onFormFieldChange,
+  onCommitFormField,
   onResetForm,
   onChangePage,
   onOpenSignatureModal,
@@ -817,8 +819,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   containerWidth={pageWidth}
                   containerHeight={pageHeight}
                   zoomLevel={zoomLevel}
-                  onChange={(name, val) => {
-                    if (onFormFieldChange) onFormFieldChange(name, val);
+                  onChange={(name, val, isDirectChoice) => {
+                    if (onFormFieldChange) onFormFieldChange(name, val, isDirectChoice);
+                  }}
+                  onCommitField={(name, val) => {
+                    if (onCommitFormField) onCommitFormField(name, val);
                   }}
                   onReset={onResetForm}
                 />
