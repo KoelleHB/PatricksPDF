@@ -14,8 +14,8 @@ export default defineConfig(() => {
         includeAssets: ['apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'PDF Signature Editor',
-          short_name: 'PDF Sign',
+          name: 'PatricksPDF',
+          short_name: 'PatricksPDF',
           description: 'Local, offline-ready tool for adding signatures with transparent background removal to PDF documents.',
           theme_color: '#2563eb',
           background_color: '#f8fafc',

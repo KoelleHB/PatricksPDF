@@ -57,7 +57,7 @@ export interface DragState {
 }
 
 export type TextFontFamily = 'standard' | 'script';
-export type TextColor = 'black' | 'blue';
+export type TextColor = 'black' | 'blue' | 'red';
 
 export interface TextOverlayItem {
   id: string;
@@ -71,7 +71,7 @@ export interface TextOverlayItem {
   widthPercent: number;
   fontSize: number; // in pt (default: 14)
   fontFamily: TextFontFamily; // 'standard' (Helvetica) or 'script' (Caveat)
-  color: TextColor; // 'black' (#09090b) or 'blue' (#1e3a8a)
+  color: TextColor; // 'black' (#09090b), 'blue' (#1e3a8a), or 'red' (#dc2626)
 }
 
 export type FormFieldType =

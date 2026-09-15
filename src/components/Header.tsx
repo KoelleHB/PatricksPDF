@@ -63,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight truncate">
-                PDF Signature Editor
+                PatricksPDF
               </h1>
               <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                 100% Client-Side Local

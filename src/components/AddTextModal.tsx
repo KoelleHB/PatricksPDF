@@ -117,7 +117,9 @@ export const AddTextModal: React.FC<AddTextModalProps> = ({
               autoFocus
               className={`w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-500 transition-all ${
                 fontFamily === 'script' ? 'font-script text-lg' : 'font-sans'
-              } ${color === 'blue' ? 'text-blue-900' : 'text-slate-900'}`}
+              } ${
+                color === 'red' ? 'text-red-600' : color === 'blue' ? 'text-blue-900' : 'text-slate-900'
+              }`}
             />
           </div>
 
@@ -160,33 +162,47 @@ export const AddTextModal: React.FC<AddTextModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Ink Color
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setColor('black')}
-                className={`py-2 px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition ${
+                className={`py-2 px-2.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition ${
                   color === 'black'
                     ? 'border-slate-900 bg-slate-100 text-slate-900 ring-1 ring-slate-900 font-semibold'
                     : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <span className="w-3.5 h-3.5 rounded-full bg-slate-950 border border-slate-300" />
-                <span>Black Ink</span>
-                {color === 'black' && <Check className="w-3.5 h-3.5 ml-auto" />}
+                <span className="w-3.5 h-3.5 rounded-full bg-slate-950 border border-slate-300 shrink-0" />
+                <span>Black</span>
+                {color === 'black' && <Check className="w-3.5 h-3.5 ml-auto hidden sm:inline" />}
               </button>
 
               <button
                 type="button"
                 onClick={() => setColor('blue')}
-                className={`py-2 px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition ${
+                className={`py-2 px-2.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition ${
                   color === 'blue'
                     ? 'border-blue-700 bg-blue-50 text-blue-800 ring-1 ring-blue-700 font-semibold'
                     : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <span className="w-3.5 h-3.5 rounded-full bg-blue-700 border border-blue-400" />
-                <span>Blue Ink</span>
-                {color === 'blue' && <Check className="w-3.5 h-3.5 ml-auto" />}
+                <span className="w-3.5 h-3.5 rounded-full bg-blue-700 border border-blue-400 shrink-0" />
+                <span>Blue</span>
+                {color === 'blue' && <Check className="w-3.5 h-3.5 ml-auto hidden sm:inline" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setColor('red')}
+                className={`py-2 px-2.5 rounded-xl border text-xs font-medium flex items-center justify-center gap-1.5 transition ${
+                  color === 'red'
+                    ? 'border-red-600 bg-red-50 text-red-700 ring-1 ring-red-600 font-semibold'
+                    : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span className="w-3.5 h-3.5 rounded-full bg-red-600 border border-red-400 shrink-0" />
+                <span>Red</span>
+                {color === 'red' && <Check className="w-3.5 h-3.5 ml-auto hidden sm:inline" />}
               </button>
             </div>
           </div>
@@ -220,7 +236,9 @@ export const AddTextModal: React.FC<AddTextModalProps> = ({
             <div
               className={`min-h-[36px] flex items-center ${
                 fontFamily === 'script' ? 'font-script text-xl' : 'font-sans text-sm'
-              } ${color === 'blue' ? 'text-blue-800' : 'text-slate-950'}`}
+              } ${
+                color === 'red' ? 'text-red-600' : color === 'blue' ? 'text-blue-800' : 'text-slate-950'
+              }`}
             >
               {text || <span className="text-slate-400 italic">Your preview will appear here...</span>}
             </div>

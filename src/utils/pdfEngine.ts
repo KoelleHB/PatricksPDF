@@ -767,6 +767,7 @@ export async function embedSignaturesIntoPdf(
 
     const blackColor = rgb(0.04, 0.04, 0.05); // #09090b
     const blueColor = rgb(0.12, 0.23, 0.54);  // #1e3a8a Document Royal Blue
+    const redColor = rgb(0.86, 0.15, 0.15);   // #dc2626 Vibrant Stamp/Document Red
 
     for (const textItem of textOverlays) {
       if (!textItem.text || textItem.pageNumber < 1 || textItem.pageNumber > pdfDoc.getPageCount()) {
@@ -775,7 +776,12 @@ export async function embedSignaturesIntoPdf(
 
       const page = pdfDoc.getPage(textItem.pageNumber - 1);
       const font = textItem.fontFamily === 'script' && scriptFont ? scriptFont : helveticaFont;
-      const color = textItem.color === 'blue' ? blueColor : blackColor;
+      const color =
+        textItem.color === 'red'
+          ? redColor
+          : textItem.color === 'blue'
+          ? blueColor
+          : blackColor;
       // Caveat script font is optically slightly smaller than Helvetica, so boost size slightly for optical balance
       const effectiveSize = textItem.fontFamily === 'script' ? textItem.fontSize * 1.25 : textItem.fontSize;
 

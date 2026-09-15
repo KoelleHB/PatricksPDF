@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { TextOverlayItem } from '../types';
+import { TextOverlayItem, TextColor } from '../types';
 import {
   Trash2,
   Copy,
@@ -167,8 +167,11 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
 
   const toggleColor = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const newColor = item.color === 'black' ? 'blue' : 'black';
-    const updated = { ...item, color: newColor as any };
+    let newColor: TextColor = 'black';
+    if (item.color === 'black') newColor = 'blue';
+    else if (item.color === 'blue') newColor = 'red';
+    else newColor = 'black';
+    const updated = { ...item, color: newColor };
     onUpdate(updated);
     if (onCommitUpdate) onCommitUpdate(updated, 'Change Color');
   };
@@ -182,8 +185,12 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   };
 
   // Color & font styling classes
-  const isBlue = item.color === 'blue';
-  const textColorClass = isBlue ? 'text-blue-900' : 'text-zinc-950';
+  const textColorClass =
+    item.color === 'red'
+      ? 'text-red-600'
+      : item.color === 'blue'
+      ? 'text-blue-900'
+      : 'text-zinc-950';
   const textFontClass = item.fontFamily === 'script' ? 'font-script' : 'font-sans';
 
   // Toolbar position: below text if near top edge of page
@@ -256,7 +263,7 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
             <span>{item.fontFamily === 'script' ? 'Script' : 'Regular'}</span>
           </button>
 
-          {/* Color Toggle (Black vs Blue) */}
+          {/* Color Toggle (Black -> Blue -> Red) */}
           <button
             type="button"
             onClick={(e) => {
@@ -265,14 +272,18 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
             }}
             onPointerDown={(e) => e.stopPropagation()}
             className="px-2 py-1 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 transition flex items-center gap-1.5 cursor-pointer"
-            title="Toggle Color (Blue / Black)"
+            title="Toggle Color (Black / Blue / Red)"
           >
             <span
               className={`w-3 h-3 rounded-full border border-white/40 ${
-                isBlue ? 'bg-blue-600' : 'bg-zinc-950'
+                item.color === 'red'
+                  ? 'bg-red-600'
+                  : item.color === 'blue'
+                  ? 'bg-blue-600'
+                  : 'bg-zinc-950'
               }`}
             />
-            <span className="text-[11px] text-slate-200">{isBlue ? 'Blue' : 'Black'}</span>
+            <span className="text-[11px] text-slate-200 capitalize">{item.color}</span>
           </button>
 
           {/* Font Size Adjusters */}
@@ -382,8 +393,16 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
                   onClick={toggleColor}
                   className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium flex items-center gap-1 cursor-pointer"
                 >
-                  <span className={`w-2 h-2 rounded-full ${isBlue ? 'bg-blue-600' : 'bg-black'}`} />
-                  {isBlue ? 'Blue' : 'Black'}
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      item.color === 'red'
+                        ? 'bg-red-600'
+                        : item.color === 'blue'
+                        ? 'bg-blue-600'
+                        : 'bg-black'
+                    }`}
+                  />
+                  <span className="capitalize">{item.color}</span>
                 </button>
               </div>
               <button
