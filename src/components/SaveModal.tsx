@@ -106,6 +106,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     a.click();
     document.body.removeChild(a);
     notifySuccess();
+    onClose();
   };
 
   const handleNativeShare = async () => {
@@ -124,7 +125,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
         });
         setShareSuccess(true);
         notifySuccess();
-        setTimeout(() => setShareSuccess(false), 3000);
+        onClose();
       } else {
         handleDownload();
       }
@@ -146,11 +147,8 @@ export const SaveModal: React.FC<SaveModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 leading-tight">
-                Save Signed PDF
+                Save PDF
               </h3>
-              <p className="text-xs text-slate-500">
-                Transparent signatures and form fields embedded directly into vector PDF
-              </p>
             </div>
           </div>
           <button
@@ -251,7 +249,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                   <div className="text-xs">
                     <p className="font-bold text-blue-900">Flatten Form Fields</p>
                     <p className="text-blue-700 text-[11px]">
-                      Convert fields to permanent vector text (prevents further editing)
+                      Convert fields to permanent vector text
                     </p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -288,7 +286,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                   className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm shadow-md transition cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Save Signed PDF</span>
+                  <span>Save PDF</span>
                 </button>
 
                 {canShare && (
@@ -298,7 +296,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                     className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm transition cursor-pointer"
                   >
                     <Share2 className="w-4 h-4 text-emerald-400" />
-                    <span>Save & Share on Android (WhatsApp, Email, Drive)</span>
+                    <span>Save & Share on Android</span>
                   </button>
                 )}
 
