@@ -24,7 +24,10 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
   onExport,
 }) => {
   return (
-    <div className="sm:hidden sticky bottom-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 px-3 py-2 shadow-lg">
+    <div
+      className="sm:hidden shrink-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 px-3 py-2 shadow-lg"
+      style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0.5rem))' }}
+    >
       <div className="grid grid-cols-3 gap-2.5 max-w-md mx-auto">
         {/* Add Text CTA */}
         {onAddText && (

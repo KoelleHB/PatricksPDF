@@ -239,10 +239,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
       // Handle Page Swiping
       if (e.touches.length === 1 && !pinchRef.current.active) {
-        const isZoomed =
-          zoomLevelRef.current > 105 || container.scrollWidth > container.clientWidth + 10;
-        // When zoomed in, NEVER intercept single-touch gestures as page turns! Allow fluid native panning in both axes.
-        if (isZoomed) {
+        const isOverflowing =
+          zoomLevelRef.current > 100 ||
+          (container &&
+            (container.scrollWidth > container.clientWidth + 10 ||
+              container.scrollHeight > container.clientHeight + 10));
+
+        // When zoomed in or overflowing vertically/horizontally, NEVER hijack touch for page turning!
+        // Allow fluid native panning/scrolling in both horizontal and vertical axes.
+        if (isOverflowing || numPagesRef.current <= 1) {
           swipeRef.current.directionLocked = 'scroll';
           return;
         }
@@ -252,13 +257,14 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
         // Determine direction lock if not yet locked
         if (swipeRef.current.directionLocked === null) {
-          if (Math.hypot(dx, dy) > 8) {
-            if (Math.abs(dy) > Math.abs(dx) * 1.15) {
-              swipeRef.current.directionLocked = 'vertical';
-            } else {
+          if (Math.hypot(dx, dy) > 12) {
+            // Require clearly horizontal swipe (dx at least 2x dy and at least 16px)
+            if (Math.abs(dx) > Math.abs(dy) * 2.0 && Math.abs(dx) > 16) {
               swipeRef.current.directionLocked = 'horizontal';
               swipeRef.current.active = true;
               setIsSwiping(true);
+            } else {
+              swipeRef.current.directionLocked = 'scroll';
             }
           }
         }
@@ -502,7 +508,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const handleFitPage = useCallback(() => {
     if (!containerRef.current || renderedDimensions.width <= 0 || renderedDimensions.height <= 0) return;
     const paddingX = window.innerWidth < 640 ? 24 : 48;
-    const paddingY = window.innerWidth < 640 ? 32 : 48;
+    const paddingY = window.innerWidth < 640 ? 64 : 80;
     const availableWidth = containerRef.current.clientWidth - paddingX;
     const availableHeight = containerRef.current.clientHeight - paddingY;
     if (availableWidth > 0 && availableHeight > 0) {
@@ -513,6 +519,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         Math.min(220, Math.round(Math.min(zoomX, zoomY)))
       );
       setZoomLevel(calculatedZoom);
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0;
+        containerRef.current.scrollLeft = 0;
+      }
     }
   }, [renderedDimensions.width, renderedDimensions.height]);
 
@@ -527,7 +537,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     const isZoomed =
       zoomLevel > 100 ||
-      (containerRef.current ? containerRef.current.scrollWidth > containerRef.current.clientWidth + 10 : false);
+      (containerRef.current
+        ? containerRef.current.scrollWidth > containerRef.current.clientWidth + 10 ||
+          containerRef.current.scrollHeight > containerRef.current.clientHeight + 10
+        : false);
 
     if (e.button === 1 || isSpacePressed || isPanToolActive || (isZoomed && !isInteractive)) {
       if (!isInteractive || isPanToolActive || isSpacePressed || e.button === 1) {
@@ -566,7 +579,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const isZoomed =
     zoomLevel > 100 ||
-    (containerRef.current ? containerRef.current.scrollWidth > containerRef.current.clientWidth + 10 : false);
+    (containerRef.current
+      ? containerRef.current.scrollWidth > containerRef.current.clientWidth + 10 ||
+        containerRef.current.scrollHeight > containerRef.current.clientHeight + 10
+      : false);
 
   const pageWidth = Math.round(renderedDimensions.width * (zoomLevel / 100));
   const pageHeight = Math.round(renderedDimensions.height * (zoomLevel / 100));
@@ -574,7 +590,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   return (
     <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
       {/* Top Floating Page Navigation & Zoom Toolbar */}
-      <div className="bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
+      <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
         {/* Page Switcher */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           <button
@@ -729,7 +745,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         ref={containerRef}
         onClick={handleContainerClick}
         onMouseDown={handleMouseDown}
-        className={`flex-1 overflow-auto p-4 sm:p-8 relative select-none touch-auto overscroll-contain ${
+        className={`flex-1 min-h-0 overflow-auto relative select-none touch-auto overscroll-contain ${
           isPanToolActive || isSpacePressed
             ? isMousePanning
               ? 'cursor-grabbing'
@@ -751,8 +767,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           </div>
         )}
 
-        {/* Centering wrapper that allows full horizontal and vertical pan without left clipping */}
-        <div className="min-w-full min-h-full flex items-start justify-center w-fit h-fit m-auto pointer-events-none">
+        {/* Centering wrapper that allows full horizontal and vertical pan without clipping or cutoff */}
+        <div className="w-fit min-w-full min-h-full flex flex-col items-center justify-start p-4 sm:p-8 pb-40 sm:pb-44 pointer-events-none">
           {/* Scaled PDF Page Container with strict aspect ratio preservation and swipe translation */}
           <motion.div
             animate={{
@@ -767,7 +783,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               width: `${pageWidth}px`,
               height: `${pageHeight}px`,
             }}
-            className="relative bg-white rounded shadow-xl border border-slate-300 origin-top shrink-0 select-none will-change-transform pointer-events-auto my-auto"
+            className="relative bg-white rounded shadow-xl border border-slate-300 origin-top shrink-0 select-none will-change-transform pointer-events-auto"
           >
           {/* Rendered PDF Page Canvas */}
           <canvas

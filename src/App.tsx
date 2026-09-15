@@ -331,7 +331,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-100 text-slate-900 font-sans">
+    <div className="flex flex-col h-screen h-[100dvh] bg-slate-100 text-slate-900 font-sans overflow-hidden">
       {/* Top Navigation & Status */}
       <Header
         documentName={pdfState?.name || ''}
@@ -344,7 +344,7 @@ export default function App() {
 
       {/* AcroForm Detected Notification Banner */}
       {hasFormNotice && formFields.length > 0 && (
-        <div className="bg-blue-50 border-b border-blue-200 px-4 py-2.5 flex items-center justify-between gap-3 text-blue-900 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
+        <div className="shrink-0 bg-blue-50 border-b border-blue-200 px-4 py-2.5 flex items-center justify-between gap-3 text-blue-900 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
           <div className="flex items-center gap-2">
             <FileCheck className="w-4 h-4 text-blue-600 shrink-0" />
             <span>
@@ -373,7 +373,7 @@ export default function App() {
 
       {/* Error Notification Toast/Banner */}
       {pdfErrorMessage && (
-        <div className="bg-red-50 border-b border-red-200 px-4 py-2.5 flex items-center justify-between gap-3 text-red-800 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
+        <div className="shrink-0 bg-red-50 border-b border-red-200 px-4 py-2.5 flex items-center justify-between gap-3 text-red-800 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             <span>{pdfErrorMessage}</span>
@@ -388,7 +388,7 @@ export default function App() {
       )}
 
       {/* Main Workspace */}
-      <main className="flex-1 flex flex-col min-h-0 relative">
+      <main className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
         {isLoadingPdf && (
           <div className="absolute inset-0 z-40 bg-white/75 backdrop-blur-xs flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
