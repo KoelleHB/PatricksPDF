@@ -16,6 +16,7 @@ import {
   Type,
   FileCheck2,
   Hand,
+  LayoutGrid,
 } from 'lucide-react';
 import { SignatureItem, PdfDocumentState, TextOverlayItem, FormFieldItem, FormValuesState } from '../types';
 import { renderPdfPageToCanvas, cancelCanvasRender } from '../utils/pdfEngine';
@@ -44,6 +45,7 @@ interface PdfViewerProps {
   onFormFieldChange?: (name: string, value: any, isDirectChoice?: boolean) => void;
   onCommitFormField?: (name: string, value: any) => void;
   onChangePage: (newPage: number) => void;
+  onOpenPageManager?: () => void;
   onOpenSignatureModal: () => void;
   onOpenTextModal?: () => void;
   canUndo?: boolean;
@@ -78,6 +80,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onCommitFormField,
   onResetForm,
   onChangePage,
+  onOpenPageManager,
   onOpenSignatureModal,
   onOpenTextModal,
   canUndo = false,
@@ -607,32 +610,52 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
       {/* Top Floating Page Navigation & Zoom Toolbar */}
       <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
-        {/* Page Switcher */}
-        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-          <button
-            id="prev-page-btn"
-            disabled={pdfState.currentPage <= 1 || isLoadingPage}
-            onClick={() => onChangePage(pdfState.currentPage - 1)}
-            className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
-            title="Previous Page"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+        {/* Page Switcher & Manage Pages Shortcut */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
+            <button
+              id="prev-page-btn"
+              disabled={pdfState.currentPage <= 1 || isLoadingPage}
+              onClick={() => onChangePage(pdfState.currentPage - 1)}
+              className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-md hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition cursor-pointer"
+              title="Previous Page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
 
-          <span className="text-xs sm:text-sm font-semibold text-slate-700 px-0.5 sm:px-1 select-none whitespace-nowrap">
-            Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
-            <span className="font-mono">{pdfState.numPages}</span>
-          </span>
+            <button
+              type="button"
+              onClick={onOpenPageManager}
+              className="text-xs sm:text-sm font-semibold text-slate-700 px-1 sm:px-1.5 py-0.5 rounded-md hover:bg-slate-100 transition select-none whitespace-nowrap cursor-pointer"
+              title="Click to open Page Management overview"
+            >
+              Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
+              <span className="font-mono">{pdfState.numPages}</span>
+            </button>
 
-          <button
-            id="next-page-btn"
-            disabled={pdfState.currentPage >= pdfState.numPages || isLoadingPage}
-            onClick={() => onChangePage(pdfState.currentPage + 1)}
-            className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
-            title="Next Page"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            <button
+              id="next-page-btn"
+              disabled={pdfState.currentPage >= pdfState.numPages || isLoadingPage}
+              onClick={() => onChangePage(pdfState.currentPage + 1)}
+              className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-md hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition cursor-pointer"
+              title="Next Page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Manage Pages Desktop Button */}
+          {onOpenPageManager && (
+            <button
+              id="desktop-manage-pages-btn"
+              onClick={onOpenPageManager}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold shadow-2xs transition cursor-pointer"
+              title="Manage Pages: Add, delete, reorder, and rotate pages in 90° steps"
+            >
+              <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>Pages</span>
+            </button>
+          )}
         </div>
 
         {/* Action Controls, Undo/Redo & Zoom */}

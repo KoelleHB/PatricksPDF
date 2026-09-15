@@ -102,3 +102,27 @@ export interface FormFieldItem {
 
 export type FormValuesState = Record<string, string | boolean | string[]>;
 
+export interface PageInfo {
+  pageNumber: number;
+  width: number;
+  height: number;
+  rotation: number;
+  aspectRatio: number;
+}
+
+export interface PageSpec {
+  id: string;
+  source: 'existing' | 'blank' | 'imported';
+  originalPageIndex: number; // 0-based index in the current loaded doc (-1 for blank/imported)
+  rotationAngle: number; // 0, 90, 180, 270 (effective rotation degrees)
+  rotationDelta: number; // 0, 90, 180, 270 (relative angle added)
+  width: number;
+  height: number;
+  aspectRatio: number;
+  sourceBuffer?: ArrayBuffer;
+  sourceDocPageIndex?: number;
+  sourceFileName?: string;
+  thumbnailDataUrl?: string;
+}
+
+

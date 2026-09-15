@@ -7,7 +7,7 @@ import {
   rgb,
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { SignatureItem, TextOverlayItem, FormFieldItem, FormFieldType, FormValuesState } from '../types';
+import { SignatureItem, TextOverlayItem, FormFieldItem, FormFieldType, FormValuesState, PageInfo, PageSpec } from '../types';
 import { pdfjsLib } from './pdfWorker';
 
 // Cache for Caveat script font ArrayBuffer
@@ -882,5 +882,199 @@ export async function embedSignaturesIntoPdf(
     useObjectStreams: false,
   });
 }
+
+/**
+ * Extracts dimension, orientation, and rotation information for every page in a document.
+ */
+export async function getPageInfoList(data: ArrayBuffer): Promise<PageInfo[]> {
+  const pdfJsDoc = await loadPdfJsDoc(data);
+  const numPages = pdfJsDoc.numPages;
+  const list: PageInfo[] = [];
+
+  for (let i = 1; i <= numPages; i++) {
+    const page = await pdfJsDoc.getPage(i);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const rotation = ((page.rotate % 360) + 360) % 360;
+    list.push({
+      pageNumber: i,
+      width: viewport.width,
+      height: viewport.height,
+      rotation,
+      aspectRatio: viewport.width / viewport.height,
+    });
+  }
+
+  return list;
+}
+
+// In-memory cache for rendered thumbnails
+const thumbnailCache = new Map<string, string>();
+
+/**
+ * Clears the in-memory thumbnail cache.
+ */
+export function clearThumbnailCache() {
+  thumbnailCache.clear();
+}
+
+/**
+ * Renders an individual PDF page as a lightweight high-res thumbnail data URL.
+ */
+export async function renderPageThumbnail(
+  data: ArrayBuffer,
+  pageNumber: number,
+  targetWidth: number = 240
+): Promise<string> {
+  const cacheKey = `${data.byteLength}-${pageNumber}-${targetWidth}`;
+  if (thumbnailCache.has(cacheKey)) {
+    return thumbnailCache.get(cacheKey)!;
+  }
+
+  const pdfJsDoc = await loadPdfJsDoc(data);
+  const page = await pdfJsDoc.getPage(pageNumber);
+  const unscaledViewport = page.getViewport({ scale: 1.0 });
+  const scale = targetWidth / Math.max(1, unscaledViewport.width);
+  const viewport = page.getViewport({ scale });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(viewport.width));
+  canvas.height = Math.max(1, Math.round(viewport.height));
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas context unavailable');
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const renderContext = {
+    canvasContext: ctx,
+    viewport,
+    intent: 'display',
+    annotationMode: (pdfjsLib as any).AnnotationMode?.ENABLE_FORMS ?? 2,
+    background: 'rgba(255, 255, 255, 1)',
+  };
+
+  try {
+    await page.render(renderContext).promise;
+  } catch (err: any) {
+    if (err?.name !== 'RenderingCancelledException') {
+      try {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+          annotationMode: 0,
+        }).promise;
+      } catch {
+        // Fallback placeholder
+      }
+    }
+  }
+
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  thumbnailCache.set(cacheKey, dataUrl);
+  return dataUrl;
+}
+
+/**
+ * Executes arbitrary page management operations: reordering, deletion, blank page insertions,
+ * external PDF page imports, and 90° step rotations.
+ */
+export async function applyPageModifications(
+  originalPdfBytes: ArrayBuffer,
+  pages: PageSpec[]
+): Promise<Uint8Array> {
+  if (!pages || pages.length === 0) {
+    throw new Error('A PDF document must have at least one page.');
+  }
+
+  // Load target document and clone document for safe page cloning/duplication
+  const copy = originalPdfBytes.slice(0);
+  const pdfDoc = await PDFDocument.load(copy, {
+    ignoreEncryption: true,
+    updateMetadata: false,
+    throwOnInvalidObject: false,
+    capNumbers: true,
+  });
+
+  let cloneDoc: PDFDocument | null = null;
+  const originalPages = pdfDoc.getPages();
+  const usedOriginalIndices = new Set<number>();
+
+  // Remove existing pages from primary doc page tree
+  while (pdfDoc.getPageCount() > 0) {
+    pdfDoc.removePage(0);
+  }
+
+  // Cache for any imported external PDF documents
+  const externalDocCache = new Map<ArrayBuffer, PDFDocument>();
+
+  for (let i = 0; i < pages.length; i++) {
+    const spec = pages[i];
+    const targetAngle = ((spec.rotationAngle % 360) + 360) % 360;
+
+    if (spec.source === 'existing') {
+      const origIdx = spec.originalPageIndex;
+      if (origIdx >= 0 && origIdx < originalPages.length) {
+        if (!usedOriginalIndices.has(origIdx)) {
+          // First use of this original page: insert directly into new position
+          const page = originalPages[origIdx];
+          page.setRotation(degrees(targetAngle));
+          pdfDoc.insertPage(i, page);
+          usedOriginalIndices.add(origIdx);
+        } else {
+          // Page was duplicated: copy from cloneDoc
+          if (!cloneDoc) {
+            cloneDoc = await PDFDocument.load(originalPdfBytes.slice(0), {
+              ignoreEncryption: true,
+              throwOnInvalidObject: false,
+              capNumbers: true,
+            });
+          }
+          const [copied] = await pdfDoc.copyPages(cloneDoc, [origIdx]);
+          copied.setRotation(degrees(targetAngle));
+          pdfDoc.insertPage(i, copied);
+        }
+      }
+    } else if (spec.source === 'blank') {
+      const w = spec.width || 595.28;
+      const h = spec.height || 841.89;
+      const page = pdfDoc.insertPage(i, [w, h]);
+      if (targetAngle !== 0) {
+        page.setRotation(degrees(targetAngle));
+      }
+    } else if (spec.source === 'imported' && spec.sourceBuffer) {
+      let extDoc = externalDocCache.get(spec.sourceBuffer);
+      if (!extDoc) {
+        extDoc = await PDFDocument.load(spec.sourceBuffer.slice(0), {
+          ignoreEncryption: true,
+          throwOnInvalidObject: false,
+          capNumbers: true,
+        });
+        externalDocCache.set(spec.sourceBuffer, extDoc);
+      }
+      const pIdx = spec.sourceDocPageIndex ?? 0;
+      if (pIdx >= 0 && pIdx < extDoc.getPageCount()) {
+        const [copied] = await pdfDoc.copyPages(extDoc, [pIdx]);
+        copied.setRotation(degrees(targetAngle));
+        pdfDoc.insertPage(i, copied);
+      }
+    }
+  }
+
+  // Update modification date
+  try {
+    pdfDoc.setModificationDate(new Date());
+  } catch {
+    // Ignore date update error
+  }
+
+  // Save with standard cross-reference table for universal PDF reader compatibility
+  return pdfDoc.save({
+    useObjectStreams: false,
+  });
+}
+
 
 
