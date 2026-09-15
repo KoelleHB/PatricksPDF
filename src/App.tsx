@@ -331,7 +331,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen h-[100dvh] bg-slate-100 text-slate-900 font-sans overflow-hidden">
+    <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900 font-sans overflow-hidden">
       {/* Top Navigation & Status */}
       <Header
         documentName={pdfState?.name || ''}

@@ -166,6 +166,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     if (pdfState.currentPage !== prevPageRef.current) {
       const dir = pdfState.currentPage > prevPageRef.current ? 1 : -1;
       prevPageRef.current = pdfState.currentPage;
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0;
+        containerRef.current.scrollLeft = 0;
+      }
       setSwipeOffset(dir * 32);
       const raf = requestAnimationFrame(() => {
         setSwipeOffset(0);
@@ -239,31 +243,41 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
       // Handle Page Swiping
       if (e.touches.length === 1 && !pinchRef.current.active) {
-        const isOverflowing =
-          zoomLevelRef.current > 100 ||
-          (container &&
-            (container.scrollWidth > container.clientWidth + 10 ||
-              container.scrollHeight > container.clientHeight + 10));
-
-        // When zoomed in or overflowing vertically/horizontally, NEVER hijack touch for page turning!
-        // Allow fluid native panning/scrolling in both horizontal and vertical axes.
-        if (isOverflowing || numPagesRef.current <= 1) {
-          swipeRef.current.directionLocked = 'scroll';
-          return;
-        }
-
         const dx = e.touches[0].clientX - swipeRef.current.startX;
         const dy = e.touches[0].clientY - swipeRef.current.startY;
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
 
         // Determine direction lock if not yet locked
         if (swipeRef.current.directionLocked === null) {
-          if (Math.hypot(dx, dy) > 12) {
-            // Require clearly horizontal swipe (dx at least 2x dy and at least 16px)
-            if (Math.abs(dx) > Math.abs(dy) * 2.0 && Math.abs(dx) > 16) {
-              swipeRef.current.directionLocked = 'horizontal';
-              swipeRef.current.active = true;
-              setIsSwiping(true);
+          if (absDx > 8 || absDy > 8) {
+            const canTurnPages = numPagesRef.current > 1;
+            const isHorizontallyScrollable =
+              container ? container.scrollWidth > container.clientWidth + 20 : false;
+
+            // Intent is horizontal swipe
+            if (canTurnPages && absDx > absDy * 1.25 && absDx > 10) {
+              if (isHorizontallyScrollable) {
+                // If zoomed in horizontally, only turn page when at edge
+                const atLeft = container.scrollLeft <= 5 && dx > 0;
+                const atRight =
+                  container.scrollLeft >=
+                    container.scrollWidth - container.clientWidth - 5 && dx < 0;
+                if (atLeft || atRight) {
+                  swipeRef.current.directionLocked = 'horizontal';
+                  swipeRef.current.active = true;
+                  setIsSwiping(true);
+                } else {
+                  swipeRef.current.directionLocked = 'scroll';
+                }
+              } else {
+                // Not horizontally scrollable: horizontal swipe is 100% a page turn!
+                swipeRef.current.directionLocked = 'horizontal';
+                swipeRef.current.active = true;
+                setIsSwiping(true);
+              }
             } else {
+              // Predominantly vertical scrolling or single-page document
               swipeRef.current.directionLocked = 'scroll';
             }
           }
@@ -278,16 +292,16 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           if (dx > 0) {
             // Swiping right -> Turn to PREVIOUS page
             if (cur <= 1) {
-              calculatedOffset = dx * 0.18; // Rubber-band bounce at boundary
+              calculatedOffset = dx * 0.18; // Rubber-band bounce at page 1
             } else {
-              calculatedOffset = dx * 0.55;
+              calculatedOffset = dx * 0.6;
             }
           } else {
             // Swiping left -> Turn to NEXT page
             if (cur >= total) {
-              calculatedOffset = dx * 0.18; // Rubber-band bounce at boundary
+              calculatedOffset = dx * 0.18; // Rubber-band bounce at last page
             } else {
-              calculatedOffset = dx * 0.55;
+              calculatedOffset = dx * 0.6;
             }
           }
 
