@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Download,
   Share2,
-  CheckCircle2,
   X,
   FileCheck,
   Loader2,
@@ -39,7 +38,6 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [fileSizeStr, setFileSizeStr] = useState<string>('');
-  const [shareSuccess, setShareSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [flattenForm, setFlattenForm] = useState(false);
 
@@ -123,7 +121,6 @@ export const SaveModal: React.FC<SaveModalProps> = ({
           title: fileName,
           text: 'Here is the signed PDF document.',
         });
-        setShareSuccess(true);
         notifySuccess();
         onClose();
       } else {
@@ -310,13 +307,6 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                     <ExternalLink className="w-3.5 h-3.5" />
                     <span>Open in Browser Tab for Inspection</span>
                   </a>
-                )}
-
-                {shareSuccess && (
-                  <p className="text-xs text-emerald-600 font-medium text-center flex items-center justify-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Saved and shared successfully!
-                  </p>
                 )}
               </div>
             </>

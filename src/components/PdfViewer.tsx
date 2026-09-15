@@ -608,18 +608,18 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       {/* Top Floating Page Navigation & Zoom Toolbar */}
       <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
         {/* Page Switcher */}
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
           <button
             id="prev-page-btn"
             disabled={pdfState.currentPage <= 1 || isLoadingPage}
             onClick={() => onChangePage(pdfState.currentPage - 1)}
-            className="p-1 sm:p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
+            className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
             title="Previous Page"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <span className="text-xs sm:text-sm font-semibold text-slate-700 px-1 sm:px-2 select-none whitespace-nowrap">
+          <span className="text-xs sm:text-sm font-semibold text-slate-700 px-0.5 sm:px-1 select-none whitespace-nowrap">
             Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
             <span className="font-mono">{pdfState.numPages}</span>
           </span>
@@ -628,7 +628,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             id="next-page-btn"
             disabled={pdfState.currentPage >= pdfState.numPages || isLoadingPage}
             onClick={() => onChangePage(pdfState.currentPage + 1)}
-            className="p-1 sm:p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
+            className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition"
             title="Next Page"
           >
             <ChevronRight className="w-4 h-4" />
