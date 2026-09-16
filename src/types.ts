@@ -125,4 +125,24 @@ export interface PageSpec {
   thumbnailDataUrl?: string;
 }
 
+export interface PdfLinkAnnotation {
+  id: string;
+  pageNumber: number;
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+  heightPercent: number;
+  targetPage?: number;
+  url?: string;
+  title?: string;
+}
+
+export interface PdfOutlineItem {
+  id: string;
+  title: string;
+  targetPage?: number;
+  url?: string;
+  items?: PdfOutlineItem[];
+}
+
 

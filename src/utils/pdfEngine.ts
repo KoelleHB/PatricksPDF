@@ -7,7 +7,7 @@ import {
   rgb,
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { SignatureItem, TextOverlayItem, FormFieldItem, FormFieldType, FormValuesState, PageInfo, PageSpec } from '../types';
+import { SignatureItem, TextOverlayItem, FormFieldItem, FormFieldType, FormValuesState, PageInfo, PageSpec, PdfLinkAnnotation, PdfOutlineItem } from '../types';
 import { pdfjsLib } from './pdfWorker';
 
 // Cache for Caveat script font ArrayBuffer
@@ -1141,11 +1141,41 @@ export async function extractPageReflowText(
       return b.y - a.y;
     });
 
+    // Calculate median font height across all items on page
+    const allHeights = items.map((it) => it.height).sort((a, b) => a - b);
+    const medianHeight = allHeights[Math.floor(allHeights.length / 2)] || 12;
+
     const paragraphs: ReflowParagraph[] = [];
     let currentParagraphLines: string[] = [];
     let currentLine = '';
+    let currentMaxHeight = 0;
     let lastY = items[0].y;
     let lastHeight = items[0].height;
+
+    const finalizeParagraph = () => {
+      if (currentLine) {
+        currentParagraphLines.push(currentLine.trim());
+        currentLine = '';
+      }
+      if (currentParagraphLines.length > 0) {
+        const fullText = currentParagraphLines.join(' ').replace(/\s+/g, ' ').trim();
+        if (fullText.length > 0) {
+          // A paragraph is only a heading if its font size is distinctly larger than median,
+          // it's not a full sentence with terminal punctuation, and has reasonable title length
+          const isLargeFont = currentMaxHeight >= medianHeight * 1.35;
+          const isShortTitle = fullText.length >= 2 && fullText.length <= 80;
+          const hasTerminalPunctuation = /[.,:;?!]$/.test(fullText);
+          const isHeading = isLargeFont && isShortTitle && !hasTerminalPunctuation;
+
+          paragraphs.push({
+            text: fullText,
+            isHeading,
+          });
+        }
+        currentParagraphLines = [];
+        currentMaxHeight = 0;
+      }
+    };
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
@@ -1154,43 +1184,29 @@ export async function extractPageReflowText(
       const isNewParagraph = yDiff > lastHeight * 1.6 || item.hasEOL;
 
       if (isNewParagraph && currentLine) {
-        currentParagraphLines.push(currentLine.trim());
-        if (currentParagraphLines.length > 0) {
-          const fullText = currentParagraphLines.join(' ');
-          paragraphs.push({
-            text: fullText,
-            isHeading: fullText.length < 80 && !fullText.endsWith('.'),
-          });
-          currentParagraphLines = [];
-        }
+        finalizeParagraph();
         currentLine = item.str;
+        currentMaxHeight = item.height;
       } else if (isNewLine) {
         if (currentLine) {
           currentParagraphLines.push(currentLine.trim());
         }
         currentLine = item.str;
+        currentMaxHeight = Math.max(currentMaxHeight, item.height);
       } else {
         if (currentLine && !currentLine.endsWith(' ') && !item.str.startsWith(' ')) {
           currentLine += ' ' + item.str;
         } else {
           currentLine += item.str;
         }
+        currentMaxHeight = Math.max(currentMaxHeight, item.height);
       }
 
       lastY = item.y;
       lastHeight = Math.max(lastHeight, item.height);
     }
 
-    if (currentLine) {
-      currentParagraphLines.push(currentLine.trim());
-    }
-    if (currentParagraphLines.length > 0) {
-      const fullText = currentParagraphLines.join(' ');
-      paragraphs.push({
-        text: fullText,
-        isHeading: fullText.length < 80 && !fullText.endsWith('.'),
-      });
-    }
+    finalizeParagraph();
 
     return {
       pageNumber,
@@ -1202,6 +1218,162 @@ export async function extractPageReflowText(
     return { pageNumber, paragraphs: [], hasText: false };
   }
 }
+
+/**
+ * Resolves a PDF destination (string name or destination array) to a 1-based target page number.
+ */
+async function resolveDestinationPage(
+  doc: any,
+  dest: any
+): Promise<number | undefined> {
+  if (!dest) return undefined;
+  try {
+    let destArray = dest;
+    if (typeof dest === 'string') {
+      destArray = await doc.getDestination(dest);
+    }
+    if (Array.isArray(destArray) && destArray.length > 0) {
+      const targetRef = destArray[0];
+      if (typeof targetRef === 'number') {
+        return targetRef + 1;
+      }
+      if (targetRef && typeof targetRef === 'object') {
+        const pageIdx = await doc.getPageIndex(targetRef);
+        if (typeof pageIdx === 'number' && !isNaN(pageIdx) && pageIdx >= 0) {
+          return pageIdx + 1;
+        }
+      }
+    }
+  } catch (err) {
+    // Graceful destination resolution failure
+  }
+  return undefined;
+}
+
+/**
+ * Extracts interactive link annotations (internal TOC / chapter jumps and external URLs)
+ * from a specific PDF page.
+ */
+export async function extractPageLinks(
+  data: ArrayBuffer,
+  pageNumber: number,
+  password?: string
+): Promise<PdfLinkAnnotation[]> {
+  try {
+    const doc = await loadPdfJsDoc(data, password);
+    const page = await doc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const annotations = await page.getAnnotations({ intent: 'display' });
+
+    if (!annotations || annotations.length === 0) return [];
+
+    const links: PdfLinkAnnotation[] = [];
+
+    for (let i = 0; i < annotations.length; i++) {
+      const annot = annotations[i];
+      if (annot.subtype !== 'Link') continue;
+      if (!annot.rect || annot.rect.length < 4) continue;
+
+      // Convert PDF coordinate rect to viewport display coordinates
+      const vpRect = viewport.convertToViewportRectangle(annot.rect);
+      const minX = Math.min(vpRect[0], vpRect[2]);
+      const minY = Math.min(vpRect[1], vpRect[3]);
+      const width = Math.abs(vpRect[2] - vpRect[0]);
+      const height = Math.abs(vpRect[3] - vpRect[1]);
+
+      if (width <= 0 || height <= 0) continue;
+
+      const xPercent = (minX / viewport.width) * 100;
+      const yPercent = (minY / viewport.height) * 100;
+      const widthPercent = (width / viewport.width) * 100;
+      const heightPercent = (height / viewport.height) * 100;
+
+      let targetPage: number | undefined;
+      let url: string | undefined;
+
+      if (annot.url) {
+        url = annot.url;
+      } else if (annot.dest) {
+        targetPage = await resolveDestinationPage(doc, annot.dest);
+      }
+
+      let title = '';
+      if (targetPage) {
+        title = `Jump to Page ${targetPage}`;
+      } else if (url) {
+        title = `Open link: ${url}`;
+      }
+
+      if (targetPage !== undefined || url) {
+        links.push({
+          id: `link-${pageNumber}-${i}`,
+          pageNumber,
+          xPercent,
+          yPercent,
+          widthPercent,
+          heightPercent,
+          targetPage,
+          url,
+          title,
+        });
+      }
+    }
+
+    return links;
+  } catch (err) {
+    console.warn(`Failed to extract links for page ${pageNumber}:`, err);
+    return [];
+  }
+}
+
+/**
+ * Extracts the document outline (embedded Table of Contents tree) from a PDF.
+ */
+export async function extractDocumentOutline(
+  data: ArrayBuffer,
+  password?: string
+): Promise<PdfOutlineItem[]> {
+  try {
+    const doc = await loadPdfJsDoc(data, password);
+    const outline = await doc.getOutline();
+    if (!outline || outline.length === 0) return [];
+
+    async function processOutlineNodes(nodes: any[]): Promise<PdfOutlineItem[]> {
+      const results: PdfOutlineItem[] = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        let targetPage: number | undefined;
+        let url: string | undefined;
+
+        if (node.url) {
+          url = node.url;
+        } else if (node.dest) {
+          targetPage = await resolveDestinationPage(doc, node.dest);
+        }
+
+        const childItems =
+          node.items && node.items.length > 0
+            ? await processOutlineNodes(node.items)
+            : undefined;
+
+        results.push({
+          id: `toc-${i}-${Math.random().toString(36).substring(2, 7)}`,
+          title: node.title ? String(node.title).trim() : 'Untitled Section',
+          targetPage,
+          url,
+          items: childItems,
+        });
+      }
+      return results;
+    }
+
+    return await processOutlineNodes(outline);
+  } catch (err) {
+    console.warn('Failed to extract document outline:', err);
+    return [];
+  }
+}
+
 
 
 
