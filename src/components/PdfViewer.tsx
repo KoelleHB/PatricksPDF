@@ -610,8 +610,67 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
       {/* Top Floating Page Navigation & Zoom Toolbar */}
       <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
-        {/* Page Switcher & Manage Pages Shortcut */}
-        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+        {/* Left: Zoom Buttons & Responsive Fit */}
+        <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+          {/* Pan / Hand Tool Toggle */}
+          <button
+            id="viewer-pan-tool-btn"
+            onClick={() => setIsPanToolActive((prev) => !prev)}
+            className={`p-1 rounded-md transition flex items-center gap-1 cursor-pointer ${
+              isPanToolActive
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-white hover:shadow-xs'
+            }`}
+            title={
+              isPanToolActive
+                ? 'Hand (Pan) Tool active: Drag anywhere to pan/move around the zoomed PDF (press H to toggle)'
+                : 'Hand (Pan) Tool: Drag anywhere to move zoomed pages without clicking items (press H or hold Space)'
+            }
+          >
+            <Hand className="w-4 h-4" />
+          </button>
+          <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
+          <button
+            onClick={handleZoomOut}
+            className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
+            title="Zoom Out (-20%)"
+          >
+            <ZoomOut className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleResetZoom}
+            className="text-xs font-mono font-semibold px-1 sm:px-1.5 text-slate-700 hover:text-blue-600 transition cursor-pointer"
+            title="Reset Zoom to 100%"
+          >
+            {zoomLevel}%
+          </button>
+          <button
+            onClick={handleZoomIn}
+            className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
+            title="Zoom In (+20%)"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </button>
+          <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
+          <button
+            onClick={handleFitWidth}
+            className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition whitespace-nowrap cursor-pointer"
+            title="Fit Page Width to Screen"
+          >
+            Fit Width
+          </button>
+          <button
+            onClick={handleFitPage}
+            className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition cursor-pointer"
+            title="Fit Entire Page in View"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Right: Page Turn Control, Undo/Redo, Add Text, Add Signature, and Pages Button */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {/* Page Turn Control (directly left of the undo/redo control) */}
           <div className="flex items-center gap-0.5 sm:gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
             <button
               id="prev-page-btn"
@@ -623,16 +682,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <button
-              type="button"
-              id="page-indicator-btn"
-              onClick={onOpenPageManager}
-              className="text-xs sm:text-sm font-semibold text-slate-700 hover:text-blue-700 px-1 sm:px-1.5 py-0.5 rounded-md hover:bg-blue-50 transition select-none whitespace-nowrap cursor-pointer"
-              title="Click to open Page Management overview (Add, delete, rotate, or reorder pages)"
+            <span
+              id="page-indicator"
+              className="text-xs sm:text-sm font-semibold text-slate-700 px-1 sm:px-1.5 py-0.5 select-none whitespace-nowrap"
             >
               Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
               <span className="font-mono font-bold">{pdfState.numPages}</span>
-            </button>
+            </span>
 
             <button
               id="next-page-btn"
@@ -645,29 +701,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             </button>
           </div>
 
-          {/* Manage Pages Button (visible on all screens & single or multi-page documents) */}
-          {onOpenPageManager && (
-            <button
-              id="desktop-manage-pages-btn"
-              onClick={onOpenPageManager}
-              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 active:bg-blue-200 text-blue-700 text-xs sm:text-sm font-semibold shadow-2xs transition cursor-pointer shrink-0"
-              title="Page Controls: Add, delete, reorder, and rotate pages in 90° steps"
-            >
-              <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>Pages</span>
-            </button>
-          )}
-        </div>
-
-        {/* Action Controls, Undo/Redo & Zoom */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Undo & Redo Controls */}
           <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
             <button
               id="viewer-undo-btn"
               disabled={!canUndo}
               onClick={onUndo}
-              className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1"
+              className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1 cursor-pointer"
               title={
                 canUndo
                   ? `Undo ${undoActionName ? `"${undoActionName}"` : ''} (Ctrl+Z)`
@@ -683,7 +723,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               id="viewer-redo-btn"
               disabled={!canRedo}
               onClick={onRedo}
-              className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1"
+              className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1 cursor-pointer"
               title={
                 canRedo
                   ? `Redo ${redoActionName ? `"${redoActionName}"` : ''} (Ctrl+Y)`
@@ -697,70 +737,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             </button>
           </div>
 
-          {/* Zoom Buttons & Responsive Fit */}
-          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-            {/* Pan / Hand Tool Toggle */}
-            <button
-              id="viewer-pan-tool-btn"
-              onClick={() => setIsPanToolActive((prev) => !prev)}
-              className={`p-1 rounded-md transition flex items-center gap-1 cursor-pointer ${
-                isPanToolActive
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-white hover:shadow-xs'
-              }`}
-              title={
-                isPanToolActive
-                  ? 'Hand (Pan) Tool active: Drag anywhere to pan/move around the zoomed PDF (press H to toggle)'
-                  : 'Hand (Pan) Tool: Drag anywhere to move zoomed pages without clicking items (press H or hold Space)'
-              }
-            >
-              <Hand className="w-4 h-4" />
-            </button>
-            <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
-            <button
-              onClick={handleZoomOut}
-              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition"
-              title="Zoom Out (-20%)"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleResetZoom}
-              className="text-xs font-mono font-semibold px-1 sm:px-1.5 text-slate-700 hover:text-blue-600 transition"
-              title="Reset Zoom to 100%"
-            >
-              {zoomLevel}%
-            </button>
-            <button
-              onClick={handleZoomIn}
-              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition"
-              title="Zoom In (+20%)"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
-            <button
-              onClick={handleFitWidth}
-              className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition whitespace-nowrap"
-              title="Fit Page Width to Screen"
-            >
-              Fit Width
-            </button>
-            <button
-              onClick={handleFitPage}
-              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition"
-              title="Fit Entire Page in View"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
           {/* Add Text shortcut button (hidden on mobile, visible on desktop) */}
           {onOpenTextModal && (
             <button
               id="viewer-add-text-btn"
               onClick={onOpenTextModal}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
               title="Add text overlay (Regular or Script font)"
             >
               <Type className="w-4 h-4 text-blue-600" />
@@ -772,11 +754,25 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           <button
             id="viewer-add-sig-btn"
             onClick={onOpenSignatureModal}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition cursor-pointer"
+            title="Add signature"
           >
             <Plus className="w-4 h-4" />
             <span>Add Signature</span>
           </button>
+
+          {/* Pages button: in desktop view, sits only in the toolbar at the far right, after the add signature button (hidden on mobile) */}
+          {onOpenPageManager && (
+            <button
+              id="desktop-manage-pages-btn"
+              onClick={onOpenPageManager}
+              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold shadow-2xs transition cursor-pointer shrink-0"
+              title="Page Controls: Add, delete, reorder, and rotate pages in 90° steps"
+            >
+              <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>Pages</span>
+            </button>
+          )}
         </div>
       </div>
 

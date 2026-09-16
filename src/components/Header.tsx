@@ -160,19 +160,6 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Manage Pages Button */}
-          {hasDocument && onOpenPageManager && (
-            <button
-              id="header-pages-btn"
-              onClick={onOpenPageManager}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs transition cursor-pointer shrink-0"
-              title="Page Controls: Add, delete, reorder, and rotate pages in 90° steps"
-            >
-              <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>Pages</span>
-            </button>
-          )}
-
           {/* Save PDF Button */}
           {hasDocument && handleSaveClick && (
             <button
