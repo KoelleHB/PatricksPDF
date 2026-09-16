@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { FileSignature, Download, Wifi, WifiOff, HelpCircle, FolderOpen, X } from 'lucide-react';
+import { FileSignature, Download, Wifi, WifiOff, HelpCircle, FolderOpen, X, LayoutGrid } from 'lucide-react';
 
 interface HeaderProps {
   documentName: string;
@@ -9,6 +9,7 @@ interface HeaderProps {
   onOpenSetupGuide: () => void;
   onOpenSave?: () => void;
   onOpenExport?: () => void;
+  onOpenPageManager?: () => void;
   onFileSelect?: (file: File) => void;
   onCloseDocument?: () => void;
 }
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSetupGuide,
   onOpenSave,
   onOpenExport,
+  onOpenPageManager,
   onFileSelect,
   onCloseDocument,
 }) => {
@@ -153,6 +155,19 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <X className="w-4 h-4 shrink-0" />
               <span className="hidden md:inline">Close</span>
+            </button>
+          )}
+
+          {/* Manage Pages Button (Desktop) */}
+          {hasDocument && onOpenPageManager && (
+            <button
+              id="header-pages-btn"
+              onClick={onOpenPageManager}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition cursor-pointer"
+              title="Manage Pages: Add, delete, reorder, and rotate pages in 90° steps"
+            >
+              <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="hidden sm:inline">Pages</span>
             </button>
           )}
 

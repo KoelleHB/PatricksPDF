@@ -7,9 +7,10 @@ import { AddTextModal } from './components/AddTextModal';
 import { SaveModal } from './components/SaveModal';
 import { GeneralSetupGuideModal } from './components/GeneralSetupGuideModal';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
+import { PageManagementModal } from './components/PageManagementModal';
 import { MobileBottomBar } from './components/MobileBottomBar';
-import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor } from './types';
-import { loadPdfJsDoc, extractPdfFormFields } from './utils/pdfEngine';
+import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec } from './types';
+import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, clearThumbnailCache } from './utils/pdfEngine';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
 import { AlertCircle, X, Loader2 } from 'lucide-react';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
@@ -103,6 +104,7 @@ export default function App() {
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [isSetupGuideModalOpen, setIsSetupGuideModalOpen] = useState(false);
+  const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
 
   // Load a user-selected PDF file with robust error handling and password detection
   const handleFileSelect = async (file: File, password?: string) => {
@@ -507,6 +509,88 @@ export default function App() {
     }
   };
 
+  // Apply page management changes (add, delete, reorder, and 90° rotations)
+  const handleApplyPageModifications = async (newPages: PageSpec[]) => {
+    if (!pdfState || !pdfState.arrayBuffer) return;
+
+    // Apply the modifications to the PDF arrayBuffer using pdf-lib
+    const modifiedBytes = await applyPageModifications(pdfState.arrayBuffer, newPages);
+    const newBuffer = modifiedBytes.buffer.slice(
+      modifiedBytes.byteOffset,
+      modifiedBytes.byteOffset + modifiedBytes.byteLength
+    ) as ArrayBuffer;
+
+    // Clear thumbnail cache to ensure updated previews for subsequent views
+    clearThumbnailCache();
+
+    // Reload PDF.js document to obtain updated page structure and counts
+    const pdfJsDoc = await loadPdfJsDoc(newBuffer);
+    const numPages = pdfJsDoc.numPages;
+
+    // Map old page numbers of signatures and text overlays to new page positions
+    const oldToNewPageMap = new Map<number, number>();
+    newPages.forEach((spec, idx) => {
+      if (spec.source === 'existing' && !oldToNewPageMap.has(spec.originalPageIndex + 1)) {
+        oldToNewPageMap.set(spec.originalPageIndex + 1, idx + 1);
+      }
+    });
+
+    const updatedSignatures = signatures
+      .filter((s) => oldToNewPageMap.has(s.pageNumber))
+      .map((s) => ({
+        ...s,
+        pageNumber: oldToNewPageMap.get(s.pageNumber)!,
+      }));
+
+    const updatedTextOverlays = textOverlays
+      .filter((t) => oldToNewPageMap.has(t.pageNumber))
+      .map((t) => ({
+        ...t,
+        pageNumber: oldToNewPageMap.get(t.pageNumber)!,
+      }));
+
+    // Target current page: stay on mapped current page or clamp to [1, numPages]
+    let nextCurrentPage = oldToNewPageMap.get(pdfState.currentPage) || 1;
+    if (nextCurrentPage > numPages) nextCurrentPage = numPages;
+
+    // Get dimensions of target page
+    const targetPage = await pdfJsDoc.getPage(nextCurrentPage);
+    const viewport = targetPage.getViewport({ scale: 1.0 });
+
+    // Extract any new or rearranged form fields
+    let updatedFormFields: FormFieldItem[] = [];
+    try {
+      const { fields } = await extractPdfFormFields(newBuffer);
+      updatedFormFields = fields;
+    } catch {
+      updatedFormFields = [];
+    }
+
+    setPdfState({
+      ...pdfState,
+      arrayBuffer: newBuffer,
+      numPages,
+      currentPage: nextCurrentPage,
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
+    });
+
+    setFormFields(updatedFormFields);
+
+    commitAction(
+      {
+        signatures: updatedSignatures,
+        textOverlays: updatedTextOverlays,
+        selectedSignatureId: null,
+        selectedTextId: null,
+      },
+      'Manage Pages',
+      nextCurrentPage
+    );
+
+    markUnsaved();
+  };
+
   return (
     <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900 font-sans overflow-hidden">
       {/* Top Navigation & Status */}
@@ -517,6 +601,7 @@ export default function App() {
         hasUnsavedChanges={hasUnsavedChanges}
         onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
         onOpenSave={() => setIsSaveModalOpen(true)}
+        onOpenPageManager={() => setIsPageManagerOpen(true)}
         onFileSelect={handleRequestFileSelect}
         onCloseDocument={handleRequestCloseDocument}
       />
@@ -576,6 +661,7 @@ export default function App() {
             onChangePage={handleChangePage}
             onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
             onOpenTextModal={() => setIsTextModalOpen(true)}
+            onOpenPageManager={() => setIsPageManagerOpen(true)}
             canUndo={canUndo}
             canRedo={canRedo}
             undoActionName={undoActionName}
@@ -599,6 +685,7 @@ export default function App() {
           onRedo={handleRedo}
           onAddSignature={() => setIsSignatureModalOpen(true)}
           onAddText={() => setIsTextModalOpen(true)}
+          onOpenPageManager={() => setIsPageManagerOpen(true)}
           onSave={() => setIsSaveModalOpen(true)}
           onChangePage={handleChangePage}
           onChangeDocument={handleRequestCloseDocument}
@@ -636,6 +723,18 @@ export default function App() {
         isOpen={isSetupGuideModalOpen}
         onClose={() => setIsSetupGuideModalOpen(false)}
       />
+
+      {/* Page Management Modal: Add, Delete, Reorder, and Rotate */}
+      {pdfState && (
+        <PageManagementModal
+          isOpen={isPageManagerOpen}
+          pdfState={pdfState}
+          currentPage={pdfState.currentPage}
+          onClose={() => setIsPageManagerOpen(false)}
+          onApplyChanges={handleApplyPageModifications}
+          onJumpToPage={(pageNum) => handleChangePage(pageNum)}
+        />
+      )}
 
       {/* Password Prompt Modal for Encrypted PDFs */}
       <PasswordPromptModal
