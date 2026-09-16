@@ -186,6 +186,53 @@ export default function App() {
     }
   };
 
+  // Listen for shared PDF files from Web Share Target (Android native Share Sheet)
+  useEffect(() => {
+    const checkSharedFile = async () => {
+      if ('caches' in window) {
+        try {
+          const cache = await caches.open('shared-pdf-cache');
+          const response = await cache.match('/_shared_pdf_file_');
+          if (response) {
+            const blob = await response.blob();
+            const filename = decodeURIComponent(
+              response.headers.get('x-filename') || 'shared_document.pdf'
+            );
+            await cache.delete('/_shared_pdf_file_');
+            const file = new File([blob], filename, { type: 'application/pdf' });
+            handleFileSelect(file);
+
+            if (window.location.search.includes('shared=true')) {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+          }
+        } catch (err) {
+          console.warn('Could not read shared PDF from cache:', err);
+        }
+      }
+    };
+
+    checkSharedFile();
+  }, []);
+
+  // Listen for file launch requests from OS (PWA File Handling API "Open With")
+  useEffect(() => {
+    if ('launchQueue' in window && typeof (window as any).launchQueue?.setConsumer === 'function') {
+      (window as any).launchQueue.setConsumer(async (launchParams: any) => {
+        if (!launchParams?.files || launchParams.files.length === 0) return;
+        try {
+          const fileHandle = launchParams.files[0];
+          const file = await fileHandle.getFile();
+          if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+            handleFileSelect(file);
+          }
+        } catch (err) {
+          console.error('Failed to open file from launchQueue:', err);
+        }
+      });
+    }
+  }, []);
+
   // Add a newly processed transparent signature
   const handleAddSignature = (
     itemData: Omit<SignatureItem, 'id' | 'xPercent' | 'yPercent' | 'pageNumber'>
