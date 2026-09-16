@@ -70,9 +70,10 @@ export default defineConfig(() => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           importScripts: ['/sw-share-target.js'],
+          navigateFallbackDenylist: [/^\/share-target/],
         },
         devOptions: {
-          enabled: false,
+          enabled: true,
         },
       }),
     ],

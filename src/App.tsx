@@ -18,6 +18,9 @@ import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 export default function App() {
   const [pdfState, setPdfState] = useState<PdfDocumentState | null>(null);
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
+  const [isReceivingSharedPdf, setIsReceivingSharedPdf] = useState(() => 
+    typeof window !== 'undefined' && window.location.search.includes('shared=true')
+  );
   const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
 
   // Native Form Fields metadata (structural fields from PDF)
@@ -188,31 +191,167 @@ export default function App() {
 
   // Listen for shared PDF files from Web Share Target (Android native Share Sheet)
   useEffect(() => {
-    const checkSharedFile = async () => {
-      if ('caches' in window) {
-        try {
-          const cache = await caches.open('shared-pdf-cache');
-          const response = await cache.match('/_shared_pdf_file_');
-          if (response) {
-            const blob = await response.blob();
-            const filename = decodeURIComponent(
-              response.headers.get('x-filename') || 'shared_document.pdf'
-            );
-            await cache.delete('/_shared_pdf_file_');
-            const file = new File([blob], filename, { type: 'application/pdf' });
-            handleFileSelect(file);
+    let isCancelled = false;
+    const pollTimeouts: number[] = [];
 
-            if (window.location.search.includes('shared=true')) {
-              window.history.replaceState({}, document.title, window.location.pathname);
+    // 1. Retrieve from IndexedDB (fastest & most reliable across Android Chromium WebAPKs)
+    const getFromIndexedDB = (): Promise<File | null> => {
+      return new Promise((resolve) => {
+        if (!('indexedDB' in window)) return resolve(null);
+        try {
+          const request = indexedDB.open('PatricksPDFSharedFilesDB', 1);
+          request.onupgradeneeded = (e: any) => {
+            const db = e.target?.result;
+            if (db && !db.objectStoreNames.contains('shared_files')) {
+              db.createObjectStore('shared_files', { keyPath: 'id' });
             }
-          }
-        } catch (err) {
-          console.warn('Could not read shared PDF from cache:', err);
+          };
+          request.onsuccess = (e: any) => {
+            const db = e.target?.result;
+            if (!db || !db.objectStoreNames.contains('shared_files')) {
+              db?.close();
+              return resolve(null);
+            }
+            try {
+              const tx = db.transaction('shared_files', 'readwrite');
+              const store = tx.objectStore('shared_files');
+              const getReq = store.get('latest_shared_pdf');
+
+              getReq.onsuccess = () => {
+                const record = getReq.result;
+                if (record && record.buffer) {
+                  store.delete('latest_shared_pdf');
+                  tx.oncomplete = () => {
+                    db.close();
+                    // Consume if fresh (within 30 mins)
+                    if (Date.now() - (record.timestamp || 0) < 30 * 60 * 1000) {
+                      const blob = new Blob([record.buffer], { type: record.type || 'application/pdf' });
+                      const file = new File([blob], record.name || 'shared_document.pdf', {
+                        type: record.type || 'application/pdf',
+                      });
+                      resolve(file);
+                    } else {
+                      resolve(null);
+                    }
+                  };
+                } else {
+                  db.close();
+                  resolve(null);
+                }
+              };
+              getReq.onerror = () => {
+                db.close();
+                resolve(null);
+              };
+            } catch {
+              db.close();
+              resolve(null);
+            }
+          };
+          request.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
         }
-      }
+      });
     };
 
-    checkSharedFile();
+    // 2. Retrieve from Cache Storage
+    const getFromCache = async (): Promise<File | null> => {
+      if (!('caches' in window)) return null;
+      try {
+        const cache = await caches.open('shared-pdf-cache');
+        const response = await cache.match('/_shared_pdf_file_');
+        if (response) {
+          const blob = await response.blob();
+          const filename = decodeURIComponent(
+            response.headers.get('x-filename') || 'shared_document.pdf'
+          );
+          await cache.delete('/_shared_pdf_file_');
+          return new File([blob], filename, { type: 'application/pdf' });
+        }
+      } catch (err) {
+        console.warn('[PWA Share] Error reading Cache Storage:', err);
+      }
+      return null;
+    };
+
+    // Unified fetch attempt
+    const retrieveAndOpenSharedFile = async (): Promise<boolean> => {
+      if (isCancelled) return false;
+
+      // Try IndexedDB first
+      let file = await getFromIndexedDB();
+
+      // If not in IndexedDB, try Cache Storage
+      if (!file) {
+        file = await getFromCache();
+      }
+
+      if (file && !isCancelled) {
+        setIsReceivingSharedPdf(false);
+        handleFileSelect(file);
+
+        if (window.location.search.includes('shared=true')) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        return true;
+      }
+      return false;
+    };
+
+    // Trigger initial check immediately
+    retrieveAndOpenSharedFile().then((found) => {
+      if (!found) {
+        // Poll with repeated intervals to accommodate background SW storage completion
+        const isSharedParamPresent = window.location.search.includes('shared=true');
+        const delays = isSharedParamPresent
+          ? [100, 250, 500, 850, 1400, 2200, 3500]
+          : [150, 450, 1200];
+
+        delays.forEach((delay, idx) => {
+          const tid = window.setTimeout(async () => {
+            const ok = await retrieveAndOpenSharedFile();
+            if (ok) {
+              pollTimeouts.forEach((t) => clearTimeout(t));
+            } else if (idx === delays.length - 1) {
+              setIsReceivingSharedPdf(false);
+            }
+          }, delay);
+          pollTimeouts.push(tid);
+        });
+      } else {
+        setIsReceivingSharedPdf(false);
+      }
+    });
+
+    // Listen for Service Worker postMessage notification
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SHARED_PDF_AVAILABLE') {
+        retrieveAndOpenSharedFile();
+      }
+    };
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
+    // Re-check when user focuses window or returns to the PWA
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        retrieveAndOpenSharedFile();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      isCancelled = true;
+      pollTimeouts.forEach((t) => clearTimeout(t));
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
   }, []);
 
   // Listen for file launch requests from OS (PWA File Handling API "Open With")
@@ -680,12 +819,16 @@ export default function App() {
 
       {/* Main Workspace */}
       <main className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
-        {isLoadingPdf && (
-          <div className="absolute inset-0 z-40 bg-white/75 backdrop-blur-xs flex flex-col items-center justify-center gap-3">
+        {(isLoadingPdf || isReceivingSharedPdf) && (
+          <div className="absolute inset-0 z-40 bg-white/85 backdrop-blur-xs flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
             <div className="text-center">
-              <p className="text-sm font-semibold text-slate-800">Opening PDF Document...</p>
-              <p className="text-xs text-slate-500 mt-0.5">Verifying structure and loading CMaps</p>
+              <p className="text-sm font-semibold text-slate-800">
+                {isReceivingSharedPdf && !isLoadingPdf ? 'Receiving Shared PDF...' : 'Opening PDF Document...'}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isReceivingSharedPdf && !isLoadingPdf ? 'Transferring file from Android share sheet' : 'Verifying structure and loading CMaps'}
+              </p>
             </div>
           </div>
         )}
