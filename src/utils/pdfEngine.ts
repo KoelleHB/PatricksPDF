@@ -1076,5 +1076,133 @@ export async function applyPageModifications(
   });
 }
 
+export interface ReflowParagraph {
+  text: string;
+  isHeading?: boolean;
+}
+
+export interface ReflowPageData {
+  pageNumber: number;
+  paragraphs: ReflowParagraph[];
+  hasText: boolean;
+}
+
+/**
+ * Extracts and structures text content from a PDF page for responsive reflow reading.
+ * Groups positioned text glyphs into semantic lines and paragraphs.
+ */
+export async function extractPageReflowText(
+  data: ArrayBuffer,
+  pageNumber: number,
+  password?: string
+): Promise<ReflowPageData> {
+  try {
+    const doc = await loadPdfJsDoc(data, password);
+    const page = await doc.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+
+    if (!textContent || !textContent.items || textContent.items.length === 0) {
+      return { pageNumber, paragraphs: [], hasText: false };
+    }
+
+    const items: Array<{
+      str: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      hasEOL: boolean;
+    }> = [];
+
+    for (const item of textContent.items as any[]) {
+      if ('str' in item && typeof item.str === 'string' && item.str.trim().length > 0) {
+        const transform = item.transform || [1, 0, 0, 1, 0, 0];
+        items.push({
+          str: item.str,
+          x: transform[4] || 0,
+          y: transform[5] || 0,
+          width: item.width || 0,
+          height: item.height || Math.abs(transform[3]) || 12,
+          hasEOL: !!item.hasEOL,
+        });
+      }
+    }
+
+    if (items.length === 0) {
+      return { pageNumber, paragraphs: [], hasText: false };
+    }
+
+    // Sort by vertical position (top-to-bottom: higher Y in PDF coordinate system is higher on the page)
+    items.sort((a, b) => {
+      const yDiff = Math.abs(a.y - b.y);
+      if (yDiff < 4) {
+        return a.x - b.x;
+      }
+      return b.y - a.y;
+    });
+
+    const paragraphs: ReflowParagraph[] = [];
+    let currentParagraphLines: string[] = [];
+    let currentLine = '';
+    let lastY = items[0].y;
+    let lastHeight = items[0].height;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const yDiff = Math.abs(item.y - lastY);
+      const isNewLine = yDiff >= 6;
+      const isNewParagraph = yDiff > lastHeight * 1.6 || item.hasEOL;
+
+      if (isNewParagraph && currentLine) {
+        currentParagraphLines.push(currentLine.trim());
+        if (currentParagraphLines.length > 0) {
+          const fullText = currentParagraphLines.join(' ');
+          paragraphs.push({
+            text: fullText,
+            isHeading: fullText.length < 80 && !fullText.endsWith('.'),
+          });
+          currentParagraphLines = [];
+        }
+        currentLine = item.str;
+      } else if (isNewLine) {
+        if (currentLine) {
+          currentParagraphLines.push(currentLine.trim());
+        }
+        currentLine = item.str;
+      } else {
+        if (currentLine && !currentLine.endsWith(' ') && !item.str.startsWith(' ')) {
+          currentLine += ' ' + item.str;
+        } else {
+          currentLine += item.str;
+        }
+      }
+
+      lastY = item.y;
+      lastHeight = Math.max(lastHeight, item.height);
+    }
+
+    if (currentLine) {
+      currentParagraphLines.push(currentLine.trim());
+    }
+    if (currentParagraphLines.length > 0) {
+      const fullText = currentParagraphLines.join(' ');
+      paragraphs.push({
+        text: fullText,
+        isHeading: fullText.length < 80 && !fullText.endsWith('.'),
+      });
+    }
+
+    return {
+      pageNumber,
+      paragraphs,
+      hasText: paragraphs.length > 0,
+    };
+  } catch (error) {
+    console.warn('Failed to extract text for reflow:', error);
+    return { pageNumber, paragraphs: [], hasText: false };
+  }
+}
+
+
 
 

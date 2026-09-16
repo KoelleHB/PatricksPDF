@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 import {
-  ChevronLeft,
-  ChevronRight,
+  ChevronUp,
+  ChevronDown,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -10,16 +10,17 @@ import {
   Plus,
   RotateCw,
   Eye,
+  EyeOff,
+  AlignLeft,
   Loader2,
   Undo2,
   Redo2,
   Type,
   FileCheck2,
-  Hand,
   LayoutGrid,
 } from 'lucide-react';
 import { SignatureItem, PdfDocumentState, TextOverlayItem, FormFieldItem, FormValuesState } from '../types';
-import { renderPdfPageToCanvas, cancelCanvasRender } from '../utils/pdfEngine';
+import { renderPdfPageToCanvas, cancelCanvasRender, extractPageReflowText, ReflowPageData } from '../utils/pdfEngine';
 import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
 import { InteractiveFormField } from './InteractiveFormField';
@@ -56,6 +57,8 @@ interface PdfViewerProps {
   onRedo?: () => void;
   historyNotice?: { message: string; type: 'undo' | 'redo' } | null;
   onResetForm?: () => void;
+  isReaderMode?: boolean;
+  onToggleReaderMode?: (enabled: boolean) => void;
 }
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({
@@ -90,6 +93,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onUndo,
   onRedo,
   historyNotice,
+  isReaderMode = false,
+  onToggleReaderMode,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -100,6 +105,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     width: pdfState.pageWidth || 595,
     height: pdfState.pageHeight || 842,
   });
+
+  // Reflow Text state and cache
+  const [isReflowMode, setIsReflowMode] = useState<boolean>(false);
+  const [reflowData, setReflowData] = useState<ReflowPageData | null>(null);
+  const [isLoadingReflow, setIsLoadingReflow] = useState<boolean>(false);
+  const reflowCache = useRef<Map<number, ReflowPageData>>(new Map());
 
   // Gestures: Swipe for page turning & Pinch-to-zoom
   const [swipeOffset, setSwipeOffset] = useState<number>(0);
@@ -118,7 +129,48 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const onChangePageRef = useRef(onChangePage);
   onChangePageRef.current = onChangePage;
 
+  const isReaderModeRef = useRef(isReaderMode);
+  isReaderModeRef.current = isReaderMode;
+
+  const onToggleReaderModeRef = useRef(onToggleReaderMode);
+  onToggleReaderModeRef.current = onToggleReaderMode;
+
+  const wheelAccumulatorRef = useRef<number>(0);
   const prevPageRef = useRef<number>(pdfState.currentPage);
+
+  // Load reflowable text when reflow mode is active or page changes
+  useEffect(() => {
+    if (!isReflowMode || !pdfState || !pdfState.arrayBuffer) return;
+
+    const pageNum = pdfState.currentPage;
+    const cached = reflowCache.current.get(pageNum);
+    if (cached) {
+      setReflowData(cached);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsLoadingReflow(true);
+
+    extractPageReflowText(pdfState.arrayBuffer, pageNum)
+      .then((data) => {
+        if (!isCancelled) {
+          reflowCache.current.set(pageNum, data);
+          setReflowData(data);
+          setIsLoadingReflow(false);
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          console.warn('Reflow extraction error:', err);
+          setIsLoadingReflow(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isReflowMode, pdfState?.currentPage, pdfState?.arrayBuffer]);
 
   const swipeRef = useRef<{
     startX: number;
@@ -246,7 +298,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         return;
       }
 
-      // Handle Page Swiping
+      // Handle Page Swiping: Up/Down vertical page turns
       if (e.touches.length === 1 && !pinchRef.current.active) {
         const dx = e.touches[0].clientX - swipeRef.current.startX;
         const dy = e.touches[0].clientY - swipeRef.current.startY;
@@ -255,58 +307,58 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
         // Determine direction lock if not yet locked
         if (swipeRef.current.directionLocked === null) {
-          if (absDx > 8 || absDy > 8) {
+          if (absDy > 8 || absDx > 8) {
             const canTurnPages = numPagesRef.current > 1;
-            const isHorizontallyScrollable =
-              container ? container.scrollWidth > container.clientWidth + 20 : false;
+            const isVerticallyScrollable =
+              container ? container.scrollHeight > container.clientHeight + 20 : false;
 
-            // Intent is horizontal swipe
-            if (canTurnPages && absDx > absDy * 1.25 && absDx > 10) {
-              if (isHorizontallyScrollable) {
-                // If zoomed in horizontally, only turn page when at edge
-                const atLeft = container.scrollLeft <= 5 && dx > 0;
-                const atRight =
-                  container.scrollLeft >=
-                    container.scrollWidth - container.clientWidth - 5 && dx < 0;
-                if (atLeft || atRight) {
-                  swipeRef.current.directionLocked = 'horizontal';
+            // Intent is vertical swipe for page turn (reading downwards)
+            if (canTurnPages && absDy > absDx * 1.15 && absDy > 10) {
+              if (isVerticallyScrollable) {
+                // If zoomed in vertically, only turn page when reached the top or bottom boundary
+                const atTop = container.scrollTop <= 6 && dy > 0;
+                const atBottom =
+                  container.scrollTop >=
+                    container.scrollHeight - container.clientHeight - 6 && dy < 0;
+                if (atTop || atBottom) {
+                  swipeRef.current.directionLocked = 'vertical';
                   swipeRef.current.active = true;
                   setIsSwiping(true);
                 } else {
                   swipeRef.current.directionLocked = 'scroll';
                 }
               } else {
-                // Not horizontally scrollable: horizontal swipe is 100% a page turn!
-                swipeRef.current.directionLocked = 'horizontal';
+                // Not vertically scrollable: vertical swipe is 100% a page turn!
+                swipeRef.current.directionLocked = 'vertical';
                 swipeRef.current.active = true;
                 setIsSwiping(true);
               }
             } else {
-              // Predominantly vertical scrolling or single-page document
+              // Predominantly horizontal scrolling or normal scrolling
               swipeRef.current.directionLocked = 'scroll';
             }
           }
         }
 
-        if (swipeRef.current.directionLocked === 'horizontal') {
+        if (swipeRef.current.directionLocked === 'vertical') {
           e.preventDefault();
           const cur = currentPageRef.current;
           const total = numPagesRef.current;
 
           let calculatedOffset = 0;
-          if (dx > 0) {
-            // Swiping right -> Turn to PREVIOUS page
-            if (cur <= 1) {
-              calculatedOffset = dx * 0.18; // Rubber-band bounce at page 1
+          if (dy < 0) {
+            // Swiping upwards -> Turn downwards to NEXT page
+            if (cur >= total) {
+              calculatedOffset = dy * 0.18; // Rubber-band bounce at last page
             } else {
-              calculatedOffset = dx * 0.6;
+              calculatedOffset = dy * 0.6;
             }
           } else {
-            // Swiping left -> Turn to NEXT page
-            if (cur >= total) {
-              calculatedOffset = dx * 0.18; // Rubber-band bounce at last page
+            // Swiping downwards -> Turn upwards to PREVIOUS page
+            if (cur <= 1) {
+              calculatedOffset = dy * 0.18; // Rubber-band bounce at page 1
             } else {
-              calculatedOffset = dx * 0.6;
+              calculatedOffset = dy * 0.6;
             }
           }
 
@@ -321,24 +373,26 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         if (pinchTimeoutRef.current) clearTimeout(pinchTimeoutRef.current);
       }
 
-      if (swipeRef.current.directionLocked === 'horizontal') {
+      if (swipeRef.current.directionLocked === 'vertical') {
         const touch = e.changedTouches[0];
-        const dx = (touch ? touch.clientX : 0) - swipeRef.current.startX;
+        const dy = (touch ? touch.clientY : 0) - swipeRef.current.startY;
         const dt = Math.max(1, Date.now() - swipeRef.current.startTime);
-        const speed = Math.abs(dx) / dt;
-        const threshold = 50;
+        const speed = Math.abs(dy) / dt;
+        const threshold = 45;
         const cur = currentPageRef.current;
         const total = numPagesRef.current;
 
-        if (dx < -threshold || (dx < -25 && speed > 0.35)) {
-          // Swiped left -> NEXT PAGE
+        if (dy < -threshold || (dy < -20 && speed > 0.35)) {
+          // Swiped up -> NEXT PAGE (reading downwards)
           if (cur < total) {
             onChangePageRef.current(cur + 1);
+            if (containerRef.current) containerRef.current.scrollTop = 0;
           }
-        } else if (dx > threshold || (dx > 25 && speed > 0.35)) {
-          // Swiped right -> PREVIOUS PAGE
+        } else if (dy > threshold || (dy > 20 && speed > 0.35)) {
+          // Swiped down -> PREVIOUS PAGE (reading upwards)
           if (cur > 1) {
             onChangePageRef.current(cur - 1);
+            if (containerRef.current) containerRef.current.scrollTop = 0;
           }
         }
 
@@ -359,6 +413,29 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         // Shift + vertical wheel -> horizontal scroll
         e.preventDefault();
         container.scrollLeft += e.deltaY;
+      } else if (container && numPagesRef.current > 1) {
+        // Natural downward scrolling: turn to next page when reached bottom
+        const isAtBottom =
+          container.scrollTop + container.clientHeight >= container.scrollHeight - 8;
+        const isAtTop = container.scrollTop <= 8;
+
+        if (e.deltaY > 0 && isAtBottom && currentPageRef.current < numPagesRef.current) {
+          wheelAccumulatorRef.current += e.deltaY;
+          if (wheelAccumulatorRef.current > 60) {
+            wheelAccumulatorRef.current = 0;
+            onChangePageRef.current(currentPageRef.current + 1);
+            container.scrollTop = 0;
+          }
+        } else if (e.deltaY < 0 && isAtTop && currentPageRef.current > 1) {
+          wheelAccumulatorRef.current += e.deltaY;
+          if (wheelAccumulatorRef.current < -60) {
+            wheelAccumulatorRef.current = 0;
+            onChangePageRef.current(currentPageRef.current - 1);
+            container.scrollTop = container.scrollHeight;
+          }
+        } else {
+          wheelAccumulatorRef.current = 0;
+        }
       }
     };
 
@@ -390,6 +467,14 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const activeTag = document.activeElement?.tagName || '';
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag)) return;
 
+      // Escape key exits Reader Mode
+      if (e.key === 'Escape') {
+        if (isReaderModeRef.current && onToggleReaderModeRef.current) {
+          onToggleReaderModeRef.current(false);
+          return;
+        }
+      }
+
       if (e.code === 'Space') {
         e.preventDefault();
         setIsSpacePressed(true);
@@ -403,14 +488,28 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const c = containerRef.current;
       if (!c) return;
 
-      if (e.key === 'ArrowLeft') {
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        const isAtBottom = c.scrollTop + c.clientHeight >= c.scrollHeight - 10;
+        if (isAtBottom && currentPageRef.current < numPagesRef.current) {
+          e.preventDefault();
+          onChangePageRef.current(currentPageRef.current + 1);
+          c.scrollTop = 0;
+          return;
+        }
+        c.scrollTop += 80;
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        const isAtTop = c.scrollTop <= 10;
+        if (isAtTop && currentPageRef.current > 1) {
+          e.preventDefault();
+          onChangePageRef.current(currentPageRef.current - 1);
+          c.scrollTop = c.scrollHeight;
+          return;
+        }
+        c.scrollTop -= 80;
+      } else if (e.key === 'ArrowLeft') {
         c.scrollLeft -= 60;
       } else if (e.key === 'ArrowRight') {
         c.scrollLeft += 60;
-      } else if (e.key === 'ArrowUp') {
-        c.scrollTop -= 60;
-      } else if (e.key === 'ArrowDown') {
-        c.scrollTop += 60;
       }
     };
 
@@ -608,173 +707,251 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   return (
     <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
-      {/* Top Floating Page Navigation & Zoom Toolbar */}
-      <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
-        {/* Left: Zoom Buttons & Responsive Fit */}
-        <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
-          {/* Pan / Hand Tool Toggle */}
+      {/* Top Floating Page Navigation & Zoom Toolbar (hidden in Reader Mode) */}
+      {!isReaderMode && (
+        <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
+          {/* Left: Zoom Buttons, Reflow & Responsive Fit */}
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
+            {/* Eye Symbol (Reader Mode Toggle) replacing hand tool */}
+            <button
+              id="viewer-reader-mode-btn"
+              onClick={() => onToggleReaderMode && onToggleReaderMode(true)}
+              className="p-1 rounded-md text-slate-700 hover:bg-white hover:text-blue-600 hover:shadow-xs transition flex items-center gap-1 cursor-pointer"
+              title="Enter Reader Mode: Turn off all headers and toolbars for a clean, distraction-free reading experience (Esc to exit)"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
+            <button
+              onClick={handleZoomOut}
+              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
+              title="Zoom Out (-20%)"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleResetZoom}
+              className="text-xs font-mono font-semibold px-1 sm:px-1.5 text-slate-700 hover:text-blue-600 transition cursor-pointer"
+              title="Reset Zoom to 100%"
+            >
+              {zoomLevel}%
+            </button>
+            <button
+              onClick={handleZoomIn}
+              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
+              title="Zoom In (+20%)"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
+            <button
+              onClick={handleFitWidth}
+              className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition whitespace-nowrap cursor-pointer"
+              title="Fit Page Width to Screen"
+            >
+              Fit Width
+            </button>
+            <button
+              onClick={handleFitPage}
+              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition cursor-pointer"
+              title="Fit Entire Page in View"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+            <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
+            {/* Quick Reflow Text Toggle */}
+            <button
+              id="viewer-reflow-btn"
+              onClick={() => setIsReflowMode((prev) => !prev)}
+              className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[11px] font-medium transition whitespace-nowrap flex items-center gap-1 cursor-pointer ${
+                isReflowMode
+                  ? 'bg-amber-100 text-amber-900 border border-amber-300 font-semibold'
+                  : 'text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900'
+              }`}
+              title={
+                isReflowMode
+                  ? 'Reflow active. Click to restore original fixed PDF page layout.'
+                  : 'Reflow Text: Wrap and reflow PDF text dynamically to screen width when zoomed'
+              }
+            >
+              <AlignLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{isReflowMode ? 'Original' : 'Reflow'}</span>
+            </button>
+          </div>
+
+          {/* Right: Page Turn Control, Undo/Redo, Add Text, Add Signature, and Pages Button */}
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Page Turn Control (Up/Down logic for downward reading flow, directly left of the undo/redo control) */}
+            <div className="flex items-center gap-0.5 sm:gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
+              <button
+                id="prev-page-btn"
+                disabled={pdfState.currentPage <= 1 || isLoadingPage}
+                onClick={() => onChangePage(pdfState.currentPage - 1)}
+                className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-md hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition cursor-pointer"
+                title="Previous Page (Scroll Up)"
+              >
+                <ChevronUp className="w-4 h-4" />
+              </button>
+
+              <span
+                id="page-indicator"
+                className="text-xs sm:text-sm font-semibold text-slate-700 px-1 sm:px-1.5 py-0.5 select-none whitespace-nowrap"
+              >
+                Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
+                <span className="font-mono font-bold">{pdfState.numPages}</span>
+              </span>
+
+              <button
+                id="next-page-btn"
+                disabled={pdfState.currentPage >= pdfState.numPages || isLoadingPage}
+                onClick={() => onChangePage(pdfState.currentPage + 1)}
+                className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-md hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition cursor-pointer"
+                title="Next Page (Scroll Down)"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Undo & Redo Controls */}
+            <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+              <button
+                id="viewer-undo-btn"
+                disabled={!canUndo}
+                onClick={onUndo}
+                className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1 cursor-pointer"
+                title={
+                  canUndo
+                    ? `Undo ${undoActionName ? `"${undoActionName}"` : ''} (Ctrl+Z)`
+                    : 'Nothing to undo'
+                }
+              >
+                <Undo2 className="w-4 h-4" />
+                <span className="sr-only sm:not-sr-only text-[11px] font-medium pr-0.5 hidden lg:inline text-slate-600">
+                  Undo
+                </span>
+              </button>
+              <button
+                id="viewer-redo-btn"
+                disabled={!canRedo}
+                onClick={onRedo}
+                className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1 cursor-pointer"
+                title={
+                  canRedo
+                    ? `Redo ${redoActionName ? `"${redoActionName}"` : ''} (Ctrl+Y)`
+                    : 'Nothing to redo'
+                }
+              >
+                <Redo2 className="w-4 h-4" />
+                <span className="sr-only sm:not-sr-only text-[11px] font-medium pr-0.5 hidden lg:inline text-slate-600">
+                  Redo
+                </span>
+              </button>
+            </div>
+
+            {/* Add Text shortcut button (hidden on mobile, visible on desktop) */}
+            {onOpenTextModal && (
+              <button
+                id="viewer-add-text-btn"
+                onClick={onOpenTextModal}
+                className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
+                title="Add text overlay (Regular or Script font)"
+              >
+                <Type className="w-4 h-4 text-blue-600" />
+                <span>Add Text</span>
+              </button>
+            )}
+
+            {/* Add Signature shortcut button (hidden on mobile, visible on desktop) */}
+            <button
+              id="viewer-add-sig-btn"
+              onClick={onOpenSignatureModal}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition cursor-pointer"
+              title="Add signature"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Signature</span>
+            </button>
+
+            {/* Pages button: in desktop view, sits only in the toolbar at the far right, after the add signature button (hidden on mobile) */}
+            {onOpenPageManager && (
+              <button
+                id="desktop-manage-pages-btn"
+                onClick={onOpenPageManager}
+                className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold shadow-2xs transition cursor-pointer shrink-0"
+                title="Page Controls: Add, delete, reorder, and rotate pages in 90° steps"
+              >
+                <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>Pages</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Small Floating Controller Appearing in Reader Mode to Switch Back */}
+      {isReaderMode && (
+        <aside
+          aria-label="Reader mode controls"
+          id="floating-reader-mode-controls"
+          className="fixed top-4 right-4 z-50 flex items-center gap-1.5 sm:gap-2 bg-slate-900/90 text-white p-1.5 sm:px-3 sm:py-1.5 rounded-full shadow-2xl backdrop-blur-md border border-white/20 animate-in fade-in duration-200"
+        >
+          {/* Small floating button to switch back */}
           <button
-            id="viewer-pan-tool-btn"
-            onClick={() => setIsPanToolActive((prev) => !prev)}
-            className={`p-1 rounded-md transition flex items-center gap-1 cursor-pointer ${
-              isPanToolActive
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:bg-white hover:shadow-xs'
+            id="floating-exit-reader-btn"
+            onClick={() => onToggleReaderMode && onToggleReaderMode(false)}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+            title="Exit Reader Mode and restore headers and toolbars (Esc)"
+          >
+            <EyeOff className="w-3.5 h-3.5" />
+            <span>Exit</span>
+          </button>
+
+          <span className="w-px h-3.5 bg-white/20" />
+
+          {/* Up / Down Page Navigation */}
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => onChangePage(pdfState.currentPage - 1)}
+              disabled={pdfState.currentPage <= 1 || isLoadingPage}
+              className="p-1 rounded-full hover:bg-white/15 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer"
+              title="Previous Page (Up)"
+            >
+              <ChevronUp className="w-3.5 h-3.5 text-slate-200" />
+            </button>
+            <span className="text-[11px] font-mono font-medium px-1 text-slate-200 select-none">
+              {pdfState.currentPage} / {pdfState.numPages}
+            </span>
+            <button
+              onClick={() => onChangePage(pdfState.currentPage + 1)}
+              disabled={pdfState.currentPage >= pdfState.numPages || isLoadingPage}
+              className="p-1 rounded-full hover:bg-white/15 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer"
+              title="Next Page (Down)"
+            >
+              <ChevronDown className="w-3.5 h-3.5 text-slate-200" />
+            </button>
+          </div>
+
+          <span className="w-px h-3.5 bg-white/20" />
+
+          {/* Reflow toggle in Reader mode */}
+          <button
+            onClick={() => setIsReflowMode((prev) => !prev)}
+            className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium transition cursor-pointer ${
+              isReflowMode
+                ? 'bg-amber-400 text-slate-950 font-semibold'
+                : 'text-slate-300 hover:text-white hover:bg-white/15'
             }`}
             title={
-              isPanToolActive
-                ? 'Hand (Pan) Tool active: Drag anywhere to pan/move around the zoomed PDF (press H to toggle)'
-                : 'Hand (Pan) Tool: Drag anywhere to move zoomed pages without clicking items (press H or hold Space)'
+              isReflowMode
+                ? 'Viewing reflowable text. Click for original layout.'
+                : 'Reflow Text: Wrap text to screen width on high zoom'
             }
           >
-            <Hand className="w-4 h-4" />
+            <AlignLeft className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{isReflowMode ? 'Original' : 'Reflow'}</span>
           </button>
-          <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
-          <button
-            onClick={handleZoomOut}
-            className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
-            title="Zoom Out (-20%)"
-          >
-            <ZoomOut className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleResetZoom}
-            className="text-xs font-mono font-semibold px-1 sm:px-1.5 text-slate-700 hover:text-blue-600 transition cursor-pointer"
-            title="Reset Zoom to 100%"
-          >
-            {zoomLevel}%
-          </button>
-          <button
-            onClick={handleZoomIn}
-            className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
-            title="Zoom In (+20%)"
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
-          <button
-            onClick={handleFitWidth}
-            className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition whitespace-nowrap cursor-pointer"
-            title="Fit Page Width to Screen"
-          >
-            Fit Width
-          </button>
-          <button
-            onClick={handleFitPage}
-            className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition cursor-pointer"
-            title="Fit Entire Page in View"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Right: Page Turn Control, Undo/Redo, Add Text, Add Signature, and Pages Button */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {/* Page Turn Control (directly left of the undo/redo control) */}
-          <div className="flex items-center gap-0.5 sm:gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
-            <button
-              id="prev-page-btn"
-              disabled={pdfState.currentPage <= 1 || isLoadingPage}
-              onClick={() => onChangePage(pdfState.currentPage - 1)}
-              className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-md hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition cursor-pointer"
-              title="Previous Page"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <span
-              id="page-indicator"
-              className="text-xs sm:text-sm font-semibold text-slate-700 px-1 sm:px-1.5 py-0.5 select-none whitespace-nowrap"
-            >
-              Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
-              <span className="font-mono font-bold">{pdfState.numPages}</span>
-            </span>
-
-            <button
-              id="next-page-btn"
-              disabled={pdfState.currentPage >= pdfState.numPages || isLoadingPage}
-              onClick={() => onChangePage(pdfState.currentPage + 1)}
-              className="py-1 sm:py-1.5 px-0.5 sm:px-1 rounded-md hover:bg-slate-50 disabled:opacity-35 disabled:hover:bg-transparent text-slate-700 transition cursor-pointer"
-              title="Next Page"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Undo & Redo Controls */}
-          <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-            <button
-              id="viewer-undo-btn"
-              disabled={!canUndo}
-              onClick={onUndo}
-              className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1 cursor-pointer"
-              title={
-                canUndo
-                  ? `Undo ${undoActionName ? `"${undoActionName}"` : ''} (Ctrl+Z)`
-                  : 'Nothing to undo'
-              }
-            >
-              <Undo2 className="w-4 h-4" />
-              <span className="sr-only sm:not-sr-only text-[11px] font-medium pr-0.5 hidden lg:inline text-slate-600">
-                Undo
-              </span>
-            </button>
-            <button
-              id="viewer-redo-btn"
-              disabled={!canRedo}
-              onClick={onRedo}
-              className="p-1.5 rounded-md text-slate-700 hover:bg-white hover:shadow-xs disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition flex items-center gap-1 cursor-pointer"
-              title={
-                canRedo
-                  ? `Redo ${redoActionName ? `"${redoActionName}"` : ''} (Ctrl+Y)`
-                  : 'Nothing to redo'
-              }
-            >
-              <Redo2 className="w-4 h-4" />
-              <span className="sr-only sm:not-sr-only text-[11px] font-medium pr-0.5 hidden lg:inline text-slate-600">
-                Redo
-              </span>
-            </button>
-          </div>
-
-          {/* Add Text shortcut button (hidden on mobile, visible on desktop) */}
-          {onOpenTextModal && (
-            <button
-              id="viewer-add-text-btn"
-              onClick={onOpenTextModal}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
-              title="Add text overlay (Regular or Script font)"
-            >
-              <Type className="w-4 h-4 text-blue-600" />
-              <span>Add Text</span>
-            </button>
-          )}
-
-          {/* Add Signature shortcut button (hidden on mobile, visible on desktop) */}
-          <button
-            id="viewer-add-sig-btn"
-            onClick={onOpenSignatureModal}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition cursor-pointer"
-            title="Add signature"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Signature</span>
-          </button>
-
-          {/* Pages button: in desktop view, sits only in the toolbar at the far right, after the add signature button (hidden on mobile) */}
-          {onOpenPageManager && (
-            <button
-              id="desktop-manage-pages-btn"
-              onClick={onOpenPageManager}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold shadow-2xs transition cursor-pointer shrink-0"
-              title="Page Controls: Add, delete, reorder, and rotate pages in 90° steps"
-            >
-              <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>Pages</span>
-            </button>
-          )}
-        </div>
-      </div>
+        </aside>
+      )}
 
       {/* Main PDF Scrollable Workspace */}
       <div
@@ -803,105 +980,213 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           </div>
         )}
 
-        {/* Centering wrapper that allows full horizontal and vertical pan without clipping or cutoff */}
-        <div className="w-fit min-w-full min-h-full flex flex-col items-center justify-start p-4 sm:p-8 pb-40 sm:pb-44 pointer-events-none">
-          {/* Scaled PDF Page Container with strict aspect ratio preservation and swipe translation */}
-          <motion.div
-            animate={{
-              x: swipeOffset,
-            }}
-            transition={
-              isSwiping
-                ? { duration: 0 }
-                : { type: 'spring', stiffness: 450, damping: 35, mass: 0.8 }
-            }
-            style={{
-              width: `${pageWidth}px`,
-              height: `${pageHeight}px`,
-            }}
-            className="relative bg-white rounded shadow-xl border border-slate-300 origin-top shrink-0 select-none will-change-transform pointer-events-auto"
-          >
-          {/* Rendered PDF Page Canvas */}
-          <canvas
-            ref={canvasRef}
-            style={{ width: '100%', height: '100%' }}
-            className="block rounded"
-          />
-
-          {/* Native PDF Form Fields Layer (AcroForms) */}
-          {pageFormFields.length > 0 && (
-            <div className="absolute inset-0 pointer-events-none overflow-visible z-15">
-              {pageFormFields.map((field) => (
-                <InteractiveFormField
-                  key={field.id}
-                  field={field}
-                  value={formValues[field.name]}
-                  containerWidth={pageWidth}
-                  containerHeight={pageHeight}
-                  zoomLevel={zoomLevel}
-                  onChange={(name, val, isDirectChoice) => {
-                    if (onFormFieldChange) onFormFieldChange(name, val, isDirectChoice);
+        {/* Reflow Text View (when Reflow is enabled) */}
+        {isReflowMode ? (
+          <div className="w-full max-w-3xl mx-auto p-4 sm:p-8 pb-32">
+            {isLoadingReflow ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-500">
+                <Loader2 className="w-7 h-7 text-amber-600 animate-spin" />
+                <span className="text-sm font-medium">Extracting and reflowing document text...</span>
+              </div>
+            ) : reflowData && reflowData.paragraphs.length > 0 ? (
+              <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6 sm:p-10 space-y-5 transition-all">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 text-xs text-slate-400">
+                  <span>Page {pdfState.currentPage} of {pdfState.numPages} (Reflow Text Mode)</span>
+                  <button
+                    onClick={() => setIsReflowMode(false)}
+                    className="text-blue-600 hover:underline cursor-pointer font-medium"
+                  >
+                    View Original Layout
+                  </button>
+                </div>
+                <div
+                  className="leading-relaxed text-slate-800 space-y-4 select-text"
+                  style={{
+                    fontSize: `${Math.max(15, Math.min(32, Math.round(17 * (zoomLevel / 100))))}px`,
+                    lineHeight: '1.75',
                   }}
-                  onCommitField={(name, val) => {
-                    if (onCommitFormField) onCommitFormField(name, val);
-                  }}
-                  onReset={onResetForm}
-                />
-              ))}
-            </div>
-          )}
+                >
+                  {reflowData.paragraphs.map((p, idx) =>
+                    p.isHeading ? (
+                      <h3
+                        key={idx}
+                        className="font-bold text-slate-900 tracking-tight pt-2"
+                        style={{
+                          fontSize: `${Math.max(18, Math.min(38, Math.round(21 * (zoomLevel / 100))))}px`,
+                        }}
+                      >
+                        {p.text}
+                      </h3>
+                    ) : (
+                      <p key={idx} className="font-normal text-slate-800">
+                        {p.text}
+                      </p>
+                    )
+                  )}
+                </div>
 
-          {/* Interactive Overlays Layer (Text & Signatures - Unified non-blocking container) */}
-          <div className="absolute inset-0 pointer-events-none overflow-visible z-20">
-            {/* Text Overlays */}
-            {pageTextOverlays.map((item) => (
-              <TextOverlay
-                key={item.id}
-                item={item}
-                isSelected={item.id === selectedTextId}
-                containerWidth={pageWidth}
-                containerHeight={pageHeight}
-                zoomLevel={zoomLevel}
-                onSelect={(id) => {
-                  if (onSelectText) onSelectText(id);
-                  onSelectSignature(null);
-                }}
-                onUpdate={(updated) => {
-                  if (onUpdateText) onUpdateText(updated);
-                }}
-                onCommitUpdate={(updated, actionName) => {
-                  if (onCommitUpdateText) onCommitUpdateText(updated, actionName);
-                }}
-                onDelete={(id) => {
-                  if (onDeleteText) onDeleteText(id);
-                }}
-                onDuplicate={(it) => {
-                  if (onDuplicateText) onDuplicateText(it);
-                }}
-              />
-            ))}
-
-            {/* Interactive Signatures */}
-            {pageSignatures.map((sig) => (
-              <SignatureOverlay
-                key={sig.id}
-                signature={sig}
-                isSelected={sig.id === selectedSignatureId}
-                containerWidth={pageWidth}
-                containerHeight={pageHeight}
-                onSelect={(id) => {
-                  onSelectSignature(id);
-                  if (onSelectText) onSelectText(null);
-                }}
-                onUpdate={onUpdateSignature}
-                onCommitUpdate={onCommitUpdateSignature}
-                onDelete={onDeleteSignature}
-                onDuplicate={onDuplicateSignature}
-              />
-            ))}
+                {pdfState.numPages > 1 && (
+                  <div className="pt-6 border-t border-slate-100 flex items-center justify-between">
+                    <button
+                      disabled={pdfState.currentPage <= 1}
+                      onClick={() => onChangePage(pdfState.currentPage - 1)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 text-xs font-medium text-slate-700 cursor-pointer"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                      <span>Previous Page</span>
+                    </button>
+                    <span className="text-xs font-mono text-slate-500">
+                      {pdfState.currentPage} / {pdfState.numPages}
+                    </span>
+                    <button
+                      disabled={pdfState.currentPage >= pdfState.numPages}
+                      onClick={() => onChangePage(pdfState.currentPage + 1)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-30 text-xs font-medium text-white cursor-pointer"
+                    >
+                      <span>Next Page</span>
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-md border border-slate-200 p-8 text-center space-y-3">
+                <p className="text-slate-600 text-sm font-medium">
+                  No extractable text found on page {pdfState.currentPage} (this page may be a scanned image or photo).
+                </p>
+                <button
+                  onClick={() => setIsReflowMode(false)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 cursor-pointer"
+                >
+                  Return to Page View
+                </button>
+              </div>
+            )}
           </div>
-        </motion.div>
-        </div>
+        ) : (
+          /* Centering wrapper that allows full horizontal and vertical pan without clipping or cutoff */
+          <div className="w-fit min-w-full min-h-full flex flex-col items-center justify-start p-4 sm:p-8 pb-40 sm:pb-44 pointer-events-none">
+            {/* Scaled PDF Page Container with strict aspect ratio preservation and vertical swipe translation */}
+            <motion.div
+              animate={{
+                y: swipeOffset,
+              }}
+              transition={
+                isSwiping
+                  ? { duration: 0 }
+                  : { type: 'spring', stiffness: 450, damping: 35, mass: 0.8 }
+              }
+              style={{
+                width: `${pageWidth}px`,
+                height: `${pageHeight}px`,
+              }}
+              className="relative bg-white rounded shadow-xl border border-slate-300 origin-top shrink-0 select-none will-change-transform pointer-events-auto"
+            >
+              {/* Rendered PDF Page Canvas */}
+              <canvas
+                ref={canvasRef}
+                style={{ width: '100%', height: '100%' }}
+                className="block rounded"
+              />
+
+              {/* Native PDF Form Fields Layer (AcroForms) */}
+              {pageFormFields.length > 0 && (
+                <div className="absolute inset-0 pointer-events-none overflow-visible z-15">
+                  {pageFormFields.map((field) => (
+                    <InteractiveFormField
+                      key={field.id}
+                      field={field}
+                      value={formValues[field.name]}
+                      containerWidth={pageWidth}
+                      containerHeight={pageHeight}
+                      zoomLevel={zoomLevel}
+                      onChange={(name, val, isDirectChoice) => {
+                        if (onFormFieldChange) onFormFieldChange(name, val, isDirectChoice);
+                      }}
+                      onCommitField={(name, val) => {
+                        if (onCommitFormField) onCommitFormField(name, val);
+                      }}
+                      onReset={onResetForm}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Interactive Overlays Layer (Text & Signatures - Unified non-blocking container) */}
+              <div className="absolute inset-0 pointer-events-none overflow-visible z-20">
+                {/* Text Overlays */}
+                {pageTextOverlays.map((item) => (
+                  <TextOverlay
+                    key={item.id}
+                    item={item}
+                    isSelected={item.id === selectedTextId}
+                    containerWidth={pageWidth}
+                    containerHeight={pageHeight}
+                    zoomLevel={zoomLevel}
+                    onSelect={(id) => {
+                      if (onSelectText) onSelectText(id);
+                      onSelectSignature(null);
+                    }}
+                    onUpdate={(updated) => {
+                      if (onUpdateText) onUpdateText(updated);
+                    }}
+                    onCommitUpdate={(updated, actionName) => {
+                      if (onCommitUpdateText) onCommitUpdateText(updated, actionName);
+                    }}
+                    onDelete={(id) => {
+                      if (onDeleteText) onDeleteText(id);
+                    }}
+                    onDuplicate={(it) => {
+                      if (onDuplicateText) onDuplicateText(it);
+                    }}
+                  />
+                ))}
+
+                {/* Interactive Signatures */}
+                {pageSignatures.map((sig) => (
+                  <SignatureOverlay
+                    key={sig.id}
+                    signature={sig}
+                    isSelected={sig.id === selectedSignatureId}
+                    containerWidth={pageWidth}
+                    containerHeight={pageHeight}
+                    onSelect={(id) => {
+                      onSelectSignature(id);
+                      if (onSelectText) onSelectText(null);
+                    }}
+                    onUpdate={onUpdateSignature}
+                    onCommitUpdate={onCommitUpdateSignature}
+                    onDelete={onDeleteSignature}
+                    onDuplicate={onDuplicateSignature}
+                  />
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Downward Reading Flow indicator & next page jump */}
+            {pdfState.numPages > 1 && (
+              <div className="mt-6 mb-2 pointer-events-auto flex flex-col items-center">
+                {pdfState.currentPage < pdfState.numPages ? (
+                  <button
+                    onClick={() => {
+                      onChangePage(pdfState.currentPage + 1);
+                      if (containerRef.current) containerRef.current.scrollTop = 0;
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/95 hover:bg-white text-slate-700 hover:text-blue-600 shadow-sm border border-slate-200 text-xs font-semibold transition hover:shadow cursor-pointer"
+                    title="Continue reading downward: Go to next page"
+                  >
+                    <span>Continue downward to Page {pdfState.currentPage + 1}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-blue-600" />
+                  </button>
+                ) : (
+                  <div className="text-[11px] text-slate-400 font-medium select-none">
+                    End of Document ({pdfState.numPages} {pdfState.numPages === 1 ? 'Page' : 'Pages'})
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

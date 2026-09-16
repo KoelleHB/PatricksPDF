@@ -106,6 +106,7 @@ export default function App() {
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [isSetupGuideModalOpen, setIsSetupGuideModalOpen] = useState(false);
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
+  const [isReaderMode, setIsReaderMode] = useState(false);
 
   // Load a user-selected PDF file with robust error handling and password detection
   const handleFileSelect = async (file: File, password?: string) => {
@@ -490,6 +491,7 @@ export default function App() {
     initialFormValuesRef.current = {};
     setHasPageModifications(false);
     setIsSaved(true);
+    setIsReaderMode(false);
   };
 
   // Safe request to close document with unsaved changes verification
@@ -598,18 +600,20 @@ export default function App() {
   return (
     <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900 font-sans overflow-hidden">
       {/* Top Navigation & Status */}
-      <Header
-        documentName={pdfState?.name || ''}
-        hasDocument={!!pdfState}
-        signatureCount={signatures.length}
-        hasUnsavedChanges={hasUnsavedChanges}
-        hasPageModifications={hasPageModifications}
-        onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
-        onOpenSave={() => setIsSaveModalOpen(true)}
-        onOpenPageManager={() => setIsPageManagerOpen(true)}
-        onFileSelect={handleRequestFileSelect}
-        onCloseDocument={handleRequestCloseDocument}
-      />
+      {!isReaderMode && (
+        <Header
+          documentName={pdfState?.name || ''}
+          hasDocument={!!pdfState}
+          signatureCount={signatures.length}
+          hasUnsavedChanges={hasUnsavedChanges}
+          hasPageModifications={hasPageModifications}
+          onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
+          onOpenSave={() => setIsSaveModalOpen(true)}
+          onOpenPageManager={() => setIsPageManagerOpen(true)}
+          onFileSelect={handleRequestFileSelect}
+          onCloseDocument={handleRequestCloseDocument}
+        />
+      )}
 
       {/* Error Notification Toast/Banner */}
       {pdfErrorMessage && (
@@ -674,12 +678,14 @@ export default function App() {
             onUndo={handleUndo}
             onRedo={handleRedo}
             historyNotice={historyNotice}
+            isReaderMode={isReaderMode}
+            onToggleReaderMode={setIsReaderMode}
           />
         )}
       </main>
 
       {/* Mobile Bottom Navigation Bar (Visible on phones) */}
-      {pdfState && (
+      {pdfState && !isReaderMode && (
         <MobileBottomBar
           pdfState={pdfState}
           signatureCount={signatures.length}

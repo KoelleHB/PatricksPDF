@@ -1,6 +1,6 @@
 {
   "name": "PatricksPDF",
-  "description": "Local, offline-ready tool for signing PDFs, adding customizable text overlays, filling form fields, and managing pages (adding, deleting, reordering, and rotating).",
+  "description": "Local, offline-ready tool for signing PDFs, adding customizable text overlays, filling form fields, managing pages, and distraction-free reading with text reflow and vertical scrolling.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
