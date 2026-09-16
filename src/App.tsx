@@ -50,6 +50,7 @@ export default function App() {
 
   // Save / unsaved changes tracking
   const [isSaved, setIsSaved] = useState(true);
+  const [hasPageModifications, setHasPageModifications] = useState(false);
   const markUnsaved = useCallback(() => {
     setIsSaved(false);
   }, []);
@@ -74,7 +75,7 @@ export default function App() {
 
   // Overall check: has user modified anything that has not been saved yet?
   const hasUnsavedChanges = Boolean(
-    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified) && !isSaved
+    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified || hasPageModifications) && !isSaved
   );
 
   // Browser beforeunload event listener (triggers browser's native leave confirmation)
@@ -154,6 +155,7 @@ export default function App() {
 
       setIsPasswordModalOpen(false);
       setPasswordPendingDoc(null);
+      setHasPageModifications(false);
       setIsSaved(true);
     } catch (err: any) {
       console.error('Error loading PDF file:', err);
@@ -486,6 +488,7 @@ export default function App() {
     });
     setFormFields([]);
     initialFormValuesRef.current = {};
+    setHasPageModifications(false);
     setIsSaved(true);
   };
 
@@ -588,6 +591,7 @@ export default function App() {
       nextCurrentPage
     );
 
+    setHasPageModifications(true);
     markUnsaved();
   };
 
@@ -599,6 +603,7 @@ export default function App() {
         hasDocument={!!pdfState}
         signatureCount={signatures.length}
         hasUnsavedChanges={hasUnsavedChanges}
+        hasPageModifications={hasPageModifications}
         onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
         onOpenSave={() => setIsSaveModalOpen(true)}
         onOpenPageManager={() => setIsPageManagerOpen(true)}
@@ -714,8 +719,12 @@ export default function App() {
           textOverlays={textOverlays}
           formValues={formValues}
           hasFormFields={formFields.length > 0}
+          hasPageModifications={hasPageModifications}
           onClose={() => setIsSaveModalOpen(false)}
-          onSaveSuccess={() => setIsSaved(true)}
+          onSaveSuccess={() => {
+            setIsSaved(true);
+            setHasPageModifications(false);
+          }}
         />
       )}
 

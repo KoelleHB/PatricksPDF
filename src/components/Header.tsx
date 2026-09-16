@@ -6,6 +6,7 @@ interface HeaderProps {
   hasDocument: boolean;
   signatureCount: number;
   hasUnsavedChanges?: boolean;
+  hasPageModifications?: boolean;
   onOpenSetupGuide: () => void;
   onOpenSave?: () => void;
   onOpenExport?: () => void;
@@ -19,6 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   hasDocument,
   signatureCount,
   hasUnsavedChanges = false,
+  hasPageModifications = false,
   onOpenSetupGuide,
   onOpenSave,
   onOpenExport,
@@ -70,7 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
             {hasDocument && (
               <div className="flex items-center gap-1.5 min-w-0">
                 <p className="text-xs text-slate-500 truncate max-w-[180px] sm:max-w-xs md:max-w-md">
-                  {documentName} {signatureCount > 0 && `• ${signatureCount} signature${signatureCount > 1 ? 's' : ''}`}
+                  {documentName} {signatureCount > 0 && `• ${signatureCount} signature${signatureCount > 1 ? 's' : ''}`} {hasPageModifications && '• Pages Modified'}
                 </p>
                 {hasUnsavedChanges ? (
                   <span
@@ -158,29 +160,36 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Manage Pages Button (Desktop) */}
+          {/* Manage Pages Button */}
           {hasDocument && onOpenPageManager && (
             <button
               id="header-pages-btn"
               onClick={onOpenPageManager}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition cursor-pointer"
-              title="Manage Pages: Add, delete, reorder, and rotate pages in 90° steps"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-xs sm:text-sm font-semibold text-slate-700 shadow-2xs transition cursor-pointer shrink-0"
+              title="Page Controls: Add, delete, reorder, and rotate pages in 90° steps"
             >
               <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
-              <span className="hidden sm:inline">Pages</span>
+              <span>Pages</span>
             </button>
           )}
 
-          {/* Save PDF Button (hidden on small screen where it's already in the mobile bottom bar) */}
+          {/* Save PDF Button */}
           {hasDocument && handleSaveClick && (
             <button
               id="header-save-btn"
               onClick={handleSaveClick}
-              className="hidden sm:flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-medium shadow-xs transition cursor-pointer"
-              title="Save signed PDF"
+              className={`hidden sm:flex items-center gap-1.5 px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-semibold shadow-xs transition cursor-pointer ${
+                hasUnsavedChanges
+                  ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white ring-2 ring-blue-400/50'
+                  : 'bg-slate-800 hover:bg-slate-900 text-white'
+              }`}
+              title={hasUnsavedChanges ? 'Save modified / signed PDF' : 'Save PDF'}
             >
-              <Download className="w-4 h-4 shrink-0" />
+              <Download className="w-4 h-4 shrink-0 text-emerald-300" />
               <span>Save PDF</span>
+              {hasUnsavedChanges && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+              )}
             </button>
           )}
         </div>

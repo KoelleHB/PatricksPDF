@@ -17,6 +17,7 @@ export interface SaveModalProps {
   textOverlays?: TextOverlayItem[];
   formValues?: FormValuesState;
   hasFormFields?: boolean;
+  hasPageModifications?: boolean;
   onClose: () => void;
   onSaveSuccess?: () => void;
   onExportSuccess?: () => void; // backwards-compatible alias
@@ -29,6 +30,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   textOverlays = [],
   formValues = {},
   hasFormFields = false,
+  hasPageModifications = false,
   onClose,
   onSaveSuccess,
   onExportSuccess,
@@ -146,6 +148,11 @@ export const SaveModal: React.FC<SaveModalProps> = ({
               <h3 className="text-base font-bold text-slate-900 leading-tight">
                 Save PDF
               </h3>
+              <p className="text-[11px] text-slate-500">
+                {hasPageModifications
+                  ? 'Includes your reorganized, rotated, or modified pages'
+                  : 'Embedded locally with ISO 32000-1 compliance'}
+              </p>
             </div>
           </div>
           <button
@@ -212,6 +219,14 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                   <div className="flex items-center justify-between text-xs text-slate-600">
                     <span>Form Fields:</span>
                     <span className="font-semibold text-blue-700">Native AcroForm Filled</span>
+                  </div>
+                )}
+                {hasPageModifications && (
+                  <div className="flex items-center justify-between text-xs text-slate-600">
+                    <span>Page Structure:</span>
+                    <span className="font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded text-[11px] border border-blue-200">
+                      Modified & Reorganized
+                    </span>
                   </div>
                 )}
                 <div className="flex items-center justify-between text-xs text-slate-600">

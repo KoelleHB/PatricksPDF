@@ -612,7 +612,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-10 overflow-x-auto no-scrollbar">
         {/* Page Switcher & Manage Pages Shortcut */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          <div className="flex items-center gap-0.5 sm:gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
             <button
               id="prev-page-btn"
               disabled={pdfState.currentPage <= 1 || isLoadingPage}
@@ -625,12 +625,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
             <button
               type="button"
+              id="page-indicator-btn"
               onClick={onOpenPageManager}
-              className="text-xs sm:text-sm font-semibold text-slate-700 px-1 sm:px-1.5 py-0.5 rounded-md hover:bg-slate-100 transition select-none whitespace-nowrap cursor-pointer"
-              title="Click to open Page Management overview"
+              className="text-xs sm:text-sm font-semibold text-slate-700 hover:text-blue-700 px-1 sm:px-1.5 py-0.5 rounded-md hover:bg-blue-50 transition select-none whitespace-nowrap cursor-pointer"
+              title="Click to open Page Management overview (Add, delete, rotate, or reorder pages)"
             >
               Page <span className="text-blue-600 font-mono font-bold">{pdfState.currentPage}</span> of{' '}
-              <span className="font-mono">{pdfState.numPages}</span>
+              <span className="font-mono font-bold">{pdfState.numPages}</span>
             </button>
 
             <button
@@ -644,13 +645,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             </button>
           </div>
 
-          {/* Manage Pages Desktop Button */}
+          {/* Manage Pages Button (visible on all screens & single or multi-page documents) */}
           {onOpenPageManager && (
             <button
               id="desktop-manage-pages-btn"
               onClick={onOpenPageManager}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold shadow-2xs transition cursor-pointer"
-              title="Manage Pages: Add, delete, reorder, and rotate pages in 90° steps"
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 active:bg-blue-200 text-blue-700 text-xs sm:text-sm font-semibold shadow-2xs transition cursor-pointer shrink-0"
+              title="Page Controls: Add, delete, reorder, and rotate pages in 90° steps"
             >
               <LayoutGrid className="w-4 h-4 text-blue-600 shrink-0" />
               <span>Pages</span>
