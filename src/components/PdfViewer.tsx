@@ -271,6 +271,146 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     return () => observer.disconnect();
   }, [pdfState.numPages]);
 
+  // Touch Pinch-to-Zoom, Safari Gestures, and Trackpad Ctrl+Wheel Zoom
+  const pinchRef = useRef<{
+    active: boolean;
+    startDist: number;
+    startZoom: number;
+    centerX: number;
+    centerY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  }>({
+    active: false,
+    startDist: 0,
+    startZoom: 100,
+    centerX: 0,
+    centerY: 0,
+    startScrollLeft: 0,
+    startScrollTop: 0,
+  });
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        // Two fingers: Pinch to zoom
+        e.preventDefault();
+        const p1 = e.touches[0];
+        const p2 = e.touches[1];
+        const dist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+        const midX = (p1.clientX + p2.clientX) / 2;
+        const midY = (p1.clientY + p2.clientY) / 2;
+        const rect = container.getBoundingClientRect();
+
+        pinchRef.current = {
+          active: true,
+          startDist: Math.max(10, dist),
+          startZoom: zoomLevelRef.current,
+          centerX: midX - rect.left,
+          centerY: midY - rect.top,
+          startScrollLeft: container.scrollLeft,
+          startScrollTop: container.scrollTop,
+        };
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current.active) {
+        e.preventDefault();
+        const p1 = e.touches[0];
+        const p2 = e.touches[1];
+        const dist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+        const scale = dist / pinchRef.current.startDist;
+        const newZoom = Math.min(
+          250,
+          Math.max(35, Math.round(pinchRef.current.startZoom * scale))
+        );
+
+        if (newZoom !== zoomLevelRef.current) {
+          const zoomRatio = newZoom / pinchRef.current.startZoom;
+          container.scrollLeft =
+            (pinchRef.current.startScrollLeft + pinchRef.current.centerX) * zoomRatio -
+            pinchRef.current.centerX;
+          container.scrollTop =
+            (pinchRef.current.startScrollTop + pinchRef.current.centerY) * zoomRatio -
+            pinchRef.current.centerY;
+          setZoomLevel(newZoom);
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        pinchRef.current.active = false;
+      }
+    };
+
+    // Trackpad pinch-to-zoom (emits wheel events with ctrlKey: true)
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const currentZoom = zoomLevelRef.current;
+        const factor = -e.deltaY * 0.4;
+        const newZoom = Math.min(250, Math.max(35, Math.round(currentZoom + factor)));
+        if (newZoom !== currentZoom) {
+          const rect = container.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          const zoomRatio = newZoom / currentZoom;
+          container.scrollLeft = (container.scrollLeft + mouseX) * zoomRatio - mouseX;
+          container.scrollTop = (container.scrollTop + mouseY) * zoomRatio - mouseY;
+          setZoomLevel(newZoom);
+        }
+      }
+    };
+
+    // Safari gestures
+    const handleGestureStart = (e: any) => {
+      e.preventDefault();
+      pinchRef.current.active = true;
+      pinchRef.current.startZoom = zoomLevelRef.current;
+    };
+
+    const handleGestureChange = (e: any) => {
+      e.preventDefault();
+      if (pinchRef.current.active) {
+        const newZoom = Math.min(
+          250,
+          Math.max(35, Math.round(pinchRef.current.startZoom * e.scale))
+        );
+        setZoomLevel(newZoom);
+      }
+    };
+
+    const handleGestureEnd = (e: any) => {
+      e.preventDefault();
+      pinchRef.current.active = false;
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchcancel', handleTouchEnd);
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    container.addEventListener('gesturestart', handleGestureStart as any, { passive: false });
+    container.addEventListener('gesturechange', handleGestureChange as any, { passive: false });
+    container.addEventListener('gestureend', handleGestureEnd as any, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('gesturestart', handleGestureStart as any);
+      container.removeEventListener('gesturechange', handleGestureChange as any);
+      container.removeEventListener('gestureend', handleGestureEnd as any);
+    };
+  }, []);
+
   // Spacebar pan detection
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -674,7 +814,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         ref={containerRef}
         onClick={handleContainerClick}
         onMouseDown={handleMouseDown}
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative select-none touch-auto scroll-smooth overscroll-contain ${
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative select-none touch-pan-x touch-pan-y overscroll-contain ${
+          pinchRef.current?.active ? 'scroll-auto' : 'scroll-smooth'
+        } ${
           isSpacePressed || isMousePanning ? (isMousePanning ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
         }`}
       >
