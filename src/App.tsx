@@ -12,7 +12,7 @@ import { MobileBottomBar } from './components/MobileBottomBar';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec } from './types';
 import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, clearThumbnailCache } from './utils/pdfEngine';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
-import { AlertCircle, X, Loader2 } from 'lucide-react';
+import { AlertCircle, X, Loader2, Share2, FileQuestion, HelpCircle } from 'lucide-react';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 
 export default function App() {
@@ -22,6 +22,13 @@ export default function App() {
     typeof window !== 'undefined' && window.location.search.includes('shared=true')
   );
   const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
+  const [shareIssueNotice, setShareIssueNotice] = useState<{
+    title: string;
+    message: string;
+    details?: any;
+  } | null>(null);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
+  const manualFileInputRef = useRef<HTMLInputElement>(null);
 
   // Native Form Fields metadata (structural fields from PDF)
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
@@ -199,11 +206,14 @@ export default function App() {
       return new Promise((resolve) => {
         if (!('indexedDB' in window)) return resolve(null);
         try {
-          const request = indexedDB.open('PatricksPDFSharedFilesDB', 1);
+          const request = indexedDB.open('PatricksPDFSharedFilesDB', 2);
           request.onupgradeneeded = (e: any) => {
             const db = e.target?.result;
             if (db && !db.objectStoreNames.contains('shared_files')) {
               db.createObjectStore('shared_files', { keyPath: 'id' });
+            }
+            if (db && !db.objectStoreNames.contains('share_diagnostics')) {
+              db.createObjectStore('share_diagnostics', { keyPath: 'id' });
             }
           };
           request.onsuccess = (e: any) => {
@@ -275,6 +285,66 @@ export default function App() {
       return null;
     };
 
+    // 3. Retrieve diagnostics from IndexedDB
+    const getDiagnosticsFromIDB = (): Promise<any> => {
+      return new Promise((resolve) => {
+        if (!('indexedDB' in window)) return resolve(null);
+        try {
+          const request = indexedDB.open('PatricksPDFSharedFilesDB', 2);
+          request.onsuccess = (e: any) => {
+            const db = e.target?.result;
+            if (!db || !db.objectStoreNames.contains('share_diagnostics')) {
+              db?.close();
+              return resolve(null);
+            }
+            try {
+              const tx = db.transaction('share_diagnostics', 'readonly');
+              const store = tx.objectStore('share_diagnostics');
+              const req = store.get('last_share_attempt');
+              req.onsuccess = () => {
+                const res = req.result;
+                db.close();
+                resolve(res || null);
+              };
+              req.onerror = () => {
+                db.close();
+                resolve(null);
+              };
+            } catch {
+              db.close();
+              resolve(null);
+            }
+          };
+          request.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+    };
+
+    const handleShareFailure = async (reason?: string) => {
+      if (isCancelled) return;
+      setIsReceivingSharedPdf(false);
+      const diag = await getDiagnosticsFromIDB();
+
+      let message = 'Android forwarded data to PatricksPDF, but Chrome did not provide a readable PDF file stream.';
+      if (reason === 'timeout_or_empty') {
+        message = 'The share request timed out or received an empty form payload from Android Chrome.';
+      } else if (reason === 'no_file_found') {
+        message = 'The shared intent contained text, URLs, or metadata, but no binary PDF file stream.';
+      }
+
+      setShareIssueNotice({
+        title: 'Shared PDF Transfer Incomplete',
+        message,
+        details: diag,
+      });
+
+      if (window.location.search.includes('shared')) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
     // Unified fetch attempt
     const retrieveAndOpenSharedFile = async (): Promise<boolean> => {
       if (isCancelled) return false;
@@ -289,9 +359,10 @@ export default function App() {
 
       if (file && !isCancelled) {
         setIsReceivingSharedPdf(false);
+        setShareIssueNotice(null);
         handleFileSelect(file);
 
-        if (window.location.search.includes('shared=true')) {
+        if (window.location.search.includes('shared')) {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
         return true;
@@ -299,13 +370,19 @@ export default function App() {
       return false;
     };
 
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('shared_status') === 'failed') {
+      const reason = searchParams.get('reason') || undefined;
+      handleShareFailure(reason);
+      return;
+    }
+
     // Trigger initial check immediately
     retrieveAndOpenSharedFile().then((found) => {
       if (!found) {
-        // Poll with repeated intervals to accommodate background SW storage completion
         const isSharedParamPresent = window.location.search.includes('shared=true');
         const delays = isSharedParamPresent
-          ? [100, 250, 500, 850, 1400, 2200, 3500]
+          ? [100, 250, 500, 850, 1400, 2200, 3200]
           : [150, 450, 1200];
 
         delays.forEach((delay, idx) => {
@@ -314,7 +391,11 @@ export default function App() {
             if (ok) {
               pollTimeouts.forEach((t) => clearTimeout(t));
             } else if (idx === delays.length - 1) {
-              setIsReceivingSharedPdf(false);
+              if (isSharedParamPresent) {
+                handleShareFailure('no_file_found');
+              } else {
+                setIsReceivingSharedPdf(false);
+              }
             }
           }, delay);
           pollTimeouts.push(tid);
@@ -356,6 +437,10 @@ export default function App() {
 
   // Listen for file launch requests from OS (PWA File Handling API "Open With")
   useEffect(() => {
+    if (window.location.pathname === '/openFile' || window.location.pathname === '/openFile/') {
+      window.history.replaceState({}, document.title, '/');
+    }
+
     if ('launchQueue' in window && typeof (window as any).launchQueue?.setConsumer === 'function') {
       (window as any).launchQueue.setConsumer(async (launchParams: any) => {
         if (!launchParams?.files || launchParams.files.length === 0) return;
@@ -817,6 +902,47 @@ export default function App() {
         </div>
       )}
 
+      {/* Shared PDF Issue Notification Banner */}
+      {shareIssueNotice && (
+        <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-3 text-amber-900 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <Share2 className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <span className="font-semibold">{shareIssueNotice.title}: </span>
+                <span>{shareIssueNotice.message}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => manualFileInputRef.current?.click()}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-medium text-xs rounded-lg transition shadow-xs flex items-center gap-1.5"
+              >
+                <FileQuestion className="w-3.5 h-3.5" />
+                Select File Manually
+              </button>
+              {shareIssueNotice.details && (
+                <button
+                  type="button"
+                  onClick={() => setShowDiagnosticsModal(true)}
+                  className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs rounded-lg transition font-medium"
+                >
+                  Diagnostics
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShareIssueNotice(null)}
+                className="p-1 rounded text-amber-700 hover:text-amber-950 hover:bg-amber-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Workspace */}
       <main className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
         {(isLoadingPdf || isReceivingSharedPdf) && (
@@ -978,6 +1104,70 @@ export default function App() {
           setIsSaveModalOpen(true);
         }}
       />
+
+      {/* Hidden manual file input for direct fallback */}
+      <input
+        ref={manualFileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            handleFileSelect(file);
+            setShareIssueNotice(null);
+          }
+          e.target.value = '';
+        }}
+      />
+
+      {/* Technical Diagnostics Modal */}
+      {showDiagnosticsModal && shareIssueNotice && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 flex flex-col gap-4 max-h-[85vh] overflow-hidden">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-slate-700" />
+                <h3 className="font-semibold text-slate-900 text-sm">Android Share Technical Diagnostic</h3>
+              </div>
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="text-xs text-slate-600 space-y-2">
+              <p>
+                When sharing from Android, native PDF readers receive direct operating system streams (<code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800">ACTION_VIEW</code> / <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800">content://</code> URIs).
+              </p>
+              <p>
+                PWAs running in Chrome rely on the Web Share Target API which packages the intent into an HTTP POST request. Below is the exact data captured by the Service Worker:
+              </p>
+            </div>
+            <div className="bg-slate-900 text-slate-200 font-mono text-[11px] p-3 rounded-xl overflow-auto flex-1 max-h-56">
+              <pre>{JSON.stringify(shareIssueNotice.details, null, 2)}</pre>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowDiagnosticsModal(false);
+                  manualFileInputRef.current?.click();
+                }}
+                className="px-4 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+              >
+                Choose PDF Manually
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
