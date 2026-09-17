@@ -40,7 +40,7 @@ export default defineConfig(() => {
           },
           file_handlers: [
             {
-              action: '/',
+              action: '/openFile',
               accept: {
                 'application/pdf': ['.pdf'],
               },
