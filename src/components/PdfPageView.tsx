@@ -11,6 +11,7 @@ import {
   renderPdfPageToCanvas,
   cancelCanvasRender,
   extractPageLinks,
+  renderPdfTextLayer,
 } from '../utils/pdfEngine';
 import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
@@ -75,6 +76,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
 
   const [isNearViewport, setIsNearViewport] = useState<boolean>(false);
   const [isRendered, setIsRendered] = useState<boolean>(false);
@@ -108,7 +110,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     return () => observer.disconnect();
   }, []);
 
-  // Render canvas and extract links when near viewport or when arrayBuffer/zoom changes
+  // Render canvas, selectable text layer, and extract links when near viewport or when arrayBuffer/zoom changes
   useEffect(() => {
     if (!isNearViewport || !arrayBuffer || !canvasRef.current) return;
 
@@ -131,6 +133,15 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         }
       });
 
+    // Render selectable & markable text layer for copying and selection
+    if (textLayerRef.current) {
+      renderPdfTextLayer(arrayBuffer, pageNumber, textLayerRef.current, pageWidth).catch((err) => {
+        if (!isCancelled) {
+          console.warn(`Failed to render text layer for page ${pageNumber}:`, err);
+        }
+      });
+    }
+
     // Extract link annotations
     extractPageLinks(arrayBuffer, pageNumber).then((extractedLinks) => {
       if (!isCancelled) {
@@ -143,8 +154,11 @@ export const PdfPageView = memo<PdfPageViewProps>(({
       if (canvas) {
         cancelCanvasRender(canvas);
       }
+      if (textLayerRef.current) {
+        textLayerRef.current.innerHTML = '';
+      }
     };
-  }, [isNearViewport, arrayBuffer, pageNumber, zoomLevel]);
+  }, [isNearViewport, arrayBuffer, pageNumber, zoomLevel, pageWidth]);
 
   return (
     <div
@@ -155,7 +169,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         width: `${pageWidth}px`,
         height: `${pageHeight}px`,
       }}
-      className={`relative bg-white rounded shadow-md border origin-top shrink-0 select-none transition-shadow ${
+      className={`relative bg-white rounded shadow-md border origin-top shrink-0 transition-shadow ${
         isCurrentPage
           ? 'border-blue-400/80 shadow-lg ring-1 ring-blue-500/20'
           : 'border-slate-300 shadow-sm'
@@ -173,7 +187,18 @@ export const PdfPageView = memo<PdfPageViewProps>(({
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%' }}
-        className="block rounded"
+        className="block rounded pointer-events-none"
+      />
+
+      {/* Selectable & Markable Text Layer for text copying, marking, and selection */}
+      <div
+        ref={textLayerRef}
+        className="textLayer select-text"
+        style={{
+          width: `${pageWidth}px`,
+          height: `${pageHeight}px`,
+        }}
+        aria-hidden="false"
       />
 
       {/* Internal & External Link Annotations Layer */}

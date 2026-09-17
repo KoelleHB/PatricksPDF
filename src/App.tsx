@@ -26,6 +26,7 @@ export default function App() {
     title: string;
     message: string;
     details?: any;
+    attemptedFile?: string;
   } | null>(null);
   const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
   const manualFileInputRef = useRef<HTMLInputElement>(null);
@@ -322,7 +323,7 @@ export default function App() {
       });
     };
 
-    const handleShareFailure = async (reason?: string) => {
+    const handleShareFailure = async (reason?: string, attemptedFile?: string) => {
       if (isCancelled) return;
       setIsReceivingSharedPdf(false);
       const diag = await getDiagnosticsFromIDB();
@@ -331,13 +332,18 @@ export default function App() {
       if (reason === 'timeout_or_empty') {
         message = 'The share request timed out or received an empty form payload from Android Chrome.';
       } else if (reason === 'no_file_found') {
-        message = 'The shared intent contained text, URLs, or metadata, but no binary PDF file stream.';
+        if (attemptedFile) {
+          message = `Android shared "${attemptedFile}", but the app you shared from (e.g. Google Drive or cloud viewer) provided only the title or link instead of binary file bytes. (Tip: In Google Drive, choose "Send a copy" -> "Share" to send full file bytes).`;
+        } else {
+          message = 'The shared intent contained text, URLs, or metadata, but no binary PDF file stream. (Tip: When sharing from Google Drive or cloud storage, choose "Send a copy" instead of "Share link").';
+        }
       }
 
       setShareIssueNotice({
-        title: 'Shared PDF Transfer Incomplete',
+        title: attemptedFile ? `Shared File: ${attemptedFile}` : 'Shared PDF Transfer Incomplete',
         message,
         details: diag,
+        attemptedFile,
       });
 
       if (window.location.search.includes('shared')) {
@@ -373,7 +379,8 @@ export default function App() {
     const searchParams = new URLSearchParams(window.location.search);
     if (searchParams.get('shared_status') === 'failed') {
       const reason = searchParams.get('reason') || undefined;
-      handleShareFailure(reason);
+      const attemptedFile = searchParams.get('attempted_file') || undefined;
+      handleShareFailure(reason, attemptedFile);
       return;
     }
 
@@ -917,10 +924,14 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => manualFileInputRef.current?.click()}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-medium text-xs rounded-lg transition shadow-xs flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium text-xs rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <FileQuestion className="w-3.5 h-3.5" />
-                Select File Manually
+                <span>
+                  {shareIssueNotice.attemptedFile
+                    ? `Pick ${shareIssueNotice.attemptedFile}`
+                    : 'Select File Manually'}
+                </span>
               </button>
               {shareIssueNotice.details && (
                 <button

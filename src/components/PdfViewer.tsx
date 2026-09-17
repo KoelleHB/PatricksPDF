@@ -31,6 +31,7 @@ import {
 } from '../utils/pdfEngine';
 import { PdfPageView } from './PdfPageView';
 import { TableOfContentsDrawer } from './TableOfContentsDrawer';
+import { TextSelectionToolbar } from './TextSelectionToolbar';
 
 interface PdfViewerProps {
   pdfState: PdfDocumentState;
@@ -965,6 +966,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         currentPage={pdfState.currentPage}
         onSelectPage={(targetPage) => scrollToPage(targetPage)}
       />
+
+      {/* Floating Toolbar for Selected/Marked Text */}
+      <TextSelectionToolbar />
     </div>
   );
 };

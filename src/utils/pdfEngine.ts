@@ -282,6 +282,57 @@ export async function renderPdfPageToCanvas(
   }
 }
 
+/**
+ * Renders the selectable text layer for a PDF page into a target container div.
+ * Enables user text marking, cursor selection, dragging, and standard clipboard copying.
+ */
+export async function renderPdfTextLayer(
+  data: ArrayBuffer,
+  pageNumber: number,
+  container: HTMLDivElement,
+  targetWidth: number
+): Promise<any> {
+  if (!container || !data) return null;
+
+  try {
+    const pdfDoc = await loadPdfJsDoc(data);
+    const page = await pdfDoc.getPage(pageNumber);
+
+    const baseViewport = page.getViewport({ scale: 1.0 });
+    const scale = targetWidth / baseViewport.width;
+    const viewport = page.getViewport({ scale });
+
+    // Reset container contents
+    container.innerHTML = '';
+    container.style.width = `${Math.round(viewport.width)}px`;
+    container.style.height = `${Math.round(viewport.height)}px`;
+
+    const textContent = await page.getTextContent();
+
+    if ((pdfjsLib as any).TextLayer) {
+      const textLayer = new (pdfjsLib as any).TextLayer({
+        textContentSource: textContent,
+        container,
+        viewport,
+      });
+      await textLayer.render();
+      return textLayer;
+    } else if (typeof (pdfjsLib as any).renderTextLayer === 'function') {
+      const task = (pdfjsLib as any).renderTextLayer({
+        textContentSource: textContent,
+        container,
+        viewport,
+      });
+      await task.promise;
+      return task;
+    }
+  } catch (err: any) {
+    if (err?.name !== 'RenderingCancelledException') {
+      console.warn(`[TextLayer] Render warning for page ${pageNumber}:`, err);
+    }
+    return null;
+  }
+}
 
 /**
  * Calculates the exact PDF image coordinates, bounding box, and rotation angle

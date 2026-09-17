@@ -162,6 +162,31 @@ self.addEventListener('fetch', (event) => {
             }
           }
 
+          // 4. If no binary file was sent, check if a downloadable URL was passed
+          const potentialUrl = formData.get('url') || (typeof formData.get('text') === 'string' && formData.get('text').startsWith('http') ? formData.get('text').trim() : null);
+          if (!targetItem && potentialUrl && typeof potentialUrl === 'string') {
+            try {
+              const fetchRes = await timeoutPromise(fetch(potentialUrl), 3500, null);
+              if (fetchRes && fetchRes.ok) {
+                const fetchedBlob = await fetchRes.blob();
+                if (fetchedBlob && fetchedBlob.size > 0) {
+                  targetItem = fetchedBlob;
+                  try {
+                    const urlPath = new URL(potentialUrl).pathname;
+                    const lastSegment = urlPath.split('/').pop();
+                    if (lastSegment && lastSegment.toLowerCase().endsWith('.pdf')) {
+                      targetFileName = decodeURIComponent(lastSegment);
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }
+              }
+            } catch (fetchErr) {
+              console.warn('[SW Share Target] URL fetch attempt error:', fetchErr);
+            }
+          }
+
           if (targetItem) {
             const arrayBuffer = await targetItem.arrayBuffer();
             const mimeType = targetItem.type || 'application/pdf';
@@ -224,7 +249,10 @@ self.addEventListener('fetch', (event) => {
               reason: 'no_binary_file_in_formData',
               entries: entriesSummary,
             });
-            redirectUrl = new URL('/?shared_status=failed&reason=no_file_found', self.location.origin).href;
+            redirectUrl = new URL(
+              `/?shared_status=failed&reason=no_file_found&attempted_file=${encodeURIComponent(targetFileName)}`,
+              self.location.origin
+            ).href;
           }
         } catch (err) {
           console.error('[SW Share Target] Error processing shared PDF request:', err);

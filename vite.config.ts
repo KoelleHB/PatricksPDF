@@ -33,7 +33,15 @@ export default defineConfig(() => {
               files: [
                 {
                   name: 'pdfFile',
-                  accept: ['application/pdf', '.pdf'],
+                  accept: [
+                    'application/pdf',
+                    'application/x-pdf',
+                    'application/acrobat',
+                    'applications/vnd.pdf',
+                    'text/pdf',
+                    'application/octet-stream',
+                    '.pdf',
+                  ],
                 },
               ],
             },
