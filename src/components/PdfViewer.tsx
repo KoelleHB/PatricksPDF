@@ -107,10 +107,44 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainersRef = useRef<{ [pageNum: number]: HTMLDivElement | null }>({});
 
-  const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [renderedDimensions, setRenderedDimensions] = useState<{ width: number; height: number }>({
     width: pdfState.pageWidth || 595,
     height: pdfState.pageHeight || 842,
+  });
+
+  // Calculate fit-width zoom percentage based on current container or window width
+  const calculateFitWidthZoom = useCallback(
+    (customWidth?: number) => {
+      const container = containerRef.current;
+      const clientWidth =
+        customWidth || (container && container.clientWidth > 0 ? container.clientWidth : window.innerWidth);
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+      // Account for container padding (p-4 = 32px on mobile, p-8 = 64px on desktop) + comfortable breathing room
+      const horizontalMargin = isMobile ? 32 : 72;
+      const availableWidth = clientWidth - horizontalMargin;
+      const baseWidth = pdfState.pageWidth || renderedDimensions.width || 595;
+
+      if (availableWidth > 0 && baseWidth > 0) {
+        const calculated = Math.round((availableWidth / baseWidth) * 100);
+        return Math.min(250, Math.max(35, calculated));
+      }
+      return 100;
+    },
+    [pdfState.pageWidth, renderedDimensions.width]
+  );
+
+  // Always open in "fit width" mode by default
+  const [isFitWidthMode, setIsFitWidthMode] = useState<boolean>(true);
+  const [zoomLevel, setZoomLevel] = useState<number>(() => {
+    if (typeof window === 'undefined') return 100;
+    const isMobile = window.innerWidth < 640;
+    const horizontalMargin = isMobile ? 32 : 72;
+    const availableWidth = window.innerWidth - horizontalMargin;
+    const baseWidth = pdfState.pageWidth || 595;
+    if (availableWidth > 0 && baseWidth > 0) {
+      return Math.min(250, Math.max(35, Math.round((availableWidth / baseWidth) * 100)));
+    }
+    return 100;
   });
 
   // Table of Contents state
@@ -137,6 +171,52 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onChangePageRef.current = onChangePage;
 
   const isScrollingProgrammaticallyRef = useRef(false);
+
+  // Automatically reset to "fit width" mode whenever a new file is opened
+  const lastOpenedDocRef = useRef<string>('');
+  useEffect(() => {
+    const docId = pdfState.name || String(pdfState.arrayBuffer?.byteLength || '');
+    if (!docId) return;
+
+    if (lastOpenedDocRef.current !== docId) {
+      lastOpenedDocRef.current = docId;
+      setIsFitWidthMode(true);
+
+      if (pdfState.pageWidth && pdfState.pageHeight) {
+        setRenderedDimensions({
+          width: pdfState.pageWidth,
+          height: pdfState.pageHeight,
+        });
+      }
+
+      // Immediately apply fit-width zoom
+      const initialFit = calculateFitWidthZoom();
+      setZoomLevel(initialFit);
+
+      // Re-measure after layout has rendered to ensure exact pixel fit
+      const timer = setTimeout(() => {
+        const measuredFit = calculateFitWidthZoom();
+        if (measuredFit) {
+          setZoomLevel(measuredFit);
+        }
+      }, 60);
+
+      return () => clearTimeout(timer);
+    }
+  }, [pdfState.name, pdfState.arrayBuffer, pdfState.pageWidth, pdfState.pageHeight, calculateFitWidthZoom]);
+
+  // Keep view fitted to width on screen resize or mobile rotation if fit-width mode is active
+  useEffect(() => {
+    if (!isFitWidthMode) return;
+
+    const handleResize = () => {
+      const fitZoom = calculateFitWidthZoom();
+      setZoomLevel(fitZoom);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isFitWidthMode, calculateFitWidthZoom]);
 
   // Mouse pan state
   const [isMousePanning, setIsMousePanning] = useState<boolean>(false);
@@ -331,6 +411,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         );
 
         if (newZoom !== zoomLevelRef.current) {
+          setIsFitWidthMode(false);
           const zoomRatio = newZoom / pinchRef.current.startZoom;
           container.scrollLeft =
             (pinchRef.current.startScrollLeft + pinchRef.current.centerX) * zoomRatio -
@@ -357,6 +438,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         const factor = -e.deltaY * 0.4;
         const newZoom = Math.min(250, Math.max(35, Math.round(currentZoom + factor)));
         if (newZoom !== currentZoom) {
+          setIsFitWidthMode(false);
           const rect = container.getBoundingClientRect();
           const mouseX = e.clientX - rect.left;
           const mouseY = e.clientY - rect.top;
@@ -378,6 +460,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     const handleGestureChange = (e: any) => {
       e.preventDefault();
       if (pinchRef.current.active) {
+        setIsFitWidthMode(false);
         const newZoom = Math.min(
           250,
           Math.max(35, Math.round(pinchRef.current.startZoom * e.scale))
@@ -500,21 +583,29 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   }, [isMousePanning]);
 
   // Zoom helpers
-  const handleZoomIn = () => setZoomLevel((prev) => Math.min(250, prev + 20));
-  const handleZoomOut = () => setZoomLevel((prev) => Math.max(35, prev - 20));
-  const handleResetZoom = () => setZoomLevel(100);
+  const handleZoomIn = () => {
+    setIsFitWidthMode(false);
+    setZoomLevel((prev) => Math.min(250, prev + 20));
+  };
+
+  const handleZoomOut = () => {
+    setIsFitWidthMode(false);
+    setZoomLevel((prev) => Math.max(35, prev - 20));
+  };
+
+  const handleResetZoom = () => {
+    setIsFitWidthMode(false);
+    setZoomLevel(100);
+  };
 
   const handleFitWidth = () => {
-    if (!containerRef.current) return;
-    const padding = 48;
-    const availableWidth = containerRef.current.clientWidth - padding;
-    if (availableWidth > 0 && renderedDimensions.width > 0) {
-      const calculatedZoom = Math.round((availableWidth / renderedDimensions.width) * 100);
-      setZoomLevel(Math.min(200, Math.max(35, calculatedZoom)));
-    }
+    setIsFitWidthMode(true);
+    const fitZoom = calculateFitWidthZoom();
+    setZoomLevel(fitZoom);
   };
 
   const handleFitPage = () => {
+    setIsFitWidthMode(false);
     if (!containerRef.current) return;
     const padding = 64;
     const availableHeight = containerRef.current.clientHeight - padding;
@@ -580,8 +671,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             </button>
             <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
             <button
+              id="viewer-fit-width-btn"
               onClick={handleFitWidth}
-              className="px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 transition whitespace-nowrap cursor-pointer"
+              className={`px-1.5 py-0.5 rounded-md text-[11px] transition whitespace-nowrap cursor-pointer ${
+                isFitWidthMode
+                  ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                  : 'text-slate-600 hover:bg-white hover:shadow-xs hover:text-slate-900 font-medium'
+              }`}
               title="Fit Page Width to Screen"
             >
               Fit Width
