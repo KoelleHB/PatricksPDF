@@ -36,10 +36,6 @@ export default defineConfig(() => {
                   accept: [
                     'application/pdf',
                     'application/x-pdf',
-                    'application/acrobat',
-                    'applications/vnd.pdf',
-                    'text/pdf',
-                    'application/octet-stream',
                     '.pdf',
                   ],
                 },
