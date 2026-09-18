@@ -14,7 +14,11 @@ import {
   FileImage,
 } from 'lucide-react';
 import { TransparencyOptions, SignatureItem } from '../types';
-import { removeWhiteBackground, ProcessedImageResult } from '../utils/imageProcessor';
+import {
+  removeWhiteBackground,
+  detectImageHasTransparency,
+  ProcessedImageResult,
+} from '../utils/imageProcessor';
 import { HandwrittenSignaturePad } from './HandwrittenSignaturePad';
 
 interface SignatureModalProps {
@@ -35,9 +39,11 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const [signatureName, setSignatureName] = useState<string>('Signature');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processedResult, setProcessedResult] = useState<ProcessedImageResult | null>(null);
+  const [isDetectedTransparent, setIsDetectedTransparent] = useState<boolean>(false);
 
   // Transparency adjustment options
   const [options, setOptions] = useState<TransparencyOptions>({
+    mode: 'remove-white',
     threshold: 230,
     feather: 4,
     inkMode: 'preserve',
@@ -48,7 +54,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const [drawnResult, setDrawnResult] = useState<ProcessedImageResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Process white background removal whenever rawImageSrc or options change
+  // Process image whenever rawImageSrc or options change
   useEffect(() => {
     if (!rawImageSrc) return;
 
@@ -82,11 +88,22 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       if (typeof event.target?.result === 'string') {
-        setRawImageSrc(event.target.result);
+        const dataUrl = event.target.result;
+        setRawImageSrc(dataUrl);
         setSignatureName(file.name.replace(/\.[^/.]+$/, ''));
         setActiveTab('upload');
+
+        // Check if uploaded file is already a transparent PNG / image
+        const hasTrans = await detectImageHasTransparency(dataUrl);
+        setIsDetectedTransparent(hasTrans);
+
+        // If it's already transparent, default mode to 'as-is' so it inserts cleanly!
+        setOptions((prev) => ({
+          ...prev,
+          mode: hasTrans ? 'as-is' : 'remove-white',
+        }));
       }
     };
     reader.readAsDataURL(file);
@@ -122,10 +139,10 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
-                Add Signature & Make Background Transparent
+                Add Signature
               </h2>
               <p className="text-xs text-slate-500">
-                Removes white paper background and converts signature to high-res transparent PNG
+                Upload transparent PNG signatures directly as-is, or remove paper backgrounds from photos
               </p>
             </div>
           </div>
@@ -148,7 +165,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>Upload JPG Photo</span>
+            <span>Upload Image / Photo</span>
           </button>
           <button
             onClick={() => setActiveTab('draw')}
@@ -183,10 +200,10 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-800">
-                  Tap to choose a signature JPG from your phone
+                  Tap to choose a signature PNG or JPG
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Takes any photo or scan of a signature on white paper
+                  Supports already transparent PNGs, digital stamps, or photos on white paper
                 </p>
               </div>
             </div>
@@ -238,10 +255,10 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
           {activeTab === 'upload' && !rawImageSrc && (
             <div className="py-6 px-4 text-center rounded-xl bg-slate-50 border border-slate-200">
               <p className="text-xs sm:text-sm font-medium text-slate-700">
-                Select or drag an image of your signature above
+                Select or drag a signature image above
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
-                The white paper background will be automatically removed to produce a clean transparent signature.
+                Already transparent PNG files are inserted as-is. Photos of paper signatures will have their white background removed.
               </p>
             </div>
           )}
@@ -249,39 +266,99 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
           {/* Before & After Interactive Preview for upload tab */}
           {activeTab === 'upload' && rawImageSrc && (
             <div className="space-y-3 pt-2 border-t border-slate-100">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  White Removal Live Preview
-                </span>
-                {isProcessing && (
-                  <span className="text-xs text-blue-600 flex items-center gap-1">
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                    Updating...
+              {/* Mode Toggle: Insert As-Is vs Remove White Paper Background */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Insertion Mode
                   </span>
-                )}
+                  {isProcessing && (
+                    <span className="text-xs text-blue-600 flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Updating...
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setOptions((prev) => ({ ...prev, mode: 'as-is' }))}
+                    className={`py-2 px-2.5 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      options.mode === 'as-is'
+                        ? 'bg-white text-blue-700 font-bold shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <FileImage className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="truncate">Insert As-Is (Original)</span>
+                    {isDetectedTransparent && (
+                      <span className="hidden sm:inline-block px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold">
+                        Transparent
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setOptions((prev) => ({ ...prev, mode: 'remove-white' }))}
+                    className={`py-2 px-2.5 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                      options.mode !== 'as-is'
+                        ? 'bg-white text-blue-700 font-bold shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                    <span className="truncate">Remove White Paper</span>
+                  </button>
+                </div>
               </div>
 
+              {/* Preview Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Original (White Background) */}
+                {/* Original Source */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
-                    <span>Original (White JPG)</span>
-                    <span className="px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded text-[10px]">Solid White</span>
+                    <span>Source Image</span>
+                    <span className={`px-1.5 py-0.2 rounded text-[10px] ${
+                      isDetectedTransparent
+                        ? 'bg-emerald-100 text-emerald-800 font-medium'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {isDetectedTransparent ? 'Transparent PNG' : 'Original Photo'}
+                    </span>
                   </div>
-                  <div className="h-32 bg-white rounded-xl border border-slate-200 p-2 flex items-center justify-center overflow-hidden shadow-inner">
+                  <div
+                    className="h-32 rounded-xl border border-slate-200 p-2 flex items-center justify-center overflow-hidden shadow-inner relative"
+                    style={{
+                      backgroundImage: `
+                        linear-gradient(45deg, #f1f5f9 25%, transparent 25%), 
+                        linear-gradient(-45deg, #f1f5f9 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #f1f5f9 75%), 
+                        linear-gradient(-45deg, transparent 75%, #f1f5f9 75%)
+                      `,
+                      backgroundSize: '14px 14px',
+                      backgroundPosition: '0 0, 0 7px, 7px -7px, -7px 0px',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
                     <img
                       src={rawImageSrc}
-                      alt="Original"
+                      alt="Original Source"
                       className="max-h-full max-w-full object-contain"
                     />
                   </div>
                 </div>
 
-                {/* Processed (Transparent Checkerboard) */}
+                {/* Processed / As-Is Result */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
-                    <span className="text-emerald-700 font-bold">Transparent Result (PNG)</span>
-                    <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[10px]">Transparent</span>
+                    <span className="text-emerald-700 font-bold">
+                      {options.mode === 'as-is' ? 'Ready to Insert (As-Is)' : 'Transparent Result (PNG)'}
+                    </span>
+                    <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[10px] font-medium">
+                      {options.mode === 'as-is' ? 'Preserved' : 'Transparent'}
+                    </span>
                   </div>
                   {/* Checkerboard Pattern for transparent background visualization */}
                   <div
@@ -301,7 +378,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                     {processedResult ? (
                       <img
                         src={processedResult.transparentDataUrl}
-                        alt="Transparent Preview"
+                        alt="Signature Preview"
                         className="max-h-full max-w-full object-contain drop-shadow-sm"
                       />
                     ) : (
@@ -311,114 +388,141 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 </div>
               </div>
 
-              {/* Fine-Tuning Controls */}
-              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
-                  <span className="flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-blue-600" />
-                    White Removal Sensitivity & Ink Tuning
-                  </span>
-                  <button
-                    onClick={() =>
-                      setOptions({
-                        threshold: 230,
-                        feather: 4,
-                        inkMode: 'preserve',
-                        autoCrop: true,
-                      })
-                    }
-                    className="text-[11px] text-blue-600 hover:underline"
-                  >
-                    Reset Defaults
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  {/* Threshold Slider */}
-                  <div>
-                    <div className="flex justify-between text-[11px] text-slate-600 mb-1">
-                      <span>White Removal Threshold</span>
-                      <span className="font-mono font-bold text-slate-900">{options.threshold}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={180}
-                      max={254}
-                      value={options.threshold}
-                      onChange={(e) =>
-                        setOptions({ ...options, threshold: Number(e.target.value) })
-                      }
-                      className="w-full accent-blue-600 cursor-pointer"
-                    />
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Increase if paper shadows remain; decrease if pen ink gets erased.
-                    </p>
+              {/* Mode-Specific Controls */}
+              {options.mode === 'as-is' ? (
+                /* As-Is Mode Configuration */
+                <div className="bg-blue-50/60 border border-blue-200/80 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-blue-900">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>
+                      {isDetectedTransparent
+                        ? 'Transparent PNG detected: will insert as-is with 100% of original transparency and quality.'
+                        : 'Inserting image as-is without white removal processing.'}
+                    </span>
                   </div>
-
-                  {/* Feather Slider */}
-                  <div>
-                    <div className="flex justify-between text-[11px] text-slate-600 mb-1">
-                      <span>Edge Softness / Feather</span>
-                      <span className="font-mono font-bold text-slate-900">{options.feather}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={16}
-                      value={options.feather}
-                      onChange={(e) =>
-                        setOptions({ ...options, feather: Number(e.target.value) })
-                      }
-                      className="w-full accent-blue-600 cursor-pointer"
-                    />
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Smooths stroke boundaries to avoid harsh pixel edges.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Ink Mode and Auto-Crop */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-600 text-[11px] font-medium">Ink Enhancement:</span>
-                    <div className="inline-flex rounded-lg border border-slate-300 p-0.5 bg-white">
-                      {(
-                        [
-                          { id: 'preserve', label: 'Original' },
-                          { id: 'darken', label: 'Darken' },
-                          { id: 'blue-ink', label: 'Blue Ink' },
-                          { id: 'black-ink', label: 'Black Ink' },
-                        ] as const
-                      ).map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => setOptions({ ...options, inkMode: m.id })}
-                          className={`px-2 py-0.5 rounded-md text-[11px] transition ${
-                            options.inkMode === m.id
-                              ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] text-slate-700 font-medium">
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] font-medium text-slate-800 shrink-0 bg-white/80 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs">
                     <input
                       type="checkbox"
                       checked={options.autoCrop}
                       onChange={(e) =>
                         setOptions({ ...options, autoCrop: e.target.checked })
                       }
-                      className="rounded text-blue-600 focus:ring-blue-500"
+                      className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                     />
-                    <span>Trim empty white margins</span>
+                    <span>Trim outer empty margins</span>
                   </label>
                 </div>
-              </div>
+              ) : (
+                /* White Removal Fine-Tuning Controls */
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                    <span className="flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-blue-600" />
+                      White Removal Sensitivity & Ink Tuning
+                    </span>
+                    <button
+                      onClick={() =>
+                        setOptions({
+                          mode: 'remove-white',
+                          threshold: 230,
+                          feather: 4,
+                          inkMode: 'preserve',
+                          autoCrop: true,
+                        })
+                      }
+                      className="text-[11px] text-blue-600 hover:underline cursor-pointer"
+                    >
+                      Reset Defaults
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    {/* Threshold Slider */}
+                    <div>
+                      <div className="flex justify-between text-[11px] text-slate-600 mb-1">
+                        <span>White Removal Threshold</span>
+                        <span className="font-mono font-bold text-slate-900">{options.threshold}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={180}
+                        max={254}
+                        value={options.threshold}
+                        onChange={(e) =>
+                          setOptions({ ...options, threshold: Number(e.target.value) })
+                        }
+                        className="w-full accent-blue-600 cursor-pointer"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Increase if paper shadows remain; decrease if pen ink gets erased.
+                      </p>
+                    </div>
+
+                    {/* Feather Slider */}
+                    <div>
+                      <div className="flex justify-between text-[11px] text-slate-600 mb-1">
+                        <span>Edge Softness / Feather</span>
+                        <span className="font-mono font-bold text-slate-900">{options.feather}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={16}
+                        value={options.feather}
+                        onChange={(e) =>
+                          setOptions({ ...options, feather: Number(e.target.value) })
+                        }
+                        className="w-full accent-blue-600 cursor-pointer"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Smooths stroke boundaries to avoid harsh pixel edges.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Ink Mode and Auto-Crop */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-600 text-[11px] font-medium">Ink Enhancement:</span>
+                      <div className="inline-flex rounded-lg border border-slate-300 p-0.5 bg-white">
+                        {(
+                          [
+                            { id: 'preserve', label: 'Original' },
+                            { id: 'darken', label: 'Darken' },
+                            { id: 'blue-ink', label: 'Blue Ink' },
+                            { id: 'black-ink', label: 'Black Ink' },
+                          ] as const
+                        ).map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setOptions({ ...options, inkMode: m.id })}
+                            className={`px-2 py-0.5 rounded-md text-[11px] transition cursor-pointer ${
+                              options.inkMode === m.id
+                                ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] text-slate-700 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={options.autoCrop}
+                        onChange={(e) =>
+                          setOptions({ ...options, autoCrop: e.target.checked })
+                        }
+                        className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <span>Trim empty white margins</span>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

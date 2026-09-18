@@ -24,13 +24,15 @@ export interface SignatureItem {
 }
 
 export interface TransparencyOptions {
+  /** Mode: 'as-is' to insert image directly without white background removal, 'remove-white' to remove paper background */
+  mode?: 'remove-white' | 'as-is';
   /** Threshold for detecting white background (0-255, typically 210-250) */
   threshold: number;
   /** Feather softness for edge anti-aliasing (0 to 50) */
   feather: number;
   /** Ink enhancement mode */
   inkMode: 'preserve' | 'darken' | 'blue-ink' | 'black-ink';
-  /** Whether to automatically crop away excessive white padding around the signature */
+  /** Whether to automatically crop away excessive padding around the signature */
   autoCrop: boolean;
 }
 

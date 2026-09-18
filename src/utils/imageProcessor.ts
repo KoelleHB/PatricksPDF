@@ -42,12 +42,137 @@ export function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 /**
- * Removes white background from a signature JPG/PNG and returns a transparent PNG
+ * Detects if an image source already contains transparency (e.g. transparent PNG or WebP)
+ */
+export async function detectImageHasTransparency(imageSource: string): Promise<boolean> {
+  try {
+    const img = await loadImage(imageSource);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+
+    // Downscale for fast detection
+    canvas.width = Math.min(img.naturalWidth || img.width, 300);
+    canvas.height = Math.min(img.naturalHeight || img.height, 300);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+
+    let transparentPixelsCount = 0;
+    // Check alpha values
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] < 240) {
+        transparentPixelsCount++;
+        // If more than 0.5% of pixels have transparency, consider it already transparent
+        if (transparentPixelsCount > 20) {
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch (e) {
+    console.warn('Failed to detect image transparency:', e);
+    return false;
+  }
+}
+
+/**
+ * Inserts an image as-is, preserving its original pixel colors and native transparency.
+ */
+export async function processAsIsImage(
+  imageSource: string,
+  autoCrop: boolean = false
+): Promise<ProcessedImageResult> {
+  const img = await loadImage(imageSource);
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Could not get canvas context');
+
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+
+  // Max dimension limit to keep mobile memory optimal while retaining crisp quality
+  const maxDim = 2000;
+  if (canvas.width > maxDim || canvas.height > maxDim) {
+    const scale = maxDim / Math.max(canvas.width, canvas.height);
+    canvas.width = Math.round(canvas.width * scale);
+    canvas.height = Math.round(canvas.height * scale);
+  }
+
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  let finalCanvas = canvas;
+
+  // Optional auto-crop: trims outer transparent margins
+  if (autoCrop) {
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    let minX = canvas.width;
+    let minY = canvas.height;
+    let maxX = 0;
+    let maxY = 0;
+    let hasVisiblePixel = false;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3];
+      if (alpha > 15) {
+        hasVisiblePixel = true;
+        const pixelIndex = i / 4;
+        const px = pixelIndex % canvas.width;
+        const py = Math.floor(pixelIndex / canvas.width);
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+    }
+
+    if (hasVisiblePixel && maxX > minX && maxY > minY) {
+      const padding = 8;
+      const cropX = Math.max(0, minX - padding);
+      const cropY = Math.max(0, minY - padding);
+      const cropW = Math.min(canvas.width - cropX, maxX - minX + padding * 2);
+      const cropH = Math.min(canvas.height - cropY, maxY - minY + padding * 2);
+
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = cropW;
+      croppedCanvas.height = cropH;
+      const cropCtx = croppedCanvas.getContext('2d');
+      if (cropCtx) {
+        cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        finalCanvas = croppedCanvas;
+      }
+    }
+  }
+
+  const transparentDataUrl = finalCanvas.toDataURL('image/png');
+  const blob = await canvasToBlob(finalCanvas);
+  const pngBytes = await blobToUint8Array(blob);
+
+  return {
+    transparentDataUrl,
+    pngBytes,
+    width: finalCanvas.width,
+    height: finalCanvas.height,
+    aspectRatio: finalCanvas.width / finalCanvas.height,
+  };
+}
+
+/**
+ * Removes white background from a signature JPG/PNG and returns a transparent PNG.
+ * Preserves any existing transparency in the source image.
  */
 export async function removeWhiteBackground(
   imageSource: string,
   options: TransparencyOptions
 ): Promise<ProcessedImageResult> {
+  // If user requested "as-is" mode, bypass white removal completely
+  if (options.mode === 'as-is') {
+    return processAsIsImage(imageSource, options.autoCrop);
+  }
+
   const img = await loadImage(imageSource);
 
   // Step 1: Draw to raw canvas
@@ -81,6 +206,15 @@ export async function removeWhiteBackground(
   let hasInkPixels = false;
 
   for (let i = 0; i < data.length; i += 4) {
+    const origAlpha = data[i + 3];
+
+    // CRITICAL: If the pixel in the source image is already transparent,
+    // preserve it as transparent! Never convert transparent pixels (RGB 0,0,0) into solid black.
+    if (origAlpha <= 10) {
+      data[i + 3] = 0;
+      continue;
+    }
+
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
@@ -89,27 +223,30 @@ export async function removeWhiteBackground(
     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
     // Determine transparency
-    let alpha: number;
+    let calculatedAlpha: number;
 
     if (lum >= threshold) {
       if (feather > 0) {
         // Smooth dropoff between threshold - feather and 255
         const span = 255 - threshold + feather;
         const normalized = Math.max(0, 255 - lum);
-        alpha = Math.floor((normalized / span) * 255);
-        if (alpha < 8) alpha = 0;
+        calculatedAlpha = Math.floor((normalized / span) * 255);
+        if (calculatedAlpha < 8) calculatedAlpha = 0;
       } else {
-        alpha = 0;
+        calculatedAlpha = 0;
       }
     } else {
       if (feather > 0 && lum > threshold - feather) {
         // Transition region
         const ratio = (threshold - lum) / feather;
-        alpha = Math.min(255, Math.floor(180 + ratio * 75));
+        calculatedAlpha = Math.min(255, Math.floor(180 + ratio * 75));
       } else {
-        alpha = 255;
+        calculatedAlpha = 255;
       }
     }
+
+    // Never make a pixel more opaque than its original alpha
+    const alpha = Math.min(origAlpha, calculatedAlpha);
 
     // Apply Ink Enhancement
     if (alpha > 0) {
