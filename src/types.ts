@@ -166,6 +166,7 @@ declare global {
       isNativeBridge?: () => boolean;
       sharePdf?: (fileName: string, base64Data: string) => boolean;
       printPdf?: (documentName: string, base64Data: string) => boolean;
+      savePdf?: (fileName: string, base64Data: string) => boolean;
     };
     onNativePdfReceived?: (data: { name: string; base64: string }) => void;
   }

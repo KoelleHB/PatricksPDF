@@ -8,10 +8,11 @@ import {
   Loader2,
   ExternalLink,
   Check,
+  Save,
 } from 'lucide-react';
 import { SignatureItem, TextOverlayItem, FormValuesState, PdfDocumentState } from '../types';
 import { embedSignaturesIntoPdf } from '../utils/pdfEngine';
-import { sharePdfDocument, printPdfDocument, isNativeAndroid } from '../utils/nativeBridge';
+import { savePdfDocument, sharePdfDocument, printPdfDocument, isNativeAndroid } from '../utils/nativeBridge';
 
 export interface SaveModalProps {
   isOpen: boolean;
@@ -38,6 +39,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   onSaveSuccess,
   onExportSuccess,
 }) => {
+  // All hooks MUST be declared unconditionally at the top level
   const [fileName, setFileName] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
@@ -45,6 +47,10 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   const [fileSizeStr, setFileSizeStr] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [flattenForm, setFlattenForm] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   const notifySuccess = () => {
     onSaveSuccess?.();
@@ -57,16 +63,21 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       setPdfBlob(null);
       setPdfUrl(null);
       setErrorMessage(null);
+      setSaveSuccessMsg(null);
       return;
     }
 
     // Default output filename
-    const baseName = pdfState.name.replace(/\.pdf$/i, '');
+    const baseName = pdfState?.name ? pdfState.name.replace(/\.pdf$/i, '') : 'document';
     setFileName(`${baseName}-completed.pdf`);
     setErrorMessage(null);
+    setSaveSuccessMsg(null);
 
     const generatePdf = async () => {
-      if (!pdfState.arrayBuffer) return;
+      if (!pdfState?.arrayBuffer) {
+        setErrorMessage('Keine Dokumentdaten vorhanden.');
+        return;
+      }
       setIsGenerating(true);
       setErrorMessage(null);
 
@@ -96,23 +107,47 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     };
 
     generatePdf();
-  }, [isOpen, pdfState.arrayBuffer, signatures, textOverlays, formValues, flattenForm, pdfState.name]);
+  }, [isOpen, pdfState?.arrayBuffer, signatures, textOverlays, formValues, flattenForm, pdfState?.name]);
 
+  // Early return ONLY after all hooks are evaluated
   if (!isOpen) return null;
 
-  const [isPrinting, setIsPrinting] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
+  const isAndroid = isNativeAndroid();
 
-  const handleDownload = () => {
-    if (!pdfUrl) return;
-    const a = document.createElement('a');
-    a.href = pdfUrl;
-    a.download = fileName || 'signed-document.pdf';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    notifySuccess();
-    onClose();
+  const handleDownload = async () => {
+    if (!pdfBlob) return;
+    setIsSaving(true);
+    setSaveSuccessMsg(null);
+    try {
+      const targetName = fileName.trim() || 'signed-document.pdf';
+      const res = await savePdfDocument(targetName, pdfBlob);
+      if (res.success) {
+        const feedback =
+          res.method === 'native-android'
+            ? 'In Downloads gespeichert!'
+            : 'Erfolgreich gespeichert!';
+        setSaveSuccessMsg(feedback);
+        notifySuccess();
+        setTimeout(() => {
+          onClose();
+        }, 1200);
+      }
+    } catch (err: any) {
+      console.warn('Save error:', err);
+      // Fallback direct link
+      if (pdfUrl) {
+        const a = document.createElement('a');
+        a.href = pdfUrl;
+        a.download = fileName || 'signed-document.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        notifySuccess();
+        onClose();
+      }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleNativeShare = async () => {
@@ -145,8 +180,6 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       setIsPrinting(false);
     }
   };
-
-  const isAndroid = isNativeAndroid();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4">
@@ -305,20 +338,38 @@ export const SaveModal: React.FC<SaveModalProps> = ({
 
               {/* Action Buttons */}
               <div className="space-y-2 pt-2">
+                {saveSuccessMsg && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2 animate-in fade-in">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{saveSuccessMsg}</span>
+                  </div>
+                )}
+
                 <button
                   id="modal-save-btn"
                   onClick={handleDownload}
-                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm shadow-md transition cursor-pointer"
+                  disabled={isSaving || isGenerating || !pdfBlob}
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm shadow-md transition cursor-pointer disabled:opacity-60"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>PDF speichern / Download</span>
+                  {isSaving ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span>
+                    {isSaving
+                      ? 'Wird gespeichert...'
+                      : isAndroid
+                      ? 'PDF in Downloads speichern'
+                      : 'PDF speichern / Download'}
+                  </span>
                 </button>
 
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     id="modal-share-btn"
                     onClick={handleNativeShare}
-                    disabled={isSharing}
+                    disabled={isSharing || isGenerating || !pdfBlob}
                     className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs sm:text-sm transition cursor-pointer disabled:opacity-50"
                   >
                     {isSharing ? (
@@ -332,7 +383,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                   <button
                     id="modal-print-btn"
                     onClick={handlePrint}
-                    disabled={isPrinting}
+                    disabled={isPrinting || isGenerating || !pdfBlob}
                     className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-800 font-medium text-xs sm:text-sm transition cursor-pointer disabled:opacity-50"
                   >
                     {isPrinting ? (

@@ -1,21 +1,27 @@
 package com.patrickspdf.app;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.print.PageRange;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentInfo;
 import android.print.PrintManager;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
+import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
@@ -50,6 +56,60 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public boolean isNativeBridge() {
             return true;
+        }
+
+        @JavascriptInterface
+        public boolean savePdf(final String fileName, final String base64Data) {
+            try {
+                String safeName = (fileName == null || fileName.trim().isEmpty()) ? "document.pdf" : fileName;
+                if (!safeName.toLowerCase().endsWith(".pdf")) {
+                    safeName += ".pdf";
+                }
+                final String finalFileName = safeName;
+                final byte[] pdfBytes = Base64.decode(base64Data, Base64.DEFAULT);
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, finalFileName);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+                    Uri uri = activity.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri != null) {
+                        try (OutputStream os = activity.getContentResolver().openOutputStream(uri)) {
+                            if (os != null) {
+                                os.write(pdfBytes);
+                                os.flush();
+                            }
+                        }
+                        values.clear();
+                        values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                        activity.getContentResolver().update(uri, values, null, null);
+
+                        activity.runOnUiThread(() -> Toast.makeText(activity, "PDF gespeichert in Downloads: " + finalFileName, Toast.LENGTH_LONG).show());
+                        return true;
+                    }
+                }
+
+                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs();
+                }
+                File destFile = new File(downloadsDir, finalFileName);
+                try (FileOutputStream fos = new FileOutputStream(destFile)) {
+                    fos.write(pdfBytes);
+                    fos.flush();
+                }
+                MediaScannerConnection.scanFile(activity, new String[]{destFile.getAbsolutePath()}, new String[]{"application/pdf"}, null);
+
+                activity.runOnUiThread(() -> Toast.makeText(activity, "PDF gespeichert: " + finalFileName, Toast.LENGTH_LONG).show());
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "Error saving PDF via native bridge: " + e.getMessage(), e);
+                activity.runOnUiThread(() -> Toast.makeText(activity, "Fehler beim Speichern: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                return false;
+            }
         }
 
         @JavascriptInterface

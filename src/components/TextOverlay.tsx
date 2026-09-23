@@ -62,8 +62,8 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   const pixelY = (item.yPercent / 100) * containerHeight;
 
   // Stable references for window drag listeners
-  const onMoveRef = useRef<(e: PointerEvent) => void>();
-  const onUpRef = useRef<(e: PointerEvent) => void>();
+  const onMoveRef = useRef<((e: PointerEvent) => void) | undefined>(undefined);
+  const onUpRef = useRef<((e: PointerEvent) => void) | undefined>(undefined);
 
   onMoveRef.current = (e: PointerEvent) => {
     if (!dragRef.current.isDragging) return;
