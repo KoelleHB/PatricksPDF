@@ -1,0 +1,6 @@
+{
+  "name": "PatricksPDF",
+  "description": "Local, offline-ready tool for signing PDFs, adding text overlays, filling form fields, managing pages, local document history, and Android native print and share integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

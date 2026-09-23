@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PatricksPDF</string>
+    <string name="title_activity_main">PatricksPDF</string>
+    <string name="package_name">com.patrickspdf.app</string>
+    <string name="custom_url_scheme">com.patrickspdf.app</string>
+</resources>

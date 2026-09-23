@@ -1,0 +1,1353 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Header } from './components/Header';
+import { EmptyState } from './components/EmptyState';
+import { PdfViewer } from './components/PdfViewer';
+import { SignatureModal } from './components/SignatureModal';
+import { AddTextModal } from './components/AddTextModal';
+import { SaveModal } from './components/SaveModal';
+import { GeneralSetupGuideModal } from './components/GeneralSetupGuideModal';
+import { PasswordPromptModal } from './components/PasswordPromptModal';
+import { PageManagementModal } from './components/PageManagementModal';
+import { MobileBottomBar } from './components/MobileBottomBar';
+import { RecentDocumentsModal } from './components/RecentDocumentsModal';
+import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec, RecentDocumentRecord } from './types';
+import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, clearThumbnailCache, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
+import { getRecentDocuments, saveRecentDocument, removeRecentDocument, clearRecentDocuments } from './utils/recentDocuments';
+import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
+import { useDocumentHistory } from './hooks/useDocumentHistory';
+import { AlertCircle, X, Loader2, Share2, FileQuestion, HelpCircle } from 'lucide-react';
+import { UnsavedChangesModal } from './components/UnsavedChangesModal';
+
+export default function App() {
+  const [pdfState, setPdfState] = useState<PdfDocumentState | null>(null);
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
+  const [isReceivingSharedPdf, setIsReceivingSharedPdf] = useState(() => 
+    typeof window !== 'undefined' && window.location.search.includes('shared=true')
+  );
+  const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
+  const [shareIssueNotice, setShareIssueNotice] = useState<{
+    title: string;
+    message: string;
+    details?: any;
+    attemptedFile?: string;
+  } | null>(null);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
+  const manualFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Native Form Fields metadata (structural fields from PDF)
+  const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
+  const initialFormValuesRef = useRef<FormValuesState>({});
+
+  // Unified Document History Manager (Signatures, Text Overlays, and Form Values)
+  const {
+    signatures,
+    textOverlays,
+    formValues,
+    selectedSignatureId,
+    selectedTextId,
+    setSelectedSignatureId,
+    setSelectedTextId,
+    commitAction,
+    liveUpdateSignatures,
+    liveUpdateTextOverlays,
+    liveUpdateFormValue,
+    flushPendingFormCommit,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    undoActionName,
+    redoActionName,
+    historyNotice,
+    resetHistory,
+  } = useDocumentHistory();
+
+  // Save / unsaved changes tracking
+  const [isSaved, setIsSaved] = useState(true);
+  const [hasPageModifications, setHasPageModifications] = useState(false);
+  const markUnsaved = useCallback(() => {
+    setIsSaved(false);
+  }, []);
+
+  // Password-protected PDF support
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [passwordPendingDoc, setPasswordPendingDoc] = useState<{
+    file: File;
+    arrayBuffer: ArrayBuffer;
+  } | null>(null);
+  const [isPasswordIncorrect, setIsPasswordIncorrect] = useState(false);
+
+  // Check if form values differ from initial document state
+  const isFormModified = React.useMemo(() => {
+    const initial = initialFormValuesRef.current;
+    const currentKeys = Object.keys(formValues);
+    for (const k of currentKeys) {
+      if (formValues[k] !== initial[k]) return true;
+    }
+    return false;
+  }, [formValues]);
+
+  // Overall check: has user modified anything that has not been saved yet?
+  const hasUnsavedChanges = Boolean(
+    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified || hasPageModifications) && !isSaved
+  );
+
+  // Browser beforeunload event listener (triggers browser's native leave confirmation)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
+  // Pending action for switching document or closing document with unsaved changes
+  const [pendingAction, setPendingAction] = useState<{
+    type: 'close' | 'switch';
+    file?: File;
+  } | null>(null);
+  const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
+
+  // Local Document History (Zuletzt geöffnet)
+  const [recentDocs, setRecentDocs] = useState<RecentDocumentRecord[]>([]);
+  const [isRecentModalOpen, setIsRecentModalOpen] = useState(false);
+  const [isQuickProcessing, setIsQuickProcessing] = useState(false);
+
+  // Load recent documents on initial mount
+  useEffect(() => {
+    getRecentDocuments()
+      .then((docs) => setRecentDocs(docs))
+      .catch((err) => console.warn('Failed to load recent documents:', err));
+  }, []);
+
+  // Modals state
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [isTextModalOpen, setIsTextModalOpen] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isSetupGuideModalOpen, setIsSetupGuideModalOpen] = useState(false);
+  const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
+  const [isReaderMode, setIsReaderMode] = useState(false);
+
+  // Load a user-selected PDF file with robust error handling and password detection
+  const handleFileSelect = async (file: File, password?: string) => {
+    setIsLoadingPdf(true);
+    setPdfErrorMessage(null);
+    setIsPasswordIncorrect(false);
+
+    try {
+      const arrayBuffer =
+        passwordPendingDoc && passwordPendingDoc.file === file
+          ? passwordPendingDoc.arrayBuffer
+          : await file.arrayBuffer();
+
+      const pdfJsDoc = await loadPdfJsDoc(arrayBuffer, password);
+      const page1 = await pdfJsDoc.getPage(1);
+      const viewport = page1.getViewport({ scale: 1.0 });
+
+      setPdfState({
+        file,
+        name: file.name,
+        arrayBuffer,
+        numPages: pdfJsDoc.numPages,
+        currentPage: 1,
+        pageWidth: viewport.width,
+        pageHeight: viewport.height,
+      });
+
+      // Extract native PDF AcroForm fields if present
+      let initialValues: FormValuesState = {};
+      try {
+        const { fields, initialValues: extractedVals } = await extractPdfFormFields(arrayBuffer);
+        setFormFields(fields);
+        initialValues = extractedVals;
+        initialFormValuesRef.current = { ...extractedVals };
+      } catch (err) {
+        console.warn('Could not extract form fields:', err);
+        setFormFields([]);
+        initialFormValuesRef.current = {};
+      }
+
+      // Reset document history with clean initial state
+      resetHistory({
+        signatures: [],
+        textOverlays: [],
+        formValues: initialValues,
+      });
+
+      setIsPasswordModalOpen(false);
+      setPasswordPendingDoc(null);
+      setHasPageModifications(false);
+      setIsSaved(true);
+
+      // Asynchronously generate page 1 thumbnail and save to local document history
+      generatePageThumbnail(arrayBuffer, 1, 160, password)
+        .then(async (thumbnail) => {
+          await saveRecentDocument({
+            name: file.name,
+            buffer: arrayBuffer,
+            numPages: pdfJsDoc.numPages,
+            thumbnailDataUrl: thumbnail || undefined,
+          });
+          const updatedRecent = await getRecentDocuments();
+          setRecentDocs(updatedRecent);
+        })
+        .catch((err) => console.warn('Recent doc thumbnail save warning:', err));
+    } catch (err: any) {
+      console.error('Error loading PDF file:', err);
+
+      // Check if document requires password or password was wrong
+      if (err?.name === 'PasswordException' || err?.code === 1 || err?.code === 2) {
+        setPasswordPendingDoc({
+          file,
+          arrayBuffer: passwordPendingDoc?.arrayBuffer || (await file.arrayBuffer()),
+        });
+        setIsPasswordIncorrect(err?.code === 2 || !!password);
+        setIsPasswordModalOpen(true);
+      } else {
+        const errorDetail = err?.message || 'Unable to parse PDF structure.';
+        setPdfErrorMessage(
+          `Could not open "${file.name}": ${errorDetail}. Please ensure the file is an uncorrupted PDF.`
+        );
+      }
+    } finally {
+      setIsLoadingPdf(false);
+    }
+  };
+
+  const handleUnlockPassword = (password: string) => {
+    if (passwordPendingDoc) {
+      handleFileSelect(passwordPendingDoc.file, password);
+    }
+  };
+
+  // Listen for shared PDF files from Web Share Target (Android native Share Sheet)
+  useEffect(() => {
+    let isCancelled = false;
+    const pollTimeouts: number[] = [];
+
+    // 1. Retrieve from IndexedDB (fastest & most reliable across Android Chromium WebAPKs)
+    const getFromIndexedDB = (): Promise<File | null> => {
+      return new Promise((resolve) => {
+        if (!('indexedDB' in window)) return resolve(null);
+        try {
+          const request = indexedDB.open('PatricksPDFSharedFilesDB', 2);
+          request.onupgradeneeded = (e: any) => {
+            const db = e.target?.result;
+            if (db && !db.objectStoreNames.contains('shared_files')) {
+              db.createObjectStore('shared_files', { keyPath: 'id' });
+            }
+            if (db && !db.objectStoreNames.contains('share_diagnostics')) {
+              db.createObjectStore('share_diagnostics', { keyPath: 'id' });
+            }
+          };
+          request.onsuccess = (e: any) => {
+            const db = e.target?.result;
+            if (!db || !db.objectStoreNames.contains('shared_files')) {
+              db?.close();
+              return resolve(null);
+            }
+            try {
+              const tx = db.transaction('shared_files', 'readwrite');
+              const store = tx.objectStore('shared_files');
+              const getReq = store.get('latest_shared_pdf');
+
+              getReq.onsuccess = () => {
+                const record = getReq.result;
+                if (record && record.buffer) {
+                  store.delete('latest_shared_pdf');
+                  tx.oncomplete = () => {
+                    db.close();
+                    // Consume if fresh (within 30 mins)
+                    if (Date.now() - (record.timestamp || 0) < 30 * 60 * 1000) {
+                      const blob = new Blob([record.buffer], { type: record.type || 'application/pdf' });
+                      const file = new File([blob], record.name || 'shared_document.pdf', {
+                        type: record.type || 'application/pdf',
+                      });
+                      resolve(file);
+                    } else {
+                      resolve(null);
+                    }
+                  };
+                } else {
+                  db.close();
+                  resolve(null);
+                }
+              };
+              getReq.onerror = () => {
+                db.close();
+                resolve(null);
+              };
+            } catch {
+              db.close();
+              resolve(null);
+            }
+          };
+          request.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+    };
+
+    // 2. Retrieve from Cache Storage
+    const getFromCache = async (): Promise<File | null> => {
+      if (!('caches' in window)) return null;
+      try {
+        const cache = await caches.open('shared-pdf-cache');
+        const response = await cache.match('/_shared_pdf_file_');
+        if (response) {
+          const blob = await response.blob();
+          const filename = decodeURIComponent(
+            response.headers.get('x-filename') || 'shared_document.pdf'
+          );
+          await cache.delete('/_shared_pdf_file_');
+          return new File([blob], filename, { type: 'application/pdf' });
+        }
+      } catch (err) {
+        console.warn('[PWA Share] Error reading Cache Storage:', err);
+      }
+      return null;
+    };
+
+    // 3. Retrieve diagnostics from IndexedDB
+    const getDiagnosticsFromIDB = (): Promise<any> => {
+      return new Promise((resolve) => {
+        if (!('indexedDB' in window)) return resolve(null);
+        try {
+          const request = indexedDB.open('PatricksPDFSharedFilesDB', 2);
+          request.onsuccess = (e: any) => {
+            const db = e.target?.result;
+            if (!db || !db.objectStoreNames.contains('share_diagnostics')) {
+              db?.close();
+              return resolve(null);
+            }
+            try {
+              const tx = db.transaction('share_diagnostics', 'readonly');
+              const store = tx.objectStore('share_diagnostics');
+              const req = store.get('last_share_attempt');
+              req.onsuccess = () => {
+                const res = req.result;
+                db.close();
+                resolve(res || null);
+              };
+              req.onerror = () => {
+                db.close();
+                resolve(null);
+              };
+            } catch {
+              db.close();
+              resolve(null);
+            }
+          };
+          request.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+    };
+
+    const handleShareFailure = async (reason?: string, attemptedFile?: string) => {
+      if (isCancelled) return;
+      setIsReceivingSharedPdf(false);
+      const diag = await getDiagnosticsFromIDB();
+
+      let message = 'Android forwarded data to PatricksPDF, but Chrome did not provide a readable PDF file stream.';
+      if (reason === 'timeout_or_empty') {
+        message = 'The share request timed out or received an empty form payload from Android Chrome.';
+      } else if (reason === 'no_file_found') {
+        if (attemptedFile) {
+          message = `Android shared "${attemptedFile}", but the app you shared from (e.g. Google Drive or cloud viewer) provided only the title or link instead of binary file bytes. (Tip: In Google Drive, choose "Send a copy" -> "Share" to send full file bytes).`;
+        } else {
+          message = 'The shared intent contained text, URLs, or metadata, but no binary PDF file stream. (Tip: When sharing from Google Drive or cloud storage, choose "Send a copy" instead of "Share link").';
+        }
+      }
+
+      setShareIssueNotice({
+        title: attemptedFile ? `Shared File: ${attemptedFile}` : 'Shared PDF Transfer Incomplete',
+        message,
+        details: diag,
+        attemptedFile,
+      });
+
+      if (window.location.search.includes('shared')) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    // Unified fetch attempt
+    const retrieveAndOpenSharedFile = async (): Promise<boolean> => {
+      if (isCancelled) return false;
+
+      // Try IndexedDB first
+      let file = await getFromIndexedDB();
+
+      // If not in IndexedDB, try Cache Storage
+      if (!file) {
+        file = await getFromCache();
+      }
+
+      if (file && !isCancelled) {
+        setIsReceivingSharedPdf(false);
+        setShareIssueNotice(null);
+        handleFileSelect(file);
+
+        if (window.location.search.includes('shared')) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        return true;
+      }
+      return false;
+    };
+
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('shared_status') === 'failed') {
+      const reason = searchParams.get('reason') || undefined;
+      const attemptedFile = searchParams.get('attempted_file') || undefined;
+      handleShareFailure(reason, attemptedFile);
+      return;
+    }
+
+    // Trigger initial check immediately
+    retrieveAndOpenSharedFile().then((found) => {
+      if (!found) {
+        const isSharedParamPresent = window.location.search.includes('shared=true');
+        const delays = isSharedParamPresent
+          ? [100, 250, 500, 850, 1400, 2200, 3200]
+          : [150, 450, 1200];
+
+        delays.forEach((delay, idx) => {
+          const tid = window.setTimeout(async () => {
+            const ok = await retrieveAndOpenSharedFile();
+            if (ok) {
+              pollTimeouts.forEach((t) => clearTimeout(t));
+            } else if (idx === delays.length - 1) {
+              if (isSharedParamPresent) {
+                handleShareFailure('no_file_found');
+              } else {
+                setIsReceivingSharedPdf(false);
+              }
+            }
+          }, delay);
+          pollTimeouts.push(tid);
+        });
+      } else {
+        setIsReceivingSharedPdf(false);
+      }
+    });
+
+    // Listen for Service Worker postMessage notification
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'SHARED_PDF_AVAILABLE') {
+        retrieveAndOpenSharedFile();
+      }
+    };
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
+    // Re-check when user focuses window or returns to the PWA
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        retrieveAndOpenSharedFile();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      isCancelled = true;
+      pollTimeouts.forEach((t) => clearTimeout(t));
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, []);
+
+  // Listen for file launch requests from OS (PWA File Handling API "Open With")
+  useEffect(() => {
+    if (window.location.pathname === '/openFile' || window.location.pathname === '/openFile/') {
+      window.history.replaceState({}, document.title, '/');
+    }
+
+    if ('launchQueue' in window && typeof (window as any).launchQueue?.setConsumer === 'function') {
+      (window as any).launchQueue.setConsumer(async (launchParams: any) => {
+        if (!launchParams?.files || launchParams.files.length === 0) return;
+        try {
+          const fileHandle = launchParams.files[0];
+          const file = await fileHandle.getFile();
+          if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+            handleFileSelect(file);
+          }
+        } catch (err) {
+          console.error('Failed to open file from launchQueue:', err);
+        }
+      });
+    }
+  }, []);
+
+  // Listen for native Android "Open with" and Share Sheet intents from Capacitor BridgeActivity
+  useEffect(() => {
+    const processNativePdf = (data: { name: string; base64: string }) => {
+      if (!data || !data.base64) return;
+      try {
+        const binaryString = atob(data.base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const file = new File([bytes], data.name || 'document.pdf', {
+          type: 'application/pdf',
+        });
+        setIsReceivingSharedPdf(false);
+        setShareIssueNotice(null);
+        handleFileSelect(file);
+      } catch (err) {
+        console.error('[Native Bridge] Error parsing incoming PDF:', err);
+      }
+    };
+
+    // 1. Check if there was an intent waiting from cold start
+    const bridge = (window as any).NativePdfBridge;
+    if (bridge && typeof bridge.getPendingPdf === 'function') {
+      try {
+        const pendingJson = bridge.getPendingPdf();
+        if (pendingJson) {
+          const parsed = JSON.parse(pendingJson);
+          processNativePdf(parsed);
+        }
+      } catch (e) {
+        console.warn('[Native Bridge] Error retrieving pending PDF:', e);
+      }
+    }
+
+    // 2. Register global receiver for runtime / warm start intents
+    (window as any).onNativePdfReceived = (data: any) => {
+      processNativePdf(data);
+    };
+
+    return () => {
+      delete (window as any).onNativePdfReceived;
+    };
+  }, []);
+
+  // Add a newly processed transparent signature
+  const handleAddSignature = (
+    itemData: Omit<SignatureItem, 'id' | 'xPercent' | 'yPercent' | 'pageNumber'>
+  ) => {
+    if (!pdfState) return;
+
+    const newId = `sig-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+    // Default placement: nicely centered on the bottom half of the current page
+    const newSignature: SignatureItem = {
+      ...itemData,
+      id: newId,
+      pageNumber: pdfState.currentPage,
+      xPercent: 52,
+      yPercent: 78,
+    };
+
+    commitAction(
+      {
+        signatures: [...signatures, newSignature],
+        selectedSignatureId: newId,
+        selectedTextId: null,
+      },
+      'Add Signature',
+      pdfState.currentPage
+    );
+    markUnsaved();
+  };
+
+  // High-frequency live update during drag/resize (without pushing to history yet)
+  const handleLiveUpdateSignature = (updated: SignatureItem) => {
+    liveUpdateSignatures(signatures.map((s) => (s.id === updated.id ? updated : s)));
+    markUnsaved();
+  };
+
+  // Commit update when drag finishes, resize ends, or precision tool is clicked
+  const handleCommitUpdateSignature = (updated: SignatureItem, actionName: string) => {
+    const updatedList = signatures.map((s) => (s.id === updated.id ? updated : s));
+    commitAction(
+      {
+        signatures: updatedList,
+        selectedSignatureId: updated.id,
+      },
+      actionName || 'Move Signature',
+      updated.pageNumber
+    );
+    markUnsaved();
+  };
+
+  // Delete a signature
+  const handleDeleteSignature = useCallback(
+    (id: string) => {
+      const targetSig = signatures.find((s) => s.id === id);
+      const pageNum = targetSig?.pageNumber || pdfState?.currentPage || 1;
+      const remaining = signatures.filter((s) => s.id !== id);
+      commitAction(
+        {
+          signatures: remaining,
+          selectedSignatureId: null,
+        },
+        'Delete Signature',
+        pageNum
+      );
+      markUnsaved();
+    },
+    [signatures, pdfState, commitAction, markUnsaved]
+  );
+
+  // Duplicate an existing signature
+  const handleDuplicateSignature = (sig: SignatureItem) => {
+    const newId = `sig-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const cloned: SignatureItem = {
+      ...sig,
+      id: newId,
+      xPercent: Math.min(80, sig.xPercent + 4),
+      yPercent: Math.min(80, sig.yPercent + 4),
+    };
+    commitAction(
+      {
+        signatures: [...signatures, cloned],
+        selectedSignatureId: newId,
+      },
+      'Duplicate Signature',
+      sig.pageNumber
+    );
+    markUnsaved();
+  };
+
+  // Text Overlay Handlers with Undo/Redo tracking
+  const handleAddText = (
+    text: string,
+    fontFamily: TextFontFamily,
+    color: TextColor,
+    fontSize: number
+  ) => {
+    if (!pdfState) return;
+    const newId = `txt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newTextItem: TextOverlayItem = {
+      id: newId,
+      pageNumber: pdfState.currentPage,
+      text,
+      xPercent: 35,
+      yPercent: 40,
+      widthPercent: 25,
+      fontSize,
+      fontFamily,
+      color,
+    };
+    commitAction(
+      {
+        textOverlays: [...textOverlays, newTextItem],
+        selectedTextId: newId,
+        selectedSignatureId: null,
+      },
+      'Add Text',
+      pdfState.currentPage
+    );
+    markUnsaved();
+  };
+
+  const handleLiveUpdateText = (updated: TextOverlayItem) => {
+    liveUpdateTextOverlays(textOverlays.map((t) => (t.id === updated.id ? updated : t)));
+    markUnsaved();
+  };
+
+  const handleCommitUpdateText = (updated: TextOverlayItem, actionName: string) => {
+    const updatedList = textOverlays.map((t) => (t.id === updated.id ? updated : t));
+    commitAction(
+      {
+        textOverlays: updatedList,
+        selectedTextId: updated.id,
+      },
+      actionName || 'Edit Text',
+      updated.pageNumber
+    );
+    markUnsaved();
+  };
+
+  const handleDeleteText = useCallback(
+    (id: string) => {
+      const targetText = textOverlays.find((t) => t.id === id);
+      const pageNum = targetText?.pageNumber || pdfState?.currentPage || 1;
+      const remaining = textOverlays.filter((t) => t.id !== id);
+      commitAction(
+        {
+          textOverlays: remaining,
+          selectedTextId: null,
+        },
+        'Delete Text',
+        pageNum
+      );
+      markUnsaved();
+    },
+    [textOverlays, pdfState, commitAction, markUnsaved]
+  );
+
+  const handleDuplicateText = (item: TextOverlayItem) => {
+    const newId = `txt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const cloned: TextOverlayItem = {
+      ...item,
+      id: newId,
+      xPercent: Math.min(85, item.xPercent + 4),
+      yPercent: Math.min(85, item.yPercent + 4),
+    };
+    commitAction(
+      {
+        textOverlays: [...textOverlays, cloned],
+        selectedTextId: newId,
+        selectedSignatureId: null,
+      },
+      'Duplicate Text',
+      item.pageNumber
+    );
+    markUnsaved();
+  };
+
+  // Form Field Handlers with Undo/Redo tracking
+  const handleFormFieldChange = (fieldName: string, value: any, isDirectChoice?: boolean) => {
+    markUnsaved();
+    if (isDirectChoice) {
+      // Discrete interactive actions (checkbox toggle, radio option, dropdown, listbox, button)
+      const actionLabel =
+        typeof value === 'boolean'
+          ? value
+            ? `Check ${fieldName}`
+            : `Uncheck ${fieldName}`
+          : `Select ${fieldName}`;
+
+      commitAction(
+        {
+          formValues: {
+            ...formValues,
+            [fieldName]: value,
+          },
+        },
+        actionLabel,
+        pdfState?.currentPage || 1
+      );
+    } else {
+      // Continuous keyboard typing (text / textarea / comb): smooth live-update with debounced history commit
+      liveUpdateFormValue(fieldName, value, pdfState?.currentPage || 1);
+    }
+  };
+
+  const handleCommitFormField = (_fieldName: string, _value: any) => {
+    flushPendingFormCommit();
+    markUnsaved();
+  };
+
+  const handleResetForm = () => {
+    commitAction(
+      {
+        formValues: { ...initialFormValuesRef.current },
+      },
+      'Reset Form',
+      pdfState?.currentPage || 1
+    );
+    markUnsaved();
+  };
+
+  // Undo action with automatic page navigation if the affected item was on another page
+  const handleUndo = useCallback(() => {
+    const targetPage = undo();
+    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
+      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    }
+    markUnsaved();
+  }, [undo, pdfState, markUnsaved]);
+
+  // Redo action with automatic page navigation
+  const handleRedo = useCallback(() => {
+    const targetPage = redo();
+    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
+      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    }
+    markUnsaved();
+  }, [redo, pdfState, markUnsaved]);
+
+  // Global keyboard shortcuts (Ctrl+Z, Ctrl+Y, Delete)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInputActive =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable);
+
+      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'z') {
+        if (!isInputActive) {
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleRedo();
+          } else {
+            e.preventDefault();
+            handleUndo();
+          }
+        }
+      } else if (isCmdOrCtrl && e.key.toLowerCase() === 'y') {
+        if (!isInputActive) {
+          e.preventDefault();
+          handleRedo();
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (isInputActive) return;
+
+        if (selectedSignatureId) {
+          e.preventDefault();
+          handleDeleteSignature(selectedSignatureId);
+        } else if (selectedTextId) {
+          e.preventDefault();
+          handleDeleteText(selectedTextId);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, selectedSignatureId, selectedTextId, handleDeleteSignature, handleDeleteText]);
+
+  const handleChangePage = (newPage: number) => {
+    if (!pdfState) return;
+    const boundedPage = Math.max(1, Math.min(pdfState.numPages, newPage));
+    setPdfState({
+      ...pdfState,
+      currentPage: boundedPage,
+    });
+    setSelectedSignatureId(null);
+    setSelectedTextId(null);
+  };
+
+  const handleClearDocument = () => {
+    setPdfState(null);
+    resetHistory({
+      signatures: [],
+      textOverlays: [],
+      formValues: {},
+    });
+    setFormFields([]);
+    initialFormValuesRef.current = {};
+    setHasPageModifications(false);
+    setIsSaved(true);
+    setIsReaderMode(false);
+  };
+
+  // Safe request to close document with unsaved changes verification
+  const handleRequestCloseDocument = () => {
+    if (hasUnsavedChanges) {
+      setPendingAction({ type: 'close' });
+      setIsUnsavedModalOpen(true);
+    } else {
+      handleClearDocument();
+    }
+  };
+
+  // Safe request to open / switch document with unsaved changes verification
+  const handleRequestFileSelect = (file: File) => {
+    if (hasUnsavedChanges) {
+      setPendingAction({ type: 'switch', file });
+      setIsUnsavedModalOpen(true);
+    } else {
+      handleFileSelect(file);
+    }
+  };
+
+  // Recent Documents Actions
+  const handleSelectRecentDoc = (record: RecentDocumentRecord) => {
+    const file = new File([record.pdfBuffer], record.name, {
+      type: 'application/pdf',
+    });
+    handleRequestFileSelect(file);
+  };
+
+  const handleRemoveRecentDoc = async (id: string) => {
+    await removeRecentDocument(id);
+    const updated = await getRecentDocuments();
+    setRecentDocs(updated);
+  };
+
+  const handleClearAllRecentDocs = async () => {
+    await clearRecentDocuments();
+    setRecentDocs([]);
+  };
+
+  const handlePrintRecentDoc = async (record: RecentDocumentRecord) => {
+    await printPdfDocument(record.name, record.pdfBuffer);
+  };
+
+  const handleShareRecentDoc = async (record: RecentDocumentRecord) => {
+    await sharePdfDocument(record.name, record.pdfBuffer);
+  };
+
+  // Helper to compile current modified document (signatures, text overlays, form values)
+  const generateCurrentCompositePdf = async (): Promise<Uint8Array | null> => {
+    if (!pdfState || !pdfState.arrayBuffer) return null;
+    try {
+      return await embedSignaturesIntoPdf(
+        pdfState.arrayBuffer,
+        signatures,
+        textOverlays,
+        formValues,
+        { flattenForm: true } // flatten for reliable printing / sharing
+      );
+    } catch (err) {
+      console.error('Error generating composite PDF for print/share:', err);
+      return new Uint8Array(pdfState.arrayBuffer);
+    }
+  };
+
+  // Quick Print active document via Android PrintManager / Browser Spooler
+  const handleQuickPrint = async () => {
+    if (!pdfState) return;
+    setIsQuickProcessing(true);
+    try {
+      const bytes = await generateCurrentCompositePdf();
+      if (bytes) {
+        await printPdfDocument(pdfState.name, bytes);
+      }
+    } finally {
+      setIsQuickProcessing(false);
+    }
+  };
+
+  // Quick Share active document via Android Share Sheet / Web Share
+  const handleQuickShare = async () => {
+    if (!pdfState) return;
+    setIsQuickProcessing(true);
+    try {
+      const bytes = await generateCurrentCompositePdf();
+      if (bytes) {
+        await sharePdfDocument(pdfState.name, bytes);
+      }
+    } finally {
+      setIsQuickProcessing(false);
+    }
+  };
+
+  // Apply page management changes (add, delete, reorder, and 90° rotations)
+  const handleApplyPageModifications = async (newPages: PageSpec[]) => {
+    if (!pdfState || !pdfState.arrayBuffer) return;
+
+    // Apply the modifications to the PDF arrayBuffer using pdf-lib
+    const modifiedBytes = await applyPageModifications(pdfState.arrayBuffer, newPages);
+    const newBuffer = modifiedBytes.buffer.slice(
+      modifiedBytes.byteOffset,
+      modifiedBytes.byteOffset + modifiedBytes.byteLength
+    ) as ArrayBuffer;
+
+    // Clear thumbnail cache to ensure updated previews for subsequent views
+    clearThumbnailCache();
+
+    // Reload PDF.js document to obtain updated page structure and counts
+    const pdfJsDoc = await loadPdfJsDoc(newBuffer);
+    const numPages = pdfJsDoc.numPages;
+
+    // Map old page numbers of signatures and text overlays to new page positions
+    const oldToNewPageMap = new Map<number, number>();
+    newPages.forEach((spec, idx) => {
+      if (spec.source === 'existing' && !oldToNewPageMap.has(spec.originalPageIndex + 1)) {
+        oldToNewPageMap.set(spec.originalPageIndex + 1, idx + 1);
+      }
+    });
+
+    const updatedSignatures = signatures
+      .filter((s) => oldToNewPageMap.has(s.pageNumber))
+      .map((s) => ({
+        ...s,
+        pageNumber: oldToNewPageMap.get(s.pageNumber)!,
+      }));
+
+    const updatedTextOverlays = textOverlays
+      .filter((t) => oldToNewPageMap.has(t.pageNumber))
+      .map((t) => ({
+        ...t,
+        pageNumber: oldToNewPageMap.get(t.pageNumber)!,
+      }));
+
+    // Target current page: stay on mapped current page or clamp to [1, numPages]
+    let nextCurrentPage = oldToNewPageMap.get(pdfState.currentPage) || 1;
+    if (nextCurrentPage > numPages) nextCurrentPage = numPages;
+
+    // Get dimensions of target page
+    const targetPage = await pdfJsDoc.getPage(nextCurrentPage);
+    const viewport = targetPage.getViewport({ scale: 1.0 });
+
+    // Extract any new or rearranged form fields
+    let updatedFormFields: FormFieldItem[] = [];
+    try {
+      const { fields } = await extractPdfFormFields(newBuffer);
+      updatedFormFields = fields;
+    } catch {
+      updatedFormFields = [];
+    }
+
+    setPdfState({
+      ...pdfState,
+      arrayBuffer: newBuffer,
+      numPages,
+      currentPage: nextCurrentPage,
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
+    });
+
+    setFormFields(updatedFormFields);
+
+    commitAction(
+      {
+        signatures: updatedSignatures,
+        textOverlays: updatedTextOverlays,
+        selectedSignatureId: null,
+        selectedTextId: null,
+      },
+      'Manage Pages',
+      nextCurrentPage
+    );
+
+    setHasPageModifications(true);
+    markUnsaved();
+  };
+
+  return (
+    <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900 font-sans overflow-hidden">
+      {/* Top Navigation & Status */}
+      {!isReaderMode && (
+        <Header
+          documentName={pdfState?.name || ''}
+          hasDocument={!!pdfState}
+          signatureCount={signatures.length}
+          hasUnsavedChanges={hasUnsavedChanges}
+          hasPageModifications={hasPageModifications}
+          recentCount={recentDocs.length}
+          onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
+          onOpenSave={() => setIsSaveModalOpen(true)}
+          onOpenPageManager={() => setIsPageManagerOpen(true)}
+          onOpenRecent={() => setIsRecentModalOpen(true)}
+          onQuickPrint={handleQuickPrint}
+          onQuickShare={handleQuickShare}
+          onFileSelect={handleRequestFileSelect}
+          onCloseDocument={handleRequestCloseDocument}
+        />
+      )}
+
+      {/* Error Notification Toast/Banner */}
+      {pdfErrorMessage && (
+        <div className="shrink-0 bg-red-50 border-b border-red-200 px-4 py-2.5 flex items-center justify-between gap-3 text-red-800 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+            <span>{pdfErrorMessage}</span>
+          </div>
+          <button
+            onClick={() => setPdfErrorMessage(null)}
+            className="p-1 rounded text-red-500 hover:text-red-800 hover:bg-red-100 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Shared PDF Issue Notification Banner */}
+      {shareIssueNotice && (
+        <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-3 text-amber-900 text-xs sm:text-sm animate-in slide-in-from-top duration-150">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <Share2 className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <span className="font-semibold">{shareIssueNotice.title}: </span>
+                <span>{shareIssueNotice.message}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <button
+                type="button"
+                onClick={() => manualFileInputRef.current?.click()}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium text-xs rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileQuestion className="w-3.5 h-3.5" />
+                <span>
+                  {shareIssueNotice.attemptedFile
+                    ? `Pick ${shareIssueNotice.attemptedFile}`
+                    : 'Select File Manually'}
+                </span>
+              </button>
+              {shareIssueNotice.details && (
+                <button
+                  type="button"
+                  onClick={() => setShowDiagnosticsModal(true)}
+                  className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs rounded-lg transition font-medium"
+                >
+                  Diagnostics
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShareIssueNotice(null)}
+                className="p-1 rounded text-amber-700 hover:text-amber-950 hover:bg-amber-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Workspace */}
+      <main className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
+        {(isLoadingPdf || isReceivingSharedPdf) && (
+          <div className="absolute inset-0 z-40 bg-white/85 backdrop-blur-xs flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+            <div className="text-center">
+              <p className="text-sm font-semibold text-slate-800">
+                {isReceivingSharedPdf && !isLoadingPdf ? 'Receiving Shared PDF...' : 'Opening PDF Document...'}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isReceivingSharedPdf && !isLoadingPdf ? 'Transferring file from Android share sheet' : 'Verifying structure and loading CMaps'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!pdfState ? (
+          <EmptyState
+            onFileSelect={handleFileSelect}
+            recentDocs={recentDocs}
+            onSelectRecentDoc={handleSelectRecentDoc}
+            onOpenRecentModal={() => setIsRecentModalOpen(true)}
+            onPrintRecentDoc={handlePrintRecentDoc}
+            onShareRecentDoc={handleShareRecentDoc}
+          />
+        ) : (
+          <PdfViewer
+            pdfState={pdfState}
+            signatures={signatures}
+            selectedSignatureId={selectedSignatureId}
+            textOverlays={textOverlays}
+            selectedTextId={selectedTextId}
+            formFields={formFields}
+            formValues={formValues}
+            onSelectSignature={setSelectedSignatureId}
+            onUpdateSignature={handleLiveUpdateSignature}
+            onCommitUpdateSignature={handleCommitUpdateSignature}
+            onDeleteSignature={handleDeleteSignature}
+            onDuplicateSignature={handleDuplicateSignature}
+            onSelectText={setSelectedTextId}
+            onUpdateText={handleLiveUpdateText}
+            onCommitUpdateText={handleCommitUpdateText}
+            onDeleteText={handleDeleteText}
+            onDuplicateText={handleDuplicateText}
+            onFormFieldChange={handleFormFieldChange}
+            onCommitFormField={handleCommitFormField}
+            onResetForm={handleResetForm}
+            onChangePage={handleChangePage}
+            onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
+            onOpenTextModal={() => setIsTextModalOpen(true)}
+            onOpenPageManager={() => setIsPageManagerOpen(true)}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            undoActionName={undoActionName}
+            redoActionName={redoActionName}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            historyNotice={historyNotice}
+            isReaderMode={isReaderMode}
+            onToggleReaderMode={setIsReaderMode}
+          />
+        )}
+      </main>
+
+      {/* Mobile Bottom Navigation Bar (Visible on phones) */}
+      {pdfState && !isReaderMode && (
+        <MobileBottomBar
+          pdfState={pdfState}
+          signatureCount={signatures.length}
+          textCount={textOverlays.length}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onAddSignature={() => setIsSignatureModalOpen(true)}
+          onAddText={() => setIsTextModalOpen(true)}
+          onOpenPageManager={() => setIsPageManagerOpen(true)}
+          onSave={() => setIsSaveModalOpen(true)}
+          onChangePage={handleChangePage}
+          onChangeDocument={handleRequestCloseDocument}
+        />
+      )}
+
+      {/* Modals */}
+      <SignatureModal
+        isOpen={isSignatureModalOpen}
+        currentPage={pdfState?.currentPage || 1}
+        onClose={() => setIsSignatureModalOpen(false)}
+        onAddSignature={handleAddSignature}
+      />
+
+      <AddTextModal
+        isOpen={isTextModalOpen}
+        onClose={() => setIsTextModalOpen(false)}
+        onAddText={handleAddText}
+      />
+
+      {pdfState && (
+        <SaveModal
+          isOpen={isSaveModalOpen}
+          pdfState={pdfState}
+          signatures={signatures}
+          textOverlays={textOverlays}
+          formValues={formValues}
+          hasFormFields={formFields.length > 0}
+          hasPageModifications={hasPageModifications}
+          onClose={() => setIsSaveModalOpen(false)}
+          onSaveSuccess={() => {
+            setIsSaved(true);
+            setHasPageModifications(false);
+            getRecentDocuments().then(setRecentDocs).catch(() => {});
+          }}
+        />
+      )}
+
+      {/* Recent Documents History Modal */}
+      <RecentDocumentsModal
+        isOpen={isRecentModalOpen}
+        onClose={() => setIsRecentModalOpen(false)}
+        recentDocs={recentDocs}
+        currentDocName={pdfState?.name}
+        onSelectDoc={handleSelectRecentDoc}
+        onRemoveDoc={handleRemoveRecentDoc}
+        onClearAll={handleClearAllRecentDocs}
+      />
+
+      <GeneralSetupGuideModal
+        isOpen={isSetupGuideModalOpen}
+        onClose={() => setIsSetupGuideModalOpen(false)}
+      />
+
+      {/* Page Management Modal: Add, Delete, Reorder, and Rotate */}
+      {pdfState && (
+        <PageManagementModal
+          isOpen={isPageManagerOpen}
+          pdfState={pdfState}
+          currentPage={pdfState.currentPage}
+          onClose={() => setIsPageManagerOpen(false)}
+          onApplyChanges={handleApplyPageModifications}
+          onJumpToPage={(pageNum) => handleChangePage(pageNum)}
+        />
+      )}
+
+      {/* Password Prompt Modal for Encrypted PDFs */}
+      <PasswordPromptModal
+        isOpen={isPasswordModalOpen}
+        fileName={passwordPendingDoc?.file.name || 'Document'}
+        isIncorrect={isPasswordIncorrect}
+        onUnlock={handleUnlockPassword}
+        onClose={() => {
+          setIsPasswordModalOpen(false);
+          setPasswordPendingDoc(null);
+        }}
+      />
+
+      {/* Unsaved Changes Confirmation Modal */}
+      <UnsavedChangesModal
+        isOpen={isUnsavedModalOpen}
+        documentName={pdfState?.name || 'Document'}
+        actionType={pendingAction?.type || 'close'}
+        onKeepEditing={() => {
+          setIsUnsavedModalOpen(false);
+          setPendingAction(null);
+        }}
+        onDiscardChanges={() => {
+          setIsUnsavedModalOpen(false);
+          if (pendingAction?.type === 'switch' && pendingAction.file) {
+            const nextFile = pendingAction.file;
+            setPendingAction(null);
+            handleFileSelect(nextFile);
+          } else {
+            setPendingAction(null);
+            handleClearDocument();
+          }
+        }}
+        onSaveFirst={() => {
+          setIsUnsavedModalOpen(false);
+          setIsSaveModalOpen(true);
+        }}
+      />
+
+      {/* Hidden manual file input for direct fallback */}
+      <input
+        ref={manualFileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            handleFileSelect(file);
+            setShareIssueNotice(null);
+          }
+          e.target.value = '';
+        }}
+      />
+
+      {/* Technical Diagnostics Modal */}
+      {showDiagnosticsModal && shareIssueNotice && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 flex flex-col gap-4 max-h-[85vh] overflow-hidden">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-slate-700" />
+                <h3 className="font-semibold text-slate-900 text-sm">Android Share Technical Diagnostic</h3>
+              </div>
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="text-xs text-slate-600 space-y-2">
+              <p>
+                When sharing from Android, native PDF readers receive direct operating system streams (<code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800">ACTION_VIEW</code> / <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800">content://</code> URIs).
+              </p>
+              <p>
+                PWAs running in Chrome rely on the Web Share Target API which packages the intent into an HTTP POST request. Below is the exact data captured by the Service Worker:
+              </p>
+            </div>
+            <div className="bg-slate-900 text-slate-200 font-mono text-[11px] p-3 rounded-xl overflow-auto flex-1 max-h-56">
+              <pre>{JSON.stringify(shareIssueNotice.details, null, 2)}</pre>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowDiagnosticsModal(false);
+                  manualFileInputRef.current?.click();
+                }}
+                className="px-4 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+              >
+                Choose PDF Manually
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
