@@ -349,20 +349,65 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [isReflowMode, pdfState.currentPage, pdfState.arrayBuffer]);
 
-  // Smooth scroll to target page (continuous vertical rolling)
+  // Scroll to target page (continuous vertical rolling with precision offset and settle-lock)
   const scrollToPage = useCallback(
-    (pageNum: number, behavior: ScrollBehavior = 'smooth') => {
+    (pageNum: number, behavior: ScrollBehavior = 'auto') => {
       const boundedPage = Math.max(1, Math.min(pdfState.numPages, pageNum));
       const targetEl = pageContainersRef.current[boundedPage];
-      if (targetEl && containerRef.current) {
+      const container = containerRef.current;
+
+      if (targetEl && container) {
         isScrollingProgrammaticallyRef.current = true;
-        targetEl.scrollIntoView({ behavior, block: 'start' });
+        lastReportedPageRef.current = boundedPage;
+        currentPageRef.current = boundedPage;
         onChangePage(boundedPage);
 
-        // Release programmatic lock after animation completes
-        setTimeout(() => {
-          isScrollingProgrammaticallyRef.current = false;
-        }, 500);
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = targetEl.getBoundingClientRect();
+        const currentScrollTop = container.scrollTop;
+        const targetScrollTop = Math.max(0, currentScrollTop + (targetRect.top - containerRect.top) - 16);
+
+        // For large jump distances (> 2500px, common in long documents), use instant jump to avoid browser clamp/stall
+        const distance = Math.abs(targetScrollTop - currentScrollTop);
+        const actualBehavior = behavior === 'smooth' && distance > 2500 ? 'auto' : behavior;
+
+        container.scrollTo({
+          top: targetScrollTop,
+          behavior: actualBehavior,
+        });
+
+        if (actualBehavior === 'auto') {
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false;
+          }, 150);
+        } else {
+          // Monitor for scroll completion instead of an arbitrary timer
+          let lastTop = container.scrollTop;
+          let settledFrames = 0;
+          const checkScrollEnd = () => {
+            if (!containerRef.current) {
+              isScrollingProgrammaticallyRef.current = false;
+              return;
+            }
+            const currentTop = containerRef.current.scrollTop;
+            if (Math.abs(currentTop - lastTop) < 2) {
+              settledFrames++;
+            } else {
+              settledFrames = 0;
+              lastTop = currentTop;
+            }
+            if (settledFrames >= 4) {
+              isScrollingProgrammaticallyRef.current = false;
+            } else {
+              requestAnimationFrame(checkScrollEnd);
+            }
+          };
+          requestAnimationFrame(checkScrollEnd);
+          // Safety failsafe
+          setTimeout(() => {
+            isScrollingProgrammaticallyRef.current = false;
+          }, 3500);
+        }
       } else {
         onChangePage(boundedPage);
       }
@@ -373,20 +418,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Sync external page changes (e.g. Undo/Redo or page reordering)
   useEffect(() => {
     if (isScrollingProgrammaticallyRef.current) return;
-    // If this page change originated from our own scroll intersection observer, do NOT scroll!
     if (lastReportedPageRef.current === pdfState.currentPage) {
       return;
     }
     lastReportedPageRef.current = pdfState.currentPage;
-    const targetEl = pageContainersRef.current[pdfState.currentPage];
-    if (targetEl && containerRef.current) {
-      isScrollingProgrammaticallyRef.current = true;
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => {
-        isScrollingProgrammaticallyRef.current = false;
-      }, 500);
-    }
-  }, [pdfState.currentPage]);
+    scrollToPage(pdfState.currentPage, 'auto');
+  }, [pdfState.currentPage, scrollToPage]);
 
   // Track currently visible page during continuous vertical scrolling
   useEffect(() => {
@@ -397,26 +434,37 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       (entries) => {
         if (isScrollingProgrammaticallyRef.current || pinchRef.current?.active) return;
 
-        let bestPage = 0;
-        let maxRatio = 0;
+        let candidatePage = 0;
+        let bestScore = -Infinity;
 
         for (const entry of entries) {
-          if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
-            maxRatio = entry.intersectionRatio;
-            const pNum = Number(entry.target.getAttribute('data-page-number'));
-            if (pNum) bestPage = pNum;
+          if (!entry.isIntersecting) continue;
+          const pNum = Number(entry.target.getAttribute('data-page-number'));
+          if (!pNum) continue;
+
+          const rect = entry.boundingClientRect;
+          const rootRect = entry.rootBounds || container.getBoundingClientRect();
+
+          // Check if page covers the primary reading line (top 15% - 40% of viewport)
+          const readingLine = rootRect.top + Math.min(220, rootRect.height * 0.35);
+          const containsReadingLine = rect.top <= readingLine && rect.bottom >= readingLine;
+
+          const score = (containsReadingLine ? 10 : 0) + entry.intersectionRatio;
+          if (score > bestScore) {
+            bestScore = score;
+            candidatePage = pNum;
           }
         }
 
-        if (bestPage > 0 && bestPage !== currentPageRef.current) {
-          lastReportedPageRef.current = bestPage;
-          currentPageRef.current = bestPage;
-          onChangePageRef.current(bestPage);
+        if (candidatePage > 0 && candidatePage !== currentPageRef.current) {
+          lastReportedPageRef.current = candidatePage;
+          currentPageRef.current = candidatePage;
+          onChangePageRef.current(candidatePage);
         }
       },
       {
         root: container,
-        threshold: [0.15, 0.4, 0.6, 0.85],
+        threshold: [0.1, 0.3, 0.5, 0.8],
       }
     );
 
@@ -1206,9 +1254,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         ref={containerRef}
         onClick={handleContainerClick}
         onMouseDown={handleMouseDown}
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative select-none touch-pan-x touch-pan-y overscroll-contain ${
-          pinchRef.current?.active ? 'scroll-auto' : 'scroll-smooth'
-        } ${
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative select-none touch-pan-x touch-pan-y overscroll-contain scroll-auto ${
           isSpacePressed || isMousePanning ? (isMousePanning ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
         }`}
       >

@@ -1275,32 +1275,199 @@ export async function extractPageReflowText(
 }
 
 /**
- * Resolves a PDF destination (string name or destination array) to a 1-based target page number.
+ * Cached map of named destinations per document to prevent redundant worker round-trips
  */
-async function resolveDestinationPage(
+const docDestinationsCache = new WeakMap<any, Promise<Record<string, any>>>();
+
+async function getCachedDocDestinations(doc: any): Promise<Record<string, any>> {
+  let promise = docDestinationsCache.get(doc);
+  if (!promise) {
+    promise = (async () => {
+      try {
+        if (typeof doc.getDestinations === 'function') {
+          const dests = await doc.getDestinations();
+          return dests || {};
+        }
+      } catch (e) {
+        // graceful destinations lookup fallback
+      }
+      return {};
+    })();
+    docDestinationsCache.set(doc, promise);
+  }
+  return promise;
+}
+
+/**
+ * Resolves a PDF destination (named string, explicit destination array, or dictionary) to a 1-based target page number.
+ * Engineered to handle:
+ * - Named destinations (exact, URI-decoded, "#"-stripped, and case-insensitive lookup)
+ * - Explicit destination arrays with RefProxy or integer page offsets
+ * - Numerical destination values (distinguishing between 0-based page indices and indirect object IDs)
+ * - Nested Action dictionaries (/GoTo with /D) and URI hash anchors (#page=12)
+ */
+export async function resolveDestinationPage(
   doc: any,
   dest: any
 ): Promise<number | undefined> {
-  if (!dest) return undefined;
+  if (dest === null || dest === undefined) return undefined;
   try {
-    let destArray = dest;
-    if (typeof dest === 'string') {
-      destArray = await doc.getDestination(dest);
+    // 1. Direct number destination
+    if (typeof dest === 'number') {
+      if (Number.isInteger(dest)) {
+        // If within 1..numPages, could be 1-based or 0-based
+        if (dest >= 1 && dest <= doc.numPages) {
+          return dest;
+        }
+        if (dest >= 0 && dest < doc.numPages) {
+          return dest + 1;
+        }
+        // If >= numPages, it is likely an indirect object ID (num)
+        try {
+          const pIdx = await doc.getPageIndex({ num: dest, gen: 0 });
+          if (typeof pIdx === 'number' && pIdx >= 0 && pIdx < doc.numPages) {
+            return pIdx + 1;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return undefined;
     }
+
+    let destArray = dest;
+
+    // 2. Named destination string resolution
+    if (typeof dest === 'string') {
+      const trimmed = dest.trim();
+      if (!trimmed) return undefined;
+
+      // 2a. Direct page notation: "#page=14", "page=14", "page.14", "#14", "page-14"
+      const directPageMatch = trimmed.match(/^(?:#|#page=|page=|page[._-]?)(\d+)$/i);
+      if (directPageMatch) {
+        const pageNum = parseInt(directPageMatch[1], 10);
+        if (pageNum >= 1 && pageNum <= doc.numPages) {
+          return pageNum;
+        }
+      }
+
+      // 2b. Standard PDF.js getDestination call
+      try {
+        destArray = await doc.getDestination(trimmed);
+      } catch {
+        destArray = null;
+      }
+
+      // 2c. Try without leading hashtag (#)
+      if (!destArray && trimmed.startsWith('#')) {
+        const unhashed = trimmed.replace(/^#+/, '');
+        try {
+          destArray = await doc.getDestination(unhashed);
+        } catch {
+          destArray = null;
+        }
+      }
+
+      // 2d. Try URI decoded string
+      if (!destArray) {
+        try {
+          const decoded = decodeURIComponent(trimmed);
+          if (decoded !== trimmed) {
+            destArray = await doc.getDestination(decoded);
+          }
+        } catch {
+          // ignore URI error
+        }
+      }
+
+      // 2e. Check entire document destinations dictionary
+      if (!destArray) {
+        const allDests = await getCachedDocDestinations(doc);
+        if (allDests) {
+          if (allDests[trimmed]) {
+            destArray = allDests[trimmed];
+          } else {
+            const clean = trimmed.replace(/^#+/, '');
+            if (allDests[clean]) {
+              destArray = allDests[clean];
+            } else {
+              // Case-insensitive lookup
+              const lower = clean.toLowerCase();
+              for (const key of Object.keys(allDests)) {
+                if (key.toLowerCase() === lower) {
+                  destArray = allDests[key];
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Unwrap dictionary wrappers (e.g. { D: [...] } or { Dest: [...] })
+    if (destArray && !Array.isArray(destArray) && typeof destArray === 'object') {
+      if (Array.isArray(destArray.D)) {
+        destArray = destArray.D;
+      } else if (Array.isArray(destArray.Dest)) {
+        destArray = destArray.Dest;
+      }
+    }
+
+    // 4. Resolve destination array: [ pageRef, /XYZ, left, top, zoom ]
     if (Array.isArray(destArray) && destArray.length > 0) {
       const targetRef = destArray[0];
-      if (typeof targetRef === 'number') {
-        return targetRef + 1;
-      }
+
+      // 4a. Target is an object (Ref proxy: { num, gen })
       if (targetRef && typeof targetRef === 'object') {
-        const pageIdx = await doc.getPageIndex(targetRef);
-        if (typeof pageIdx === 'number' && !isNaN(pageIdx) && pageIdx >= 0) {
-          return pageIdx + 1;
+        // Fast synchronous check if page number was already cached by PDF.js
+        if (typeof doc.cachedPageNumber === 'function') {
+          try {
+            const cached = doc.cachedPageNumber(targetRef);
+            if (typeof cached === 'number' && cached >= 1 && cached <= doc.numPages) {
+              return cached;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        // Normalize Ref proxy structure with default gen 0
+        const refObj = {
+          num: typeof targetRef.num === 'number' ? targetRef.num : 0,
+          gen: typeof targetRef.gen === 'number' ? targetRef.gen : 0,
+        };
+
+        try {
+          const pageIdx = await doc.getPageIndex(refObj);
+          if (typeof pageIdx === 'number' && !isNaN(pageIdx) && pageIdx >= 0 && pageIdx < doc.numPages) {
+            return pageIdx + 1;
+          }
+        } catch {
+          // If direct call fails, check if targetRef.num is itself a page index or object ID
+        }
+      }
+
+      // 4b. Target is a number
+      if (typeof targetRef === 'number') {
+        // If within 0..doc.numPages - 1, standard PDF.js treats it as a 0-based page index
+        if (targetRef >= 0 && targetRef < doc.numPages) {
+          return targetRef + 1;
+        }
+
+        // If targetRef >= doc.numPages, it is an indirect object number (num)
+        try {
+          const pageIdx = await doc.getPageIndex({ num: targetRef, gen: 0 });
+          if (typeof pageIdx === 'number' && !isNaN(pageIdx) && pageIdx >= 0 && pageIdx < doc.numPages) {
+            return pageIdx + 1;
+          }
+        } catch {
+          // ignore
         }
       }
     }
   } catch (err) {
-    // Graceful destination resolution failure
+    console.warn('Destination resolution exception:', err);
   }
   return undefined;
 }
@@ -1346,17 +1513,56 @@ export async function extractPageLinks(
       let targetPage: number | undefined;
       let url: string | undefined;
 
-      if (annot.url) {
-        url = annot.url;
-      } else if (annot.dest) {
-        targetPage = await resolveDestinationPage(doc, annot.dest);
+      // Check Named Actions (e.g. NextPage, PrevPage, FirstPage, LastPage)
+      if (annot.action === 'Named' && typeof annot.actionName === 'string') {
+        const act = annot.actionName.toLowerCase();
+        if (act === 'nextpage') targetPage = Math.min(doc.numPages, pageNumber + 1);
+        else if (act === 'prevpage') targetPage = Math.max(1, pageNumber - 1);
+        else if (act === 'firstpage') targetPage = 1;
+        else if (act === 'lastpage') targetPage = doc.numPages;
+      }
+
+      // Check direct destination or action /GoTo
+      if (!targetPage) {
+        if (annot.dest) {
+          targetPage = await resolveDestinationPage(doc, annot.dest);
+        } else if (annot.action === 'GoTo' && (annot.A?.D || annot.d)) {
+          targetPage = await resolveDestinationPage(doc, annot.A?.D || annot.d);
+        }
+      }
+
+      // Check URLs: determine if it's an internal reference (e.g. #page=12, #12, file.pdf#page=12)
+      if (!targetPage && annot.url) {
+        const rawUrl = String(annot.url).trim();
+        const pageHashMatch = rawUrl.match(/(?:#|#page=|\.pdf#page=|\.pdf#)(\d+)$/i);
+        if (pageHashMatch) {
+          const p = parseInt(pageHashMatch[1], 10);
+          if (p >= 1 && p <= doc.numPages) {
+            targetPage = p;
+          }
+        } else if (rawUrl.startsWith('#')) {
+          targetPage = await resolveDestinationPage(doc, rawUrl.substring(1));
+        }
+
+        if (!targetPage) {
+          url = rawUrl;
+        }
+      } else if (!targetPage && !url && annot.unsafeUrl) {
+        const rawUnsafe = String(annot.unsafeUrl).trim();
+        const match = rawUnsafe.match(/(?:#|#page=|\.pdf#page=|\.pdf#)(\d+)$/i);
+        if (match) {
+          const p = parseInt(match[1], 10);
+          if (p >= 1 && p <= doc.numPages) {
+            targetPage = p;
+          }
+        }
       }
 
       let title = '';
       if (targetPage) {
-        title = `Jump to Page ${targetPage}`;
+        title = `Zu Seite ${targetPage} springen`;
       } else if (url) {
-        title = `Open link: ${url}`;
+        title = `Link öffnen: ${url}`;
       }
 
       if (targetPage !== undefined || url) {
@@ -1401,8 +1607,22 @@ export async function extractDocumentOutline(
         let url: string | undefined;
 
         if (node.url) {
-          url = node.url;
-        } else if (node.dest) {
+          const rawUrl = String(node.url).trim();
+          const match = rawUrl.match(/(?:#|#page=|\.pdf#page=|\.pdf#)(\d+)$/i);
+          if (match) {
+            const p = parseInt(match[1], 10);
+            if (p >= 1 && p <= doc.numPages) {
+              targetPage = p;
+            }
+          } else if (rawUrl.startsWith('#')) {
+            targetPage = await resolveDestinationPage(doc, rawUrl.substring(1));
+          }
+          if (!targetPage) {
+            url = rawUrl;
+          }
+        }
+
+        if (!targetPage && node.dest) {
           targetPage = await resolveDestinationPage(doc, node.dest);
         }
 
