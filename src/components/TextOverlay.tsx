@@ -4,9 +4,11 @@ import {
   Trash2,
   Copy,
   Type,
-  Palette,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  AlignCenterHorizontal,
   Sparkles,
 } from 'lucide-react';
 
@@ -36,6 +38,7 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   onDuplicate,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [showTools, setShowTools] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const elementRef = useRef<HTMLDivElement>(null);
 
@@ -58,8 +61,14 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
     initialY: 0,
   });
 
+  // Calculate pixel positions from percentages without unscaled offsets
   const pixelX = (item.xPercent / 100) * containerWidth;
   const pixelY = (item.yPercent / 100) * containerHeight;
+
+  // Font size calculation: match PDF export script multiplier (1.25x for script Caveat font)
+  const fontMultiplier = item.fontFamily === 'script' ? 1.25 : 1.0;
+  const effectiveFontSize = item.fontSize * fontMultiplier;
+  const scaledFontSize = effectiveFontSize * (zoomLevel / 100);
 
   // Stable references for window drag listeners
   const onMoveRef = useRef<((e: PointerEvent) => void) | undefined>(undefined);
@@ -72,8 +81,8 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
 
-    const newPixelX = Math.max(0, Math.min(containerWidth - 30, dragRef.current.initialX + dx));
-    const newPixelY = Math.max(0, Math.min(containerHeight - 20, dragRef.current.initialY + dy));
+    const newPixelX = Math.max(0, Math.min(containerWidth - 10, dragRef.current.initialX + dx));
+    const newPixelY = Math.max(0, Math.min(containerHeight - 10, dragRef.current.initialY + dy));
 
     const newXPercent = (newPixelX / containerWidth) * 100;
     const newYPercent = (newPixelY / containerHeight) * 100;
@@ -118,6 +127,50 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
     };
   }, []);
 
+  // Keyboard navigation & micro-nudge listener when text item is selected
+  useEffect(() => {
+    if (!isSelected || isEditing) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+
+      const step = e.shiftKey ? 1.0 : 0.2; // 1.0% with shift, 0.2% fine nudge
+      let dx = 0;
+      let dy = 0;
+
+      if (e.key === 'ArrowLeft') dx = -step;
+      else if (e.key === 'ArrowRight') dx = step;
+      else if (e.key === 'ArrowUp') dy = -step;
+      else if (e.key === 'ArrowDown') dy = step;
+      else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        onDelete(item.id);
+        return;
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        setIsEditing(true);
+        return;
+      } else {
+        return;
+      }
+
+      e.preventDefault();
+      const updated: TextOverlayItem = {
+        ...latestItemRef.current,
+        xPercent: Math.max(0, Math.min(99, Math.round((latestItemRef.current.xPercent + dx) * 100) / 100)),
+        yPercent: Math.max(0, Math.min(99, Math.round((latestItemRef.current.yPercent + dy) * 100) / 100)),
+      };
+      onUpdate(updated);
+      if (onCommitUpdate) {
+        onCommitUpdate(updated, 'Nudge Text');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSelected, isEditing, onDelete, onUpdate, onCommitUpdate]);
+
   // Auto-focus textarea when entering edit mode
   useEffect(() => {
     if (isEditing && textareaRef.current) {
@@ -127,7 +180,7 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   }, [isEditing]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (isEditing) return; // Allow normal cursor placement inside textarea
+    if (isEditing) return;
 
     const target = e.target as HTMLElement;
     if (
@@ -156,17 +209,41 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
     window.addEventListener('pointerup', handleWindowPointerUp);
   };
 
+  // Nudge functions for micro-adjustments
+  const nudge = (dxP: number, dyP: number) => {
+    const updated = {
+      ...item,
+      xPercent: Math.max(0, Math.min(99, Math.round((item.xPercent + dxP) * 100) / 100)),
+      yPercent: Math.max(0, Math.min(99, Math.round((item.yPercent + dyP) * 100) / 100)),
+    };
+    onUpdate(updated);
+    if (onCommitUpdate) {
+      onCommitUpdate(updated, 'Nudge Text');
+    }
+  };
+
+  const centerHorizontally = () => {
+    const updated = {
+      ...item,
+      xPercent: 40,
+    };
+    onUpdate(updated);
+    if (onCommitUpdate) {
+      onCommitUpdate(updated, 'Center Text');
+    }
+  };
+
   // Quick font toggles
-  const toggleFont = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggleFont = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const newFont = item.fontFamily === 'standard' ? 'script' : 'standard';
     const updated = { ...item, fontFamily: newFont as any };
     onUpdate(updated);
     if (onCommitUpdate) onCommitUpdate(updated, 'Change Font');
   };
 
-  const toggleColor = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggleColor = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     let newColor: TextColor = 'black';
     if (item.color === 'black') newColor = 'blue';
     else if (item.color === 'blue') newColor = 'red';
@@ -178,7 +255,7 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
 
   const changeFontSize = (delta: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newSize = Math.max(9, Math.min(48, item.fontSize + delta));
+    const newSize = Math.max(8, Math.min(60, item.fontSize + delta));
     const updated = { ...item, fontSize: newSize };
     onUpdate(updated);
     if (onCommitUpdate) onCommitUpdate(updated, 'Resize Font');
@@ -216,10 +293,10 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
         top: `${pixelY}px`,
         touchAction: 'none',
       }}
-      className={`absolute cursor-move select-none group transition-shadow pointer-events-auto ${
+      className={`absolute cursor-move select-none group pointer-events-auto transition-shadow ${
         isSelected
-          ? 'z-30 ring-2 ring-blue-500 ring-offset-1 rounded-lg shadow-lg bg-blue-500/5'
-          : 'z-20 hover:ring-1 hover:ring-blue-300 rounded-lg'
+          ? 'z-30 ring-2 ring-blue-500 ring-offset-2 rounded-xs shadow-md bg-blue-500/10'
+          : 'z-20 hover:ring-1 hover:ring-blue-400 hover:ring-offset-1 rounded-xs'
       }`}
     >
       {/* Selection Action Toolbar */}
@@ -315,6 +392,25 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
             </button>
           </div>
 
+          <span className="text-slate-600">|</span>
+
+          {/* Toggle Precision Tools */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowTools(!showTools);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className={`px-1.5 py-0.5 rounded text-[11px] flex items-center gap-1 transition cursor-pointer ${
+              showTools ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-300'
+            }`}
+            title="Toggle precision nudge controls"
+          >
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            <span>Nudge</span>
+          </button>
+
           <span className="w-px h-3.5 bg-slate-700 mx-0.5" />
 
           {/* Duplicate */}
@@ -347,50 +443,120 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
         </div>
       )}
 
+      {/* Extended Precision Tools Panel (Nudge / Coordinates) */}
+      {isSelected && showTools && !isEditing && (
+        <div
+          data-text-tools="true"
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute -bottom-24 left-0 bg-white text-slate-900 p-2 rounded-xl shadow-2xl border border-slate-200 z-50 flex flex-col gap-1.5 w-60 animate-in fade-in zoom-in duration-100"
+        >
+          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 border-b border-slate-100 pb-1">
+            <span>Precision Nudge</span>
+            <span className="text-blue-600 font-mono">
+              X:{Math.round(item.xPercent * 10) / 10}% Y:{Math.round(item.yPercent * 10) / 10}%
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+              <button
+                type="button"
+                onClick={() => nudge(-0.2, 0)}
+                className="p-1.5 rounded hover:bg-white active:bg-slate-200 text-slate-700 cursor-pointer"
+                title="Nudge Left"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => nudge(0, -0.2)}
+                className="p-1.5 rounded hover:bg-white active:bg-slate-200 text-slate-700 cursor-pointer"
+                title="Nudge Up"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => nudge(0, 0.2)}
+                className="p-1.5 rounded hover:bg-white active:bg-slate-200 text-slate-700 cursor-pointer"
+                title="Nudge Down"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => nudge(0.2, 0)}
+                className="p-1.5 rounded hover:bg-white active:bg-slate-200 text-slate-700 cursor-pointer"
+                title="Nudge Right"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={centerHorizontally}
+              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer flex items-center gap-1 text-[11px] font-medium"
+              title="Center on Page"
+            >
+              <AlignCenterHorizontal className="w-4 h-4" />
+              <span>Center</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Text Content or In-place Editor */}
-      <div className="p-1.5 min-w-[60px]">
+      <div className="p-0 m-0 relative">
         {isEditing ? (
           <div
             data-text-tools="true"
             onPointerDown={(e) => e.stopPropagation()}
-            className="flex flex-col gap-1 bg-white p-2 rounded-xl shadow-2xl border-2 border-blue-500 z-50 pointer-events-auto"
+            className="absolute top-0 left-0 flex flex-col gap-1.5 bg-white p-2.5 rounded-xl shadow-2xl border-2 border-blue-600 z-50 pointer-events-auto min-w-[260px] sm:min-w-[320px] animate-in fade-in zoom-in-95 duration-100"
           >
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-500 border-b border-slate-100 pb-1">
+              <span>Edit Text</span>
+              <span className="text-[10px] text-slate-400 font-mono">Cmd/Ctrl+Enter to save</span>
+            </div>
             <textarea
               ref={textareaRef}
               value={item.text}
               onChange={(e) => {
                 const val = e.target.value;
-                onUpdate({ ...item, text: val });
+                onUpdate({ ...latestItemRef.current, text: val });
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   setIsEditing(false);
                   if (onCommitUpdate) {
-                    onCommitUpdate(item, 'Edit Text');
+                    onCommitUpdate(latestItemRef.current, 'Edit Text');
                   }
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setIsEditing(false);
                 }
               }}
               rows={Math.max(1, item.text.split('\n').length)}
               style={{
-                fontSize: `${Math.max(10, Math.round(item.fontSize * (zoomLevel / 100)))}px`,
+                fontSize: `${Math.max(12, Math.round(scaledFontSize))}px`,
                 lineHeight: 1.25,
               }}
-              className={`w-full min-w-[180px] sm:min-w-[240px] bg-slate-50 border border-slate-300 rounded-lg p-2 resize-none focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-medium ${textColorClass} ${textFontClass}`}
+              className={`w-full bg-slate-50 border border-slate-300 rounded-lg p-2 resize-none focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-medium ${textColorClass} ${textFontClass}`}
               placeholder="Type your text..."
             />
-            <div className="flex items-center justify-between gap-2 pt-1">
+            <div className="flex items-center justify-between gap-2 pt-0.5">
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={toggleFont}
+                  onClick={() => toggleFont()}
                   className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium cursor-pointer"
                 >
                   {item.fontFamily === 'script' ? 'Font: Script' : 'Font: Regular'}
                 </button>
                 <button
                   type="button"
-                  onClick={toggleColor}
+                  onClick={() => toggleColor()}
                   className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium flex items-center gap-1 cursor-pointer"
                 >
                   <span
@@ -410,7 +576,7 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
                 onClick={() => {
                   setIsEditing(false);
                   if (onCommitUpdate) {
-                    onCommitUpdate(item, 'Edit Text');
+                    onCommitUpdate(latestItemRef.current, 'Edit Text');
                   }
                 }}
                 className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
@@ -422,14 +588,12 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
         ) : (
           <div
             style={{
-              fontSize: `${Math.max(7, Math.round(item.fontSize * (zoomLevel / 100)))}px`,
+              fontSize: `${scaledFontSize}px`,
               lineHeight: 1.25,
             }}
-            className={`whitespace-pre select-none tracking-normal ${textColorClass} ${textFontClass} ${
-              item.fontFamily === 'script' ? 'text-[1.25em]' : ''
-            }`}
+            className={`whitespace-pre select-none tracking-normal ${textColorClass} ${textFontClass} p-0 m-0`}
           >
-            {item.text || <span className="italic text-slate-400">Empty text (double click)</span>}
+            {item.text || <span className="italic text-slate-400 select-none">Empty text (double click)</span>}
           </div>
         )}
       </div>

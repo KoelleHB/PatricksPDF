@@ -685,13 +685,17 @@ async function extractPdfFormFieldsViaPdfLib(
 }
 
 /**
- * Calculates text placement for rotated and offset pages.
+ * Calculates text placement for rotated and offset pages with sub-pixel typography alignment.
+ * Maps visual page coordinates (where xPercent, yPercent is top-left of the line box)
+ * directly to the font baseline in PDF user space across 0, 90, 180, and 270 deg page rotations.
  */
 export function calculatePdfTextPlacement(
   page: any,
   xPercent: number,
   yPercent: number,
-  fontSize: number
+  fontSize: number,
+  lineIndex: number = 0,
+  lineHeight: number = 0
 ) {
   const rotation = ((page.getRotation().angle % 360) + 360) % 360;
   const mediaBox = page.getMediaBox();
@@ -707,8 +711,11 @@ export function calculatePdfTextPlacement(
   const visHeight = isTransposed ? boxWidth : boxHeight;
 
   const x_vis = (xPercent / 100) * visWidth;
-  // Font baseline is slightly lower than top box bound
-  const y_vis = (yPercent / 100) * visHeight + fontSize * 0.85;
+  // Font baseline is positioned using CSS typography metrics:
+  // For line-height 1.25, top half-leading is 0.125 * fontSize, and font ascent is ~0.80 * fontSize.
+  // Total distance from top-left box origin to the first line's baseline is ~0.925 * fontSize.
+  const baselineOffset = fontSize * 0.925;
+  const y_vis = (yPercent / 100) * visHeight + baselineOffset + lineIndex * (lineHeight || fontSize * 1.25);
 
   let x = 0;
   let y = 0;
@@ -844,27 +851,26 @@ export async function embedSignaturesIntoPdf(
       const lines = textItem.text.split('\n');
       const lineHeight = effectiveSize * 1.25;
 
-      const initialPlacement = calculatePdfTextPlacement(
-        page,
-        textItem.xPercent,
-        textItem.yPercent,
-        effectiveSize
-      );
-
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (!line && i > 0) continue;
 
-        // Offset subsequent lines downwards
-        const lineY = initialPlacement.y - i * lineHeight;
+        const linePlacement = calculatePdfTextPlacement(
+          page,
+          textItem.xPercent,
+          textItem.yPercent,
+          effectiveSize,
+          i,
+          lineHeight
+        );
 
         page.drawText(line, {
-          x: initialPlacement.x,
-          y: lineY,
+          x: linePlacement.x,
+          y: linePlacement.y,
           size: effectiveSize,
           font: font,
           color: color,
-          rotate: initialPlacement.rotate,
+          rotate: linePlacement.rotate,
         });
       }
     }
