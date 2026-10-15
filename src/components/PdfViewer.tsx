@@ -15,6 +15,7 @@ import {
   Type,
   LayoutGrid,
   BookOpen,
+  Check,
 } from 'lucide-react';
 import {
   SignatureItem,
@@ -126,7 +127,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
       if (availableWidth > 0 && baseWidth > 0) {
         const calculated = Math.round((availableWidth / baseWidth) * 100);
-        return Math.min(250, Math.max(35, calculated));
+        return Math.min(500, Math.max(35, calculated));
       }
       return 100;
     },
@@ -135,6 +136,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   // Always open in "fit width" mode by default
   const [isFitWidthMode, setIsFitWidthMode] = useState<boolean>(true);
+  const [isZoomMenuOpen, setIsZoomMenuOpen] = useState<boolean>(false);
+  const zoomMenuRef = useRef<HTMLDivElement>(null);
+
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     if (typeof window === 'undefined') return 100;
     const isMobile = window.innerWidth < 640;
@@ -142,7 +146,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     const availableWidth = window.innerWidth - horizontalMargin;
     const baseWidth = pdfState.pageWidth || 595;
     if (availableWidth > 0 && baseWidth > 0) {
-      return Math.min(250, Math.max(35, Math.round((availableWidth / baseWidth) * 100)));
+      return Math.min(500, Math.max(35, Math.round((availableWidth / baseWidth) * 100)));
     }
     return 100;
   });
@@ -289,6 +293,29 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [isFitWidthMode, calculateFitWidthZoom, captureZoomAnchor]);
+
+  // Close zoom preset dropdown when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!isZoomMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (zoomMenuRef.current && !zoomMenuRef.current.contains(e.target as Node)) {
+        setIsZoomMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsZoomMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isZoomMenuOpen]);
 
   // Mouse pan state
   const [isMousePanning, setIsMousePanning] = useState<boolean>(false);
@@ -555,12 +582,52 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const contentWrapperRef = useRef<HTMLDivElement>(null);
   const zoomPillRef = useRef<HTMLDivElement>(null);
   const rafPinchRef = useRef<number | null>(null);
+  const lastTapRef = useRef<{ time: number; x: number; y: number }>({ time: 0, x: 0, y: 0 });
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const handleTouchStart = (e: TouchEvent) => {
+      // 1. Double-tap detection for single finger
+      if (e.touches.length === 1) {
+        const touch = e.touches[0];
+        const now = Date.now();
+        const dist = Math.hypot(touch.clientX - lastTapRef.current.x, touch.clientY - lastTapRef.current.y);
+        const timeDiff = now - lastTapRef.current.time;
+
+        if (timeDiff < 300 && dist < 35) {
+          const target = e.target as HTMLElement;
+          if (
+            !target.closest('[data-signature-overlay]') &&
+            !target.closest('[data-text-overlay]') &&
+            !target.closest('[data-form-field]') &&
+            !target.closest('button') &&
+            !target.closest('textarea') &&
+            !target.closest('input') &&
+            !target.closest('a')
+          ) {
+            e.preventDefault();
+            const rect = container.getBoundingClientRect();
+            const touchX = touch.clientX - rect.left;
+            const touchY = touch.clientY - rect.top;
+            pendingZoomAnchorRef.current = captureZoomAnchor(touchX, touchY);
+
+            if (zoomLevelRef.current < 180) {
+              setIsFitWidthMode(false);
+              setZoomLevel(250);
+            } else {
+              setIsFitWidthMode(true);
+              const fitZoom = calculateFitWidthZoom();
+              setZoomLevel(fitZoom);
+            }
+            lastTapRef.current = { time: 0, x: 0, y: 0 };
+            return;
+          }
+        }
+        lastTapRef.current = { time: now, x: touch.clientX, y: touch.clientY };
+      }
+
       if (e.touches.length === 2) {
         // Two fingers: Pinch to zoom
         e.preventDefault();
@@ -614,9 +681,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         const rawScale = dist / pinchRef.current.startDist;
         const startZoom = pinchRef.current.startZoom;
 
-        // Clamp scale so effective zoom stays cleanly within bounds [35%, 250%]
+        // Clamp scale so effective zoom stays cleanly within bounds [35%, 500%]
         const minScale = 35 / startZoom;
-        const maxScale = 250 / startZoom;
+        const maxScale = 500 / startZoom;
         const scale = Math.min(maxScale, Math.max(minScale, rawScale));
 
         const midX = (p1.clientX + p2.clientX) / 2;
@@ -671,7 +738,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         } = pinchRef.current;
 
         const rawFinalZoom = Math.round(startZoom * currentScale);
-        const finalZoom = Math.min(250, Math.max(35, rawFinalZoom));
+        const finalZoom = Math.min(500, Math.max(35, rawFinalZoom));
 
         container.style.scrollBehavior = '';
 
@@ -704,7 +771,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         e.preventDefault();
         const currentZoom = zoomLevelRef.current;
         const factor = -e.deltaY * 0.35;
-        const newZoom = Math.min(250, Math.max(35, Math.round(currentZoom + factor)));
+        const newZoom = Math.min(500, Math.max(35, Math.round(currentZoom + factor)));
         if (newZoom !== currentZoom) {
           setIsFitWidthMode(false);
           const rect = container.getBoundingClientRect();
@@ -746,7 +813,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       e.preventDefault();
       if (pinchRef.current.active) {
         const startZoom = pinchRef.current.startZoom;
-        const scale = Math.min(250 / startZoom, Math.max(35 / startZoom, e.scale));
+        const scale = Math.min(500 / startZoom, Math.max(35 / startZoom, e.scale));
         pinchRef.current.currentScale = scale;
         const wrapper = contentWrapperRef.current;
         if (wrapper) {
@@ -765,7 +832,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         pinchRef.current.active = false;
         if (zoomPillRef.current) zoomPillRef.current.style.opacity = '0';
         const finalZoom = Math.min(
-          250,
+          500,
           Math.max(35, Math.round(pinchRef.current.startZoom * (pinchRef.current.currentScale || 1)))
         );
         if (Math.abs(finalZoom - pinchRef.current.startZoom) >= 2 && pinchRef.current.anchor) {
@@ -785,6 +852,23 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       }
     };
 
+    // Keyboard zoom shortcuts (Ctrl/Cmd +, -, 0)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea') return;
+
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        handleZoomIn();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === '-' || e.key === '_')) {
+        e.preventDefault();
+        handleZoomOut();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        handleFitWidth();
+      }
+    };
+
     container.addEventListener('touchstart', handleTouchStart, { passive: false });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
     container.addEventListener('touchend', handleTouchEnd);
@@ -793,6 +877,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     container.addEventListener('gesturestart', handleGestureStart as any, { passive: false });
     container.addEventListener('gesturechange', handleGestureChange as any, { passive: false });
     container.addEventListener('gestureend', handleGestureEnd as any, { passive: false });
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       container.removeEventListener('touchstart', handleTouchStart);
@@ -803,6 +888,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       container.removeEventListener('gesturestart', handleGestureStart as any);
       container.removeEventListener('gesturechange', handleGestureChange as any);
       container.removeEventListener('gestureend', handleGestureEnd as any);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [captureZoomAnchor]);
 
@@ -901,7 +987,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const centerY = containerRef.current.clientHeight / 2;
       pendingZoomAnchorRef.current = captureZoomAnchor(centerX, centerY);
     }
-    setZoomLevel((prev) => Math.min(250, prev + 20));
+    setZoomLevel((prev) => Math.min(500, prev + 25));
   };
 
   const handleZoomOut = () => {
@@ -911,7 +997,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const centerY = containerRef.current.clientHeight / 2;
       pendingZoomAnchorRef.current = captureZoomAnchor(centerX, centerY);
     }
-    setZoomLevel((prev) => Math.max(35, prev - 20));
+    setZoomLevel((prev) => Math.max(35, prev - 25));
   };
 
   const handleResetZoom = () => {
@@ -922,6 +1008,48 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       pendingZoomAnchorRef.current = captureZoomAnchor(centerX, centerY);
     }
     setZoomLevel(100);
+  };
+
+  const handleSelectZoomPreset = (targetZoom: number) => {
+    setIsFitWidthMode(false);
+    if (containerRef.current) {
+      const centerX = containerRef.current.clientWidth / 2;
+      const centerY = containerRef.current.clientHeight / 2;
+      pendingZoomAnchorRef.current = captureZoomAnchor(centerX, centerY);
+    }
+    setZoomLevel(Math.min(500, Math.max(35, targetZoom)));
+    setIsZoomMenuOpen(false);
+  };
+
+  const handlePageDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('[data-signature-overlay]') ||
+      target.closest('[data-text-overlay]') ||
+      target.closest('[data-form-field]') ||
+      target.closest('button') ||
+      target.closest('textarea') ||
+      target.closest('input') ||
+      target.closest('a')
+    ) {
+      return;
+    }
+
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    pendingZoomAnchorRef.current = captureZoomAnchor(mouseX, mouseY);
+
+    if (zoomLevel < 180) {
+      setIsFitWidthMode(false);
+      setZoomLevel(250);
+    } else {
+      setIsFitWidthMode(true);
+      const fitZoom = calculateFitWidthZoom();
+      setZoomLevel(fitZoom);
+    }
   };
 
   const handleFitWidth = () => {
@@ -945,7 +1073,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     const availableHeight = containerRef.current.clientHeight - padding;
     if (availableHeight > 0 && renderedDimensions.height > 0) {
       const calculatedZoom = Math.round((availableHeight / renderedDimensions.height) * 100);
-      setZoomLevel(Math.min(150, Math.max(35, calculatedZoom)));
+      setZoomLevel(Math.min(500, Math.max(35, calculatedZoom)));
     }
   };
 
@@ -993,22 +1121,95 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
             <button
               onClick={handleZoomOut}
-              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
-              title="Zoom Out (-20%)"
+              disabled={zoomLevel <= 35}
+              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              title="Zoom Out (-25%) [Ctrl -]"
             >
               <ZoomOut className="w-4 h-4" />
             </button>
-            <button
-              onClick={handleResetZoom}
-              className="text-xs font-mono font-semibold px-1 sm:px-1.5 text-slate-700 hover:text-blue-600 transition cursor-pointer"
-              title="Reset Zoom to 100%"
-            >
-              {zoomLevel}%
-            </button>
+
+            {/* Quick-Select Zoom Preset Dropdown */}
+            <div className="relative" ref={zoomMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsZoomMenuOpen((prev) => !prev)}
+                className={`text-xs font-mono font-semibold px-1.5 py-0.5 rounded-md transition flex items-center gap-0.5 cursor-pointer ${
+                  isZoomMenuOpen
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 hover:bg-white hover:text-blue-600 hover:shadow-xs'
+                }`}
+                title="Zoom Preset Menu (Up to 500%)"
+                aria-expanded={isZoomMenuOpen}
+              >
+                <span>{zoomLevel}%</span>
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
+
+              {isZoomMenuOpen && (
+                <div
+                  className="absolute left-0 mt-1.5 w-44 bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-100"
+                  role="menu"
+                >
+                  <div className="py-1">
+                    <div className="px-2.5 py-0.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Page Fit
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleFitWidth();
+                        setIsZoomMenuOpen(false);
+                      }}
+                      className={`w-full px-2.5 py-1.5 text-left flex items-center justify-between hover:bg-slate-100 transition cursor-pointer ${
+                        isFitWidthMode ? 'text-blue-600 font-semibold bg-blue-50/70' : 'text-slate-700'
+                      }`}
+                    >
+                      <span>Fit Width</span>
+                      {isFitWidthMode && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleFitPage();
+                        setIsZoomMenuOpen(false);
+                      }}
+                      className="w-full px-2.5 py-1.5 text-left flex items-center justify-between hover:bg-slate-100 text-slate-700 transition cursor-pointer"
+                    >
+                      <span>Fit Page</span>
+                    </button>
+                  </div>
+
+                  <div className="py-1">
+                    <div className="px-2.5 py-0.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                      Presets (35% – 500%)
+                    </div>
+                    {[50, 75, 100, 125, 150, 200, 300, 400, 500].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handleSelectZoomPreset(preset)}
+                        className={`w-full px-2.5 py-1 text-left flex items-center justify-between hover:bg-slate-100 transition cursor-pointer ${
+                          zoomLevel === preset && !isFitWidthMode
+                            ? 'text-blue-600 font-semibold bg-blue-50/70'
+                            : 'text-slate-700'
+                        }`}
+                      >
+                        <span className="font-mono">{preset}%</span>
+                        {zoomLevel === preset && !isFitWidthMode && (
+                          <Check className="w-3.5 h-3.5 text-blue-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={handleZoomIn}
-              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs transition cursor-pointer"
-              title="Zoom In (+20%)"
+              disabled={zoomLevel >= 500}
+              className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-xs disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+              title="Zoom In (+25%) [Ctrl +]"
             >
               <ZoomIn className="w-4 h-4" />
             </button>
@@ -1349,6 +1550,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           /* Continuous Vertical Page Roll Stack - Seamless downward scrolling without manual boundary stops */
           <div
             ref={contentWrapperRef}
+            onDoubleClick={handlePageDoubleClick}
             className="w-fit min-w-full min-h-full flex flex-col items-center justify-start p-4 sm:p-8 pb-32 space-y-6"
           >
             {Array.from({ length: pdfState.numPages }, (_, i) => i + 1).map((pageNum) => (

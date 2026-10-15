@@ -134,7 +134,12 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     const canvas = canvasRef.current;
 
     // Scale multiplier: maintain crisp high-DPI rendering without overloading the GPU
-    const scaleMultiplier = Math.min(2.5, Math.max(1.5, (zoomLevel / 100) * 1.5));
+    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+    const targetScale = Math.max(1.5, (zoomLevel / 100) * dpr);
+    // Guard against exceeding maximum canvas dimensions (keep max dimension <= 4096px)
+    const basePageDim = Math.max(pageWidth / Math.max(0.1, zoomLevel / 100), pageHeight / Math.max(0.1, zoomLevel / 100)) || 842;
+    const maxSafeScale = Math.min(4.0, 4096 / basePageDim);
+    const scaleMultiplier = Math.min(maxSafeScale, targetScale);
 
     // Debounce re-rendering if page is already rendered to allow buttery smooth zoom animations
     const delay = isRendered ? 150 : 0;
