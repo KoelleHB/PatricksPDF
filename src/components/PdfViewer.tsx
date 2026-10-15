@@ -1455,8 +1455,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         ref={containerRef}
         onClick={handleContainerClick}
         onMouseDown={handleMouseDown}
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative select-none touch-pan-x touch-pan-y overscroll-contain scroll-auto ${
-          isSpacePressed || isMousePanning ? (isMousePanning ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative touch-pan-x touch-pan-y overscroll-contain scroll-auto ${
+          isSpacePressed || isMousePanning ? 'cursor-grabbing select-none' : 'cursor-default'
         }`}
       >
         {/* Reflow Text View (when Reflow is enabled) */}

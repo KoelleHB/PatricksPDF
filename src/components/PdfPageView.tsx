@@ -228,7 +228,8 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         style={{
           width: `${pageWidth}px`,
           height: `${pageHeight}px`,
-        }}
+          '--scale-factor': zoomLevel / 100,
+        } as React.CSSProperties}
         aria-hidden="false"
       />
 

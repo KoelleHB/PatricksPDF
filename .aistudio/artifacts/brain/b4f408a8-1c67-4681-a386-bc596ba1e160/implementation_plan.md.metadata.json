@@ -1,6 +1,6 @@
 {
-  "summary": "Architecture and implementation plan to expand PDF zoom up to 500%, add a quick preset dropdown menu, upgrade canvas high-DPI rendering for razor-sharp magnification, and introduce focal-point pinch and double-tap zoom.",
-  "updatedAt": "2026-10-15T14:42:50.723558005Z",
+  "summary": "Architectural implementation plan to fix PDF text selection accuracy on desktop and enable native long-press text marking and copying in the mobile Android APK.",
+  "updatedAt": "2026-10-15T15:03:37.621199754Z",
   "requestFeedback": true,
   "userFacing": true
 }

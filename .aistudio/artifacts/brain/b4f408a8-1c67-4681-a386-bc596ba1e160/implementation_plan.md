@@ -1,26 +1,28 @@
-# High-Performance PDF Zoom Architecture (Up to 500%) & Interaction Overhaul
+# High-Precision PDF Text Selection & Mobile APK Copying Architecture
 
-Comprehensive engineering plan to expand the maximum PDF zoom capability from 250% to 500%, implement high-DPI razor-sharp canvas rendering at deep magnification, add a quick-preset zoom menu with standard increments, refine gesture anchor math for smooth focal-point pinch-to-zoom, and integrate double-tap/double-click smart zoom.
+Comprehensive engineering plan to fix PDF text selection alignment on desktop and enable natural long-press text marking, native Android selection handles, and quick copying in the mobile APK.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> All primary requirements and technical preferences have been confirmed via interactive clarification:
+> The requirements and preferred user experience have been confirmed:
 
-- **Confirmed Zoom Range**: Minimum 35% to maximum **500%** (previously hard-clamped at 250%).
-- **Confirmed Toolbar Controls**: Quick preset dropdown menu (`50%`, `75%`, `100%`, `125%`, `150%`, `200%`, `300%`, `400%`, `500%`, `Fit Width`, `Fit Page`) alongside the existing `+` / `-` step buttons.
-- **Confirmed Core Technical Enhancements**:
-  1. **Crisp High-DPI Canvas Rendering**: Dynamically scaling canvas rendering resolution beyond the legacy 2.5x cap up to device-safe limits, eliminating blurriness when magnifying fine print or signatures.
-  2. **True Focal-Point Pinch-to-Zoom**: Anchoring zoom transformations to the geometric midpoint between fingers or mouse cursor position, eliminating viewport jumpiness.
-  3. **Smart Double-Tap / Double-Click Zoom**: Toggling between overview/fit-width and 200%/300% zoom centered on the exact clicked/tapped location, matching mobile OS standards.
+- **Confirmed Mobile APK Selection**: Natural long-press text selection with native Android selection handles and magnifier (`Natürliches langes Drücken mit Textauswahl-Griffen`).
+- **Confirmed Copy Options**: Dual support for both the native system context menu (`Copy`, `Share`) and a modern floating copy toolbar (`Schwebende Kopier-Leiste und natives System-Kontextmenü`).
+- **Desktop Accuracy Fix**: Perfect 1:1 sub-pixel glyph alignment between invisible text spans and rendered canvas pixels across all zoom levels (from 35% up to 500%).
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Overview & Root Cause Analysis
 
-Currently, `PdfViewer.tsx` has multiple hardcoded clamps limiting zoom to 250% (`Math.min(250, ...)` across wheel, pinch, and step-button handlers). Furthermore, `PdfPageView.tsx` clamps the off-screen canvas rendering multiplier to `Math.min(2.5, ...)`, meaning zooming in beyond 150–200% results in blurry, pixelated text and lines.
+### Why selections are inaccurate on Desktop
+1. **Missing `--scale-factor` CSS variable**: Modern PDF.js (v4) calculates textLayer span widths, heights, and font sizes using `calc(var(--scale-factor) * ...)`. Because `--scale-factor` was never set on the container or element, CSS evaluated at scale 1.0 while the page was visually scaled (e.g. 150%, 250%, 500%), causing huge positional drift between cursor drags and actual text.
+2. **Incomplete TextLayer CSS rules**: Handwritten textLayer CSS lacked `transform-origin`, proper ascent/descent metrics, and white-space collapsing rules present in official PDF.js viewer stylesheets.
 
-This overhaul upgrades the zoom engine into a professional-grade viewing system supporting up to 500% magnification, combining smooth CSS visual feedback during interactive gestures with debounced, memory-safe high-DPI canvas re-rendering.
+### Why text selection does not work in the mobile APK
+1. **`select-none` on parent containers**: In `PdfViewer.tsx`, the workspace scroll container (`containerRef`) had Tailwind's `select-none` (`user-select: none; -webkit-user-select: none;`). In Android WebView (Capacitor), ancestor `user-select: none` causes the WebView engine to completely suppress native touch text selection and long-press handles on all child elements.
+2. **Touch listener conflicts**: Custom touch event handlers on the scroll container intercepted single-finger touches and prevented default gesture propagation to the textLayer.
+3. **Missing touch-action and selection rules**: Mobile WebViews require explicit `touch-action: pan-x pan-y`, `-webkit-user-select: text !important`, and `pointer-events: auto` on textLayer child spans to trigger native selection handles.
 
 ---
 
@@ -28,99 +30,97 @@ This overhaul upgrades the zoom engine into a professional-grade viewing system 
 
 ### Key User Flows
 
-1. **Toolbar Zoom Preset Menu**:
-   - Clicking the zoom percentage indicator (e.g. `100%`) in the viewer toolbar opens a clean, compact dropdown menu.
-   - Presets include: `Fit Width`, `Fit Page`, divider, and percentage tiers: `50%`, `75%`, `100%`, `125%`, `150%`, `200%`, `300%`, `400%`, `500%`.
-   - The active zoom level is marked with an indicator dot. Clicking a preset instantly sets that zoom level with focal centering on the current viewport center.
+1. **Desktop Selection (Mouse Dragging)**:
+   - User clicks and drags cursor across words, sentences, or paragraphs on any page.
+   - Highlighting rectangle matches the visible canvas font glyphs with sub-pixel precision.
+   - Standard browser copy (`Ctrl+C` / `Cmd+C`) works instantly.
+   - Floating quick-action pill offers an instant single-click "Copy" button with a checkmark feedback animation.
 
-2. **Step Button Zooming (+ / -)**:
-   - `+` increases zoom by +25% up to 500% (with smooth scroll anchor preservation).
-   - `-` decreases zoom by -25% down to 35%.
-   - Disabled visual state when reaching min (35%) or max (500%).
-
-3. **Pinch-to-Zoom (Touch & Trackpad)**:
-   - Two-finger pinch gestures scale the document smoothly in real time.
-   - The point on the PDF page directly under the fingers remains pinned in place.
-   - Floating zoom pill displays real-time percentage during pinch (e.g. `342%`).
-   - Upon release, the canvas re-renders at high resolution for crisp text.
-
-4. **Double-Tap / Double-Click Quick Zoom**:
-   - Double-clicking or double-tapping on an empty area of the PDF page instantly zooms in to 250% centered on that exact tapped spot.
-   - A subsequent double-click toggles back to `Fit Width` (or 100%).
-   - Dragging signatures or text overlays does not trigger double-click zoom.
+2. **Mobile APK Selection (Touch Long-Press)**:
+   - User presses and holds a finger on any word in the PDF.
+   - Native Android selection handles (teardrop pins) appear, along with the system menu (`Kopieren`, `Teilen`, `Alles auswählen`).
+   - User can drag pins to extend the selection across paragraphs.
+   - A quiet, floating copy bar appears above the mobile navigation bar with a "Copy Text" button for quick thumb access.
 
 ### Visual Styling & Accessibility
-- **Dropdown Menu**: Clean Tailwind popover with subtle border (`border-slate-200`), backdrop blur, smooth fade/scale animation, and keyboard accessibility (`Escape` to close).
-- **Floating Zoom Pill**: Smooth pulse badge showing active magnification without cluttering the screen.
-- **Touch Targets**: All zoom buttons and menu items strictly maintain $\ge 40\text{px}$ touch targets.
+- **Selection Highlight Tint**: Soft semi-transparent blue (`rgba(37, 99, 235, 0.28)`) that preserves underlying document legibility.
+- **Copy Pill Bar**: Floating bottom-centered card with subtle border (`border-slate-200`), backdrop blur, copy icon, word count indicator, and 2-second confirmation toast.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-### Decision 1: High-DPI Canvas Rendering at 500% vs GPU Memory Safety
-- **The Challenge**: An A4 PDF page (595x842 pt) at 500% with a 2x retina display multiplier would require a 5950x8420 px canvas (approx. 200 MB uncompressed texture memory per page), which can crash mobile browsers.
-- **Chosen Approach**: Dynamic capped scale multiplier:
-  $$\text{scaleMultiplier} = \min\left(4.0, \max\left(1.5, \frac{\text{zoomLevel}}{100} \times \min(\text{window.devicePixelRatio}, 2)\right)\right)$$
-  Combined with max canvas pixel area limits ($\le 16{,}000{,}000\text{ px}^2$).
-- **Why**: Delivers razor-sharp text and lines up to 500% zoom while remaining well within safe iOS Safari and Android Chrome canvas memory budgets.
+### Decision 1: Scoped Selection Permissiveness
+- **Chosen Approach**: Remove `select-none` from the document viewing viewport and page container. Apply `select-none` only to interactive toolbars, signature overlays, stamp badges, and UI buttons.
+- **Why**: Allows Android WebView to trigger native selection handles on text while preventing accidental blue selection rectangles on UI chrome or signature drag handles.
 
-### Decision 2: Real-Time Smooth Gesture CSS Transform vs High-Resolution Canvas Redraw
-- **Chosen Approach**: Two-phase rendering:
-  - *Phase A (During gesture)*: Instant CSS hardware-accelerated transform (`transform: scale(...)`) on the page wrapper for 60fps buttery feedback.
-  - *Phase B (Gesture end)*: Debounced PDF.js canvas re-render at the target scale once the user releases their fingers.
+### Decision 2: Injection of `--scale-factor` and Official PDF.js Text Layer CSS
+- **Chosen Approach**:
+  1. Pass the exact calculated `viewport.scale` into `container.style.setProperty('--scale-factor', `${viewport.scale}`);` inside `renderPdfTextLayer`.
+  2. Embed the complete, production-grade PDF.js v4 text layer styling in `index.css`.
+- **Why**: Guarantees zero pixel offset between text divs and the underlying canvas across all zoom levels (35% to 500%).
 
 ---
 
-## 4. Technical Architecture & Component Structure
+## 4. Technical Architecture & Modifications
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      PdfViewer                              │
-│  - zoomLevel State (35% - 500%)                             │
-│  - isFitWidthMode State                                     │
-│  - ZoomAnchor Capture & Scroll Restoration Engine           │
-│  - Pinch & Touch Gesture Coordinator                        │
-│  - Double-Tap Detection Engine                              │
-└──────────────┬───────────────────────────────┬──────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    PdfViewer Component                       │
+│  - Remove `select-none` from containerRef & contentWrapper   │
+│  - Single-finger touch passthrough for native text selection │
+│  - TextSelectionToolbar integration with mobile viewport     │
+└──────────────┬───────────────────────────────┬───────────────┘
                │                               │
                ▼                               ▼
 ┌─────────────────────────────┐  ┌─────────────────────────────┐
-│   Top Toolbar & Presets     │  │   PdfPageView (Per Page)    │
-│  - ZoomOut (-)              │  │  - Scaled Dimensions (px)   │
-│  - ZoomLevel Dropdown Menu  │  │  - Dynamic scaleMultiplier  │
-│  - ZoomIn (+)               │  │  - Off-screen High-DPI      │
-│  - Fit Width / Fit Page     │  │    Canvas Render Task       │
-│  - Real-time Zoom Pill      │  │  - Text & Signature Overlays │
+│    PdfPageView Component    │  │    pdfEngine / TextLayer    │
+│  - textLayerRef with        │  │  - setProperty(             │
+│    `--scale-factor`         │  │      '--scale-factor',      │
+│  - `pointer-events: auto`   │  │      viewport.scale         │
+│  - `user-select: text`      │  │    )                        │
 └─────────────────────────────┘  └─────────────────────────────┘
 ```
 
 ### Component & File Modifications
 
-1. `src/components/PdfViewer.tsx`:
-   - Raise zoom clamp bounds from `[35, 250]` to `[35, 500]`.
-   - Update `calculateFitWidthZoom`, `handleWheel`, `handlePinchMove`, `handlePinchEnd`, `handleGestureChange`, `handleZoomIn`, `handleZoomOut`.
-   - Implement `isZoomMenuOpen` state and `ZoomPresetDropdown` component.
-   - Implement double-tap / double-click event listener on page container that computes tapped page coordinates and animates zoom to 250% (or toggles to fit-width).
+1. `src/utils/pdfEngine.ts`:
+   - In `renderPdfTextLayer`, set `--scale-factor` property:
+     ```ts
+     container.style.setProperty('--scale-factor', `${viewport.scale}`);
+     ```
+   - Set container width, height, and CSS variables properly.
+   - Ensure clean cancelation and memory release on page unload.
 
-2. `src/components/PdfPageView.tsx`:
-   - Update `scaleMultiplier` formula to allow higher resolution rendering up to scale 4.0 (with memory guarding).
-   - Ensure textLayer container and interactive form fields accurately adapt to the 500% scale without visual clipping.
+2. `src/index.css`:
+   - Replace minimal `.textLayer` rules with complete PDF.js v4 textLayer definitions.
+   - Ensure `-webkit-user-select: text !important`, `user-select: text !important`, and proper touch-action.
+   - Set selection highlight color to a clean, modern accent.
 
-3. `src/utils/pdfEngine.ts`:
-   - Safeguard `renderPdfPageToCanvas` offscreen canvas dimensions against maximum browser texture limits (`Math.min(maxWidth, 4096)`).
+3. `src/components/PdfPageView.tsx`:
+   - Add explicit inline CSS variable `--scale-factor` to `textLayerRef.current`.
+   - Ensure container has `select-text`, `pointer-events-auto`, and `z-10` above the canvas (`z-0`).
+
+4. `src/components/PdfViewer.tsx`:
+   - Remove `select-none` from `containerRef` and `contentWrapperRef`.
+   - Update `handleTouchStart` so single-finger touches over text don't conflict with native long-press text selection.
+   - Add `select-none` specifically to buttons, headers, and signature drag overlays.
+
+5. `src/components/TextSelectionToolbar.tsx`:
+   - Enhance mobile layout so the floating copy button is comfortably positioned above mobile navigation bars.
+   - Add copy confirmation feedback and clear selection button.
 
 ---
 
 ## Verification & Testing Plan
 
-1. **Magnification Range Verification**:
-   - Test stepping up via `+` button from 100% to 500% in 25% increments.
-   - Test stepping down via `-` button to 35%.
-2. **Preset Menu Verification**:
-   - Open preset dropdown, select each preset (`50%`, `100%`, `200%`, `300%`, `500%`, `Fit Width`, `Fit Page`), confirm instant, accurate application.
-3. **Canvas Sharpness Verification**:
-   - Zoom into 500% on high-detail vector text and transparent signatures; confirm crisp rendering without blur or pixelation.
-4. **Pinch & Double-Tap Gesture Verification**:
-   - Pinch-to-zoom on touch devices; confirm the touch midpoint remains stable.
-   - Double-tap on a specific paragraph; confirm viewport centers and zooms in on that exact location.
+1. **Desktop Selection Accuracy**:
+   - Open a multi-column or small-font PDF.
+   - Highlight text at 100%, 200%, and 400% zoom.
+   - Confirm selection boxes match the visible letters exactly without offset or drifting.
+2. **Mobile APK Long-Press Test**:
+   - Long-press a word on a touch screen / mobile WebView.
+   - Confirm native selection handles appear and text can be highlighted.
+   - Verify floating copy button and native copy menu both copy the exact selected string to the clipboard.
+3. **No Gesture Regression**:
+   - Test two-finger pinch-to-zoom and double-tap zoom to ensure they continue working seamlessly.

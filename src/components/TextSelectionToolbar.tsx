@@ -83,9 +83,9 @@ export const TextSelectionToolbar: React.FC = () => {
       <div className="flex items-center gap-1.5 text-xs text-slate-300 pr-1 border-r border-slate-700 select-none">
         <Highlighter className="w-3.5 h-3.5 text-blue-400 shrink-0" />
         <span className="font-mono font-medium text-[11px] sm:text-xs">
-          {charCount} {charCount === 1 ? 'char' : 'chars'}
+          {charCount} {charCount === 1 ? 'Zeichen' : 'Zeichen'}
           <span className="hidden sm:inline text-slate-400 ml-1">
-            ({wordCount} {wordCount === 1 ? 'word' : 'words'})
+            ({wordCount} {wordCount === 1 ? 'Wort' : 'Wörter'})
           </span>
         </span>
       </div>
@@ -99,17 +99,17 @@ export const TextSelectionToolbar: React.FC = () => {
             ? 'bg-emerald-600 text-white'
             : 'bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white'
         }`}
-        title="Copy marked text to clipboard (Ctrl+C)"
+        title="Markierten Text kopieren (Strg+C)"
       >
         {copied ? (
           <>
             <Check className="w-3.5 h-3.5 animate-in zoom-in" />
-            <span>Copied!</span>
+            <span>Kopiert!</span>
           </>
         ) : (
           <>
             <Copy className="w-3.5 h-3.5" />
-            <span>Copy</span>
+            <span>Kopieren</span>
           </>
         )}
       </button>

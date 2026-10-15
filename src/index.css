@@ -21,7 +21,7 @@ html, body, #root {
   font-family: 'Caveat', cursive, sans-serif;
 }
 
-/* PDF.js Selectable Text Layer Styling (Enables Text Marking, Selection & Copying) */
+/* PDF.js Selectable Text Layer Styling (High-Precision Selection & Copying) */
 .textLayer {
   position: absolute;
   text-align: initial;
@@ -30,35 +30,63 @@ html, body, #root {
   opacity: 1;
   line-height: 1;
   -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
   text-size-adjust: none;
   forced-color-adjust: none;
   transform-origin: 0 0;
   caret-color: #2563eb;
   z-index: 5;
-  user-select: text;
-  -webkit-user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+  touch-action: pan-x pan-y !important;
+  pointer-events: auto !important;
 }
 
 .textLayer :is(span, br) {
-  color: transparent;
+  color: transparent !important;
   position: absolute;
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+  pointer-events: auto !important;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+}
+
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.textLayer span[role="img"] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
 }
 
 .textLayer ::selection {
-  background: rgba(59, 130, 246, 0.38);
-  color: transparent;
+  background: rgba(37, 99, 235, 0.32) !important;
+  color: transparent !important;
 }
 
 .textLayer ::-moz-selection {
-  background: rgba(59, 130, 246, 0.38);
-  color: transparent;
+  background: rgba(37, 99, 235, 0.32) !important;
+  color: transparent !important;
 }
 
 .textLayer br::selection {
-  background: transparent;
+  background: transparent !important;
+}
+
+.textLayer br::-moz-selection {
+  background: transparent !important;
 }
 
 .textLayer .endOfContent {
@@ -69,5 +97,9 @@ html, body, #root {
   cursor: default;
   -webkit-user-select: none;
   user-select: none;
+}
+
+.textLayer.selecting .endOfContent {
+  top: 0;
 }
 

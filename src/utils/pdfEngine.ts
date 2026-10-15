@@ -313,10 +313,14 @@ export async function renderPdfTextLayer(
     const scale = targetWidth / baseViewport.width;
     const viewport = page.getViewport({ scale });
 
-    // Reset container contents
+    // Reset container contents and inject precise PDF.js scale factor custom properties
     container.innerHTML = '';
     container.style.width = `${Math.round(viewport.width)}px`;
     container.style.height = `${Math.round(viewport.height)}px`;
+    container.style.setProperty('--scale-factor', `${scale}`);
+    container.style.setProperty('--scale-round-x', '1px');
+    container.style.setProperty('--scale-round-y', '1px');
+    container.setAttribute('data-main-rotation', `${viewport.rotation || 0}`);
 
     const textContent = await page.getTextContent();
 
