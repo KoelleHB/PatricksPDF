@@ -53,7 +53,7 @@ async function nativeFileAction(
     let binaryUploaded = false;
     if (bridge.getBinaryTransferUrl) {
       const url: string = bridge.getBinaryTransferUrl(token);
-      if (url && /^http:\/\/127\.0\.0\.1:\\d+\/pdf\/[a-f0-9-]+$/i.test(url)) {
+      if (url && /^http:\/\/127\.0\.0\.1:\d+\/pdf\/[a-f0-9-]+$/i.test(url)) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 20000);
         try {
