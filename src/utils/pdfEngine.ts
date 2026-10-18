@@ -981,13 +981,13 @@ export async function getPageInfoList(data: ArrayBuffer): Promise<PageInfo[]> {
 }
 
 // In-memory cache for rendered thumbnails
-const thumbnailCache = new Map<string, string>();
+let thumbnailCache = new WeakMap<ArrayBuffer, Map<string, string>>();
 
 /**
  * Clears the in-memory thumbnail cache.
  */
 export function clearThumbnailCache() {
-  thumbnailCache.clear();
+  thumbnailCache = new WeakMap<ArrayBuffer, Map<string, string>>();
 }
 
 /**
@@ -998,10 +998,10 @@ export async function renderPageThumbnail(
   pageNumber: number,
   targetWidth: number = 240
 ): Promise<string> {
-  const cacheKey = `${data.byteLength}-${pageNumber}-${targetWidth}`;
-  if (thumbnailCache.has(cacheKey)) {
-    return thumbnailCache.get(cacheKey)!;
-  }
+  const cacheKey = `${pageNumber}-${targetWidth}`;
+  const documentThumbnails = thumbnailCache.get(data);
+  const cached = documentThumbnails?.get(cacheKey);
+  if (cached) return cached;
 
   const pdfJsDoc = await loadPdfJsDoc(data);
   const page = await pdfJsDoc.getPage(pageNumber);
@@ -1046,7 +1046,11 @@ export async function renderPageThumbnail(
   }
 
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-  thumbnailCache.set(cacheKey, dataUrl);
+  const entries = thumbnailCache.get(data) || new Map<string, string>();
+  // Bound memory usage even for 400+ page documents.
+  if (entries.size >= 64) entries.delete(entries.keys().next().value!);
+  entries.set(cacheKey, dataUrl);
+  thumbnailCache.set(data, entries);
   return dataUrl;
 }
 
