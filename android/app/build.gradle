@@ -47,6 +47,11 @@ android {
     }
 }
 
+// Surface the actual Java API locations behind javac's generic deprecated-API note.
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ['-Xlint:deprecation']
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
