@@ -37,6 +37,11 @@ jobs:
           node-version: '22'
           cache: npm
 
+      # Temporary repair for the previously incomplete committed npm lockfile.
+      # A subsequent cleanup should commit the regenerated package-lock.json.
+      - name: Reconcile dependency lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
       - name: Install locked dependencies
         run: npm ci
 
