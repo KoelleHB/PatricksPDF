@@ -31,6 +31,37 @@ export async function toBase64String(data: Blob | ArrayBuffer | Uint8Array): Pro
   return btoa(binary);
 }
 
+
+/**
+ * Streams PDF into an Android-owned temporary file in bounded chunks.
+ * The Android JavascriptInterface accepts strings; only individual chunks
+ * are base64 encoded. No full-document base64 strings or byte[] copies.
+ */
+async function nativeFileAction(
+  action: 'save' | 'share' | 'print',
+  name: string,
+  data: Blob | ArrayBuffer | Uint8Array
+): Promise<boolean> {
+  const bridge = window.NativePdfBridge as any;
+  if (!bridge?.beginPdfTransfer || !bridge?.appendPdfChunk || !bridge?.finishPdfTransfer) {
+    return false;
+  }
+  const token: string = bridge.beginPdfTransfer();
+  if (!token) return false;
+  try {
+    const blob = data instanceof Blob ? data : new Blob([data as any], { type: 'application/pdf' });
+    const chunkSize = 48 * 1024;
+    for (let offset = 0; offset < blob.size; offset += chunkSize) {
+      const buffer = await blob.slice(offset, offset + chunkSize).arrayBuffer();
+      const base64 = await toBase64String(buffer);
+      if (!bridge.appendPdfChunk(token, base64)) throw new Error('PDF transfer failed');
+    }
+    return Boolean(bridge.finishPdfTransfer(token, action, name));
+  } finally {
+    bridge.cancelPdfTransfer?.();
+  }
+}
+
 /**
  * Returns true if running inside the Android Capacitor container with NativePdfBridge.
  */
@@ -60,23 +91,15 @@ export async function savePdfDocument(
 ): Promise<{ success: boolean; method: 'native-android' | 'file-picker' | 'download' }> {
   const safeName = fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`;
 
-  // 1. Android Native Bridge (Capacitor APK)
-  if (isNativeAndroid() && window.NativePdfBridge?.savePdf) {
+  // 1. Android: stream into an app-owned temp file (no full-PDF base64).
+  if (isNativeAndroid() && (window.NativePdfBridge as any)?.beginPdfTransfer) {
     try {
-      const base64 = await toBase64String(pdfData);
-      const ok = window.NativePdfBridge.savePdf(safeName, base64);
-      if (ok) {
-        return { success: true, method: 'native-android' };
-      }
+      const ok = await nativeFileAction('save', safeName, pdfData);
+      if (ok) return { success: true, method: 'native-android' };
     } catch (err) {
-      console.warn('Native Android save error, falling back:', err);
+      console.warn('Native Android file transfer failed:', err);
     }
   }
-
-  const blob =
-    pdfData instanceof Blob
-      ? pdfData
-      : new Blob([pdfData as any], { type: 'application/pdf' });
 
   // 2. Modern Web File System Access API (showSaveFilePicker)
   if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
@@ -130,16 +153,13 @@ export async function sharePdfDocument(
 ): Promise<{ success: boolean; method: 'native-android' | 'web-share' | 'download' }> {
   const safeName = fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`;
 
-  // 1. Android Native Bridge
-  if (isNativeAndroid() && window.NativePdfBridge?.sharePdf) {
+  // 1. Android: stream into an app-owned temp file (no full-PDF base64).
+  if (isNativeAndroid() && (window.NativePdfBridge as any)?.beginPdfTransfer) {
     try {
-      const base64 = await toBase64String(pdfData);
-      const ok = window.NativePdfBridge.sharePdf(safeName, base64);
-      if (ok) {
-        return { success: true, method: 'native-android' };
-      }
+      const ok = await nativeFileAction('share', safeName, pdfData);
+      if (ok) return { success: true, method: 'native-android' };
     } catch (err) {
-      console.warn('Native Android share error, falling back:', err);
+      console.warn('Native Android file transfer failed:', err);
     }
   }
 
@@ -192,16 +212,13 @@ export async function printPdfDocument(
 ): Promise<{ success: boolean; method: 'native-android' | 'iframe' | 'window' }> {
   const safeTitle = documentName.trim() || 'Document.pdf';
 
-  // 1. Android Native Bridge
-  if (isNativeAndroid() && window.NativePdfBridge?.printPdf) {
+  // 1. Android: stream into an app-owned temp file (no full-PDF base64).
+  if (isNativeAndroid() && (window.NativePdfBridge as any)?.beginPdfTransfer) {
     try {
-      const base64 = await toBase64String(pdfData);
-      const ok = window.NativePdfBridge.printPdf(safeTitle, base64);
-      if (ok) {
-        return { success: true, method: 'native-android' };
-      }
+      const ok = await nativeFileAction('print', safeTitle, pdfData);
+      if (ok) return { success: true, method: 'native-android' };
     } catch (err) {
-      console.warn('Native Android print error, falling back:', err);
+      console.warn('Native Android file transfer failed:', err);
     }
   }
 
