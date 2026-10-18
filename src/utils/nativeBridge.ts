@@ -46,7 +46,7 @@ async function nativeFileAction(
   if (!bridge?.beginPdfTransfer || !bridge?.appendPdfChunk || !bridge?.finishPdfTransfer) {
     return false;
   }
-  const token: string = bridge.beginPdfTransfer();
+  let token: string = bridge.beginPdfTransfer();
   if (!token) return false;
   try {
     const blob = data instanceof Blob ? data : new Blob([data as any], { type: 'application/pdf' });
@@ -73,7 +73,11 @@ async function nativeFileAction(
       }
     }
     if (!binaryUploaded) {
-      bridge.resetPdfTransfer?.(token);
+      // Restart with a fresh file/token: a timed-out HTTP request could still
+      // be writing asynchronously to the previous temporary file.
+      bridge.cancelPdfTransfer();
+      token = bridge.beginPdfTransfer();
+      if (!token) throw new Error('Android fallback transfer could not start');
       const chunkSize = 48 * 1024;
       for (let offset = 0; offset < blob.size; offset += chunkSize) {
         const buffer = await blob.slice(offset, offset + chunkSize).arrayBuffer();
