@@ -33,7 +33,7 @@ export interface RenderPageResult {
 
 // Kept as compatibility exports for consumers of the original PDF engine.
 export { loadPdfJsDoc, cancelCanvasRender, disposePdfJsResources } from './pdfDocumentLifecycle';
-import { loadPdfJsDoc, cancelCanvasRender } from './pdfDocumentLifecycle';
+import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
  * Renders a specific PDF page onto a target canvas with sharp resolution, concurrency mutex,
