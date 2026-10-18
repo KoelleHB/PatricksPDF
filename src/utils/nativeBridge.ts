@@ -101,6 +101,8 @@ export async function savePdfDocument(
     }
   }
 
+  const blob = pdfData instanceof Blob ? pdfData : new Blob([pdfData as any], { type: 'application/pdf' });
+
   // 2. Modern Web File System Access API (showSaveFilePicker)
   if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
     try {
