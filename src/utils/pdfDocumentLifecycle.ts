@@ -26,7 +26,7 @@ interface CanvasRenderPipeline {
   busyPromise: Promise<void> | null;
 }
 
-const canvasPipelines = new WeakMap<HTMLCanvasElement, CanvasRenderPipeline>();
+export const canvasPipelines = new WeakMap<HTMLCanvasElement, CanvasRenderPipeline>();
 
 /**
  * Cancels any active or pending rendering operations on a given canvas.
