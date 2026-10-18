@@ -21,10 +21,7 @@ async function getScriptFontBytes(): Promise<ArrayBuffer> {
     cachedScriptFontBytes = await res.arrayBuffer();
     return cachedScriptFontBytes;
   } catch (err) {
-    console.warn('Failed to load local /Caveat-Regular.ttf, trying CDN fallback:', err);
-    const res = await fetch('https://raw.githubusercontent.com/google/fonts/main/ofl/caveat/Caveat%5Bwght%5D.ttf');
-    cachedScriptFontBytes = await res.arrayBuffer();
-    return cachedScriptFontBytes;
+    throw new Error('Lokale Schriftdatei Caveat-Regular.ttf konnte nicht geladen werden. Bitte die App neu installieren oder den PWA-Cache aktualisieren.');
   }
 }
 
@@ -91,10 +88,10 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(bufferCopy),
     // Configure CMaps for non-ASCII fonts and international character encodings
-    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
+    cMapUrl: '/pdfjs/cmaps/',
     cMapPacked: true,
     // Configure standard 14 PDF fonts data fallback
-    standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
+    standardFontDataUrl: '/pdfjs/standard_fonts/',
     // Tolerantly continue parsing despite minor syntax anomalies or object stream variations
     stopAtErrors: false,
     // Enable dynamic XFA forms commonly produced by Adobe Acrobat & LiveCycle
@@ -123,9 +120,9 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     const recoveryBuffer = data.slice(0);
     const recoveryTask = pdfjsLib.getDocument({
       data: new Uint8Array(recoveryBuffer),
-      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
+      cMapUrl: '/pdfjs/cmaps/',
       cMapPacked: true,
-      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
+      standardFontDataUrl: '/pdfjs/standard_fonts/',
       stopAtErrors: false,
       enableXfa: true,
       useSystemFonts: true,
