@@ -1,7 +1,17 @@
 import { useState, useRef, useCallback } from 'react';
 import { SignatureItem, TextOverlayItem, FormValuesState } from '../types';
 
+export interface PageDocumentSnapshot {
+  arrayBuffer: ArrayBuffer;
+  numPages: number;
+  currentPage: number;
+  pageWidth: number;
+  pageHeight: number;
+  formFields: import('../types').FormFieldItem[];
+}
+
 export interface DocumentSnapshot {
+  pageDocument: PageDocumentSnapshot | null;
   signatures: SignatureItem[];
   textOverlays: TextOverlayItem[];
   formValues: FormValuesState;
@@ -25,6 +35,7 @@ export interface UseDocumentHistoryOptions {
 
 export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
   // Current live state
+  const pageDocumentRef = useRef<PageDocumentSnapshot | null>(null);
   const [signatures, setSignatures] = useState<SignatureItem[]>(options.initialSignatures || []);
   const [textOverlays, setTextOverlays] = useState<TextOverlayItem[]>(options.initialTextOverlays || []);
   const [formValues, setFormValues] = useState<FormValuesState>(options.initialFormValues || {});
@@ -33,6 +44,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
 
   // Synchronized snapshot ref for race-free commits & debounce flushes
   const stateRef = useRef<DocumentSnapshot>({
+    pageDocument: null,
     signatures: options.initialSignatures || [],
     textOverlays: options.initialTextOverlays || [],
     formValues: options.initialFormValues || {},
@@ -41,6 +53,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
   });
 
   stateRef.current = {
+    pageDocument: pageDocumentRef.current,
     signatures,
     textOverlays,
     formValues,
@@ -63,6 +76,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
   const [history, setHistory] = useState<HistoryEntry[]>([
     {
       snapshot: {
+        pageDocument: null,
         signatures: options.initialSignatures || [],
         textOverlays: options.initialTextOverlays || [],
         formValues: options.initialFormValues || {},
@@ -128,6 +142,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       }
 
       const merged: DocumentSnapshot = {
+        pageDocument: newSnapshot.pageDocument !== undefined ? newSnapshot.pageDocument : pageDocumentRef.current,
         signatures: newSnapshot.signatures !== undefined ? newSnapshot.signatures : stateRef.current.signatures,
         textOverlays: newSnapshot.textOverlays !== undefined ? newSnapshot.textOverlays : stateRef.current.textOverlays,
         formValues: newSnapshot.formValues !== undefined ? newSnapshot.formValues : stateRef.current.formValues,
@@ -145,6 +160,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       if (newSnapshot.selectedSignatureId !== undefined) setSelectedSignatureId(merged.selectedSignatureId);
       if (newSnapshot.selectedTextId !== undefined) setSelectedTextId(merged.selectedTextId);
 
+      pageDocumentRef.current = merged.pageDocument;
       stateRef.current = merged;
 
       setHistory((prevHistory) => {
@@ -249,6 +265,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     setSelectedSignatureId(targetEntry.snapshot.selectedSignatureId);
     setSelectedTextId(targetEntry.snapshot.selectedTextId);
     stateRef.current = { ...targetEntry.snapshot };
+    pageDocumentRef.current = targetEntry.snapshot.pageDocument;
 
     setHistoryIndex(targetIndex);
 
@@ -282,6 +299,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       signatures?: SignatureItem[];
       textOverlays?: TextOverlayItem[];
       formValues?: FormValuesState;
+      pageDocument?: PageDocumentSnapshot;
     }) => {
       if (pendingFormDebounceRef.current.timer) {
         clearTimeout(pendingFormDebounceRef.current.timer);
@@ -289,6 +307,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       }
 
       const initialSnapshot: DocumentSnapshot = {
+        pageDocument: initial?.pageDocument || null,
         signatures: initial?.signatures || [],
         textOverlays: initial?.textOverlays || [],
         formValues: initial?.formValues || {},
@@ -302,6 +321,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       setSelectedSignatureId(null);
       setSelectedTextId(null);
       stateRef.current = initialSnapshot;
+      pageDocumentRef.current = initialSnapshot.pageDocument;
 
       setHistory([
         {
@@ -316,7 +336,15 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     []
   );
 
+  const getPageDocument = useCallback(() => pageDocumentRef.current, []);
+  const setPageDocument = useCallback((next: PageDocumentSnapshot) => {
+    pageDocumentRef.current = next;
+    stateRef.current.pageDocument = next;
+  }, []);
+
   return {
+    getPageDocument,
+    setPageDocument,
     signatures,
     textOverlays,
     formValues,
