@@ -11,7 +11,7 @@ import { PageManagementModal } from './components/PageManagementModal';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { RecentDocumentsModal } from './components/RecentDocumentsModal';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec, RecentDocumentRecord } from './types';
-import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, clearThumbnailCache, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
+import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, clearThumbnailCache, disposePdfJsResources, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
 import { getRecentDocuments, saveRecentDocument, removeRecentDocument, clearRecentDocuments } from './utils/recentDocuments';
 import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
@@ -148,6 +148,10 @@ export default function App() {
           ? passwordPendingDoc.arrayBuffer
           : await file.arrayBuffer();
 
+      if (pdfState?.arrayBuffer && pdfState.file !== file) {
+        clearThumbnailCache();
+        await disposePdfJsResources();
+      }
       const pdfJsDoc = await loadPdfJsDoc(arrayBuffer, password);
       const page1 = await pdfJsDoc.getPage(1);
       const viewport = page1.getViewport({ scale: 1.0 });
@@ -877,6 +881,8 @@ export default function App() {
   };
 
   const handleClearDocument = () => {
+    clearThumbnailCache();
+    void disposePdfJsResources();
     setPdfState(null);
     resetHistory({
       signatures: [],
