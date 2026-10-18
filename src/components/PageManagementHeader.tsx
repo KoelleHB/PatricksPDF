@@ -17,7 +17,6 @@ export const PageManagementHeader: React.FC<Props> = ({
   pageCount, isDirty, isApplying, isImporting, importFileInputRef,
   onRotateAll, onAddBlank, onImportFile, onClose,
 }) => (
-          {/* Modal Header */}
           <div className="shrink-0 px-4 sm:px-6 py-3.5 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="h-9 w-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
