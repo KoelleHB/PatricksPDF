@@ -133,18 +133,8 @@ export const SaveModal: React.FC<SaveModalProps> = ({
         }, 1200);
       }
     } catch (err: any) {
-      console.warn('Save error:', err);
-      // Fallback direct link
-      if (pdfUrl) {
-        const a = document.createElement('a');
-        a.href = pdfUrl;
-        a.download = fileName || 'signed-document.pdf';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        notifySuccess();
-        onClose();
-      }
+      console.error('Save error:', err);
+      setErrorMessage(err?.message || 'PDF konnte nicht gespeichert werden.');
     } finally {
       setIsSaving(false);
     }

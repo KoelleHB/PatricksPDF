@@ -18,3 +18,6 @@ android/app/build/
 *.p12
 *.pfx
 android/key.properties
+
+# Generated PDF.js offline resources copied from pinned npm dependency
+public/pdfjs/

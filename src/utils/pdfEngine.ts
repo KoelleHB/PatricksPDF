@@ -21,10 +21,7 @@ async function getScriptFontBytes(): Promise<ArrayBuffer> {
     cachedScriptFontBytes = await res.arrayBuffer();
     return cachedScriptFontBytes;
   } catch (err) {
-    console.warn('Failed to load local /Caveat-Regular.ttf, trying CDN fallback:', err);
-    const res = await fetch('https://raw.githubusercontent.com/google/fonts/main/ofl/caveat/Caveat%5Bwght%5D.ttf');
-    cachedScriptFontBytes = await res.arrayBuffer();
-    return cachedScriptFontBytes;
+    throw new Error('Lokale Schriftdatei Caveat-Regular.ttf konnte nicht geladen werden. Bitte die App neu installieren oder den PWA-Cache aktualisieren.');
   }
 }
 
@@ -91,10 +88,10 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(bufferCopy),
     // Configure CMaps for non-ASCII fonts and international character encodings
-    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
+    cMapUrl: '/pdfjs/cmaps/',
     cMapPacked: true,
     // Configure standard 14 PDF fonts data fallback
-    standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
+    standardFontDataUrl: '/pdfjs/standard_fonts/',
     // Tolerantly continue parsing despite minor syntax anomalies or object stream variations
     stopAtErrors: false,
     // Enable dynamic XFA forms commonly produced by Adobe Acrobat & LiveCycle
@@ -123,9 +120,9 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     const recoveryBuffer = data.slice(0);
     const recoveryTask = pdfjsLib.getDocument({
       data: new Uint8Array(recoveryBuffer),
-      cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
+      cMapUrl: '/pdfjs/cmaps/',
       cMapPacked: true,
-      standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
+      standardFontDataUrl: '/pdfjs/standard_fonts/',
       stopAtErrors: false,
       enableXfa: true,
       useSystemFonts: true,
@@ -984,13 +981,13 @@ export async function getPageInfoList(data: ArrayBuffer): Promise<PageInfo[]> {
 }
 
 // In-memory cache for rendered thumbnails
-const thumbnailCache = new Map<string, string>();
+let thumbnailCache = new WeakMap<ArrayBuffer, Map<string, string>>();
 
 /**
  * Clears the in-memory thumbnail cache.
  */
 export function clearThumbnailCache() {
-  thumbnailCache.clear();
+  thumbnailCache = new WeakMap<ArrayBuffer, Map<string, string>>();
 }
 
 /**
@@ -1001,10 +998,10 @@ export async function renderPageThumbnail(
   pageNumber: number,
   targetWidth: number = 240
 ): Promise<string> {
-  const cacheKey = `${data.byteLength}-${pageNumber}-${targetWidth}`;
-  if (thumbnailCache.has(cacheKey)) {
-    return thumbnailCache.get(cacheKey)!;
-  }
+  const cacheKey = `${pageNumber}-${targetWidth}`;
+  const documentThumbnails = thumbnailCache.get(data);
+  const cached = documentThumbnails?.get(cacheKey);
+  if (cached) return cached;
 
   const pdfJsDoc = await loadPdfJsDoc(data);
   const page = await pdfJsDoc.getPage(pageNumber);
@@ -1049,7 +1046,11 @@ export async function renderPageThumbnail(
   }
 
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-  thumbnailCache.set(cacheKey, dataUrl);
+  const entries = thumbnailCache.get(data) || new Map<string, string>();
+  // Bound memory usage even for 400+ page documents.
+  if (entries.size >= 64) entries.delete(entries.keys().next().value!);
+  entries.set(cacheKey, dataUrl);
+  thumbnailCache.set(data, entries);
   return dataUrl;
 }
 
