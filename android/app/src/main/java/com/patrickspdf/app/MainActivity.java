@@ -130,7 +130,7 @@ public class MainActivity extends BridgeActivity {
         }
 
         private static String safePdfName(String name) {
-            String safe = name == null ? "document.pdf" : name.replace('/', '_').replace('\\\\', '_').trim();
+            String safe = name == null ? "document.pdf" : name.replace('/', '_').replace('\\', '_').trim();
             if (safe.isEmpty() || ".".equals(safe) || "..".equals(safe)) safe = "document.pdf";
             if (!safe.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf")) safe += ".pdf";
             return safe;
