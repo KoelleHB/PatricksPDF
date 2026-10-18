@@ -60,6 +60,7 @@ export default function App() {
     redoActionName,
     historyNotice,
     resetHistory,
+    getPageDocument,
   } = useDocumentHistory();
 
   // Save / unsaved changes tracking
@@ -162,9 +163,11 @@ export default function App() {
 
       // Extract native PDF AcroForm fields if present
       let initialValues: FormValuesState = {};
+      let initialFields: FormFieldItem[] = [];
       try {
         const { fields, initialValues: extractedVals } = await extractPdfFormFields(arrayBuffer);
         setFormFields(fields);
+        initialFields = fields;
         initialValues = extractedVals;
         initialFormValuesRef.current = { ...extractedVals };
       } catch (err) {
@@ -175,6 +178,11 @@ export default function App() {
 
       // Reset document history with clean initial state
       resetHistory({
+        pageDocument: {
+          arrayBuffer, numPages: pdfJsDoc.numPages, currentPage: 1,
+          pageWidth: viewport.width, pageHeight: viewport.height,
+          formFields: initialFields,
+        },
         signatures: [],
         textOverlays: [],
         formValues: initialValues,
@@ -761,20 +769,36 @@ export default function App() {
   // Undo action with automatic page navigation if the affected item was on another page
   const handleUndo = useCallback(() => {
     const targetPage = undo();
-    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
-      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    const doc = getPageDocument();
+    if (doc && pdfState && targetPage !== null) {
+      clearThumbnailCache();
+      setPdfState(prev => prev ? {
+        ...prev, arrayBuffer: doc.arrayBuffer, numPages: doc.numPages,
+        currentPage: Math.max(1, Math.min(targetPage || doc.currentPage, doc.numPages)),
+        pageWidth: doc.pageWidth, pageHeight: doc.pageHeight,
+      } : null);
+      setFormFields(doc.formFields);
+      setHasPageModifications(doc.arrayBuffer !== pdfState.file?.arrayBuffer);
     }
-    markUnsaved();
-  }, [undo, pdfState, markUnsaved]);
+    if (targetPage !== null) markUnsaved();
+  }, [undo, getPageDocument, pdfState, markUnsaved]);
 
   // Redo action with automatic page navigation
   const handleRedo = useCallback(() => {
     const targetPage = redo();
-    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
-      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    const doc = getPageDocument();
+    if (doc && pdfState && targetPage !== null) {
+      clearThumbnailCache();
+      setPdfState(prev => prev ? {
+        ...prev, arrayBuffer: doc.arrayBuffer, numPages: doc.numPages,
+        currentPage: Math.max(1, Math.min(targetPage || doc.currentPage, doc.numPages)),
+        pageWidth: doc.pageWidth, pageHeight: doc.pageHeight,
+      } : null);
+      setFormFields(doc.formFields);
+      setHasPageModifications(doc.arrayBuffer !== pdfState.file?.arrayBuffer);
     }
-    markUnsaved();
-  }, [redo, pdfState, markUnsaved]);
+    if (targetPage !== null) markUnsaved();
+  }, [redo, getPageDocument, pdfState, markUnsaved]);
 
   // Global keyboard shortcuts (Ctrl+Z, Ctrl+Y, Delete)
   useEffect(() => {
@@ -1008,6 +1032,10 @@ export default function App() {
 
     commitAction(
       {
+        pageDocument: {
+          arrayBuffer: newBuffer, numPages, currentPage: nextCurrentPage,
+          pageWidth: viewport.width, pageHeight: viewport.height, formFields: updatedFormFields,
+        },
         signatures: updatedSignatures,
         textOverlays: updatedTextOverlays,
         selectedSignatureId: null,
