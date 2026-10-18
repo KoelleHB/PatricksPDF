@@ -133,11 +133,15 @@ public class MainActivity extends BridgeActivity {
                 final File target = transferFile;
                 final String secret = token;
                 new Thread(() -> {
-                    try (Socket socket = listener.accept()) {
+                    try {
+                        // Some WebViews preflight localhost/private-network requests.
+                        for (int attempt = 0; attempt < 2; attempt++) {
+                            try (Socket socket = listener.accept()) {
                         socket.setSoTimeout(30000);
                         BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
                         BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream());
                         String request = readHttpLine(in);
+                        boolean preflight = request != null && request.equals("OPTIONS /pdf/" + secret + " HTTP/1.1");
                         boolean accepted = request != null && request.equals("POST /pdf/" + secret + " HTTP/1.1");
                         long length = -1;
                         String header;
@@ -145,6 +149,10 @@ public class MainActivity extends BridgeActivity {
                             if (header.toLowerCase(java.util.Locale.ROOT).startsWith("content-length:")) {
                                 try { length = Long.parseLong(header.substring(15).trim()); } catch (Exception ignored) {}
                             }
+                        }
+                        if (preflight) {
+                            respondBinaryUpload(out, "204 No Content", "");
+                            continue;
                         }
                         if (accepted && length >= 0 && length <= 512L * 1024 * 1024) {
                             long remaining = length;
@@ -161,6 +169,9 @@ public class MainActivity extends BridgeActivity {
                             respondBinaryUpload(out, "200 OK", "ok");
                         } else {
                             respondBinaryUpload(out, "400 Bad Request", "invalid upload");
+                        }
+                        break;
+                            }
                         }
                     } catch (Exception e) {
                         Log.w(TAG, "Binary PDF upload unavailable, chunk fallback possible", e);
@@ -191,6 +202,9 @@ public class MainActivity extends BridgeActivity {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             String headers = "HTTP/1.1 " + status + "\r\n" +
                 "Access-Control-Allow-Origin: https://localhost\r\n" +
+                "Access-Control-Allow-Methods: POST, OPTIONS\r\n" +
+                "Access-Control-Allow-Headers: Content-Type\r\n" +
+                "Access-Control-Allow-Private-Network: true\r\n" +
                 "Content-Type: text/plain\r\n" +
                 "Content-Length: " + bytes.length + "\r\n" +
                 "Connection: close\r\n\r\n";
