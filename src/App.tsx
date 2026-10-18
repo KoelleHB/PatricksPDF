@@ -1008,19 +1008,29 @@ export default function App() {
       }
     });
 
-    const updatedSignatures = signatures
-      .filter((s) => oldToNewPageMap.has(s.pageNumber))
-      .map((s) => ({
-        ...s,
-        pageNumber: oldToNewPageMap.get(s.pageNumber)!,
-      }));
+    // Map annotations to every surviving copy of their source page.
+    // Duplicated pages must receive independent overlay IDs.
+    const updatedSignatures = newPages.flatMap((spec, idx) => {
+      if (spec.source !== 'existing') return [];
+      return signatures.filter(s => s.pageNumber === spec.originalPageIndex + 1)
+        .map(s => ({
+          ...s,
+          id: idx + 1 === oldToNewPageMap.get(s.pageNumber)
+            ? s.id : `${s.id}-copy-${spec.id}`,
+          pageNumber: idx + 1,
+        }));
+    });
 
-    const updatedTextOverlays = textOverlays
-      .filter((t) => oldToNewPageMap.has(t.pageNumber))
-      .map((t) => ({
-        ...t,
-        pageNumber: oldToNewPageMap.get(t.pageNumber)!,
-      }));
+    const updatedTextOverlays = newPages.flatMap((spec, idx) => {
+      if (spec.source !== 'existing') return [];
+      return textOverlays.filter(t => t.pageNumber === spec.originalPageIndex + 1)
+        .map(t => ({
+          ...t,
+          id: idx + 1 === oldToNewPageMap.get(t.pageNumber)
+            ? t.id : `${t.id}-copy-${spec.id}`,
+          pageNumber: idx + 1,
+        }));
+    });
 
     // Target current page: stay on mapped current page or clamp to [1, numPages]
     let nextCurrentPage = oldToNewPageMap.get(pdfState.currentPage) || 1;
