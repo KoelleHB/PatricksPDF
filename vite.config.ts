@@ -1,12 +1,26 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'node:fs';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
     plugins: [
+      {
+        name: 'local-pdfjs-resources',
+        buildStart() {
+          // One dependency version supplies CMaps and standard fonts for both PWA and APK.
+          for (const dir of ['cmaps', 'standard_fonts']) {
+            const source = path.resolve(__dirname, 'node_modules/pdfjs-dist', dir);
+            const target = path.resolve(__dirname, 'public/pdfjs', dir);
+            if (!fs.existsSync(source)) throw new Error(`PDF.js resources missing: ${source}`);
+            fs.mkdirSync(target, { recursive: true });
+            fs.cpSync(source, target, { recursive: true, force: true });
+          }
+        },
+      },
       react(),
       tailwindcss(),
       VitePWA({
@@ -71,7 +85,7 @@ export default defineConfig(() => {
         },
         workbox: {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,bcmap,pfb,ttf}'],
           importScripts: ['/sw-share-target.js'],
           navigateFallbackDenylist: [/^\/share-target/],
         },
