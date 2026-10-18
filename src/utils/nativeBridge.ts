@@ -50,11 +50,36 @@ async function nativeFileAction(
   if (!token) return false;
   try {
     const blob = data instanceof Blob ? data : new Blob([data as any], { type: 'application/pdf' });
-    const chunkSize = 48 * 1024;
-    for (let offset = 0; offset < blob.size; offset += chunkSize) {
-      const buffer = await blob.slice(offset, offset + chunkSize).arrayBuffer();
-      const base64 = await toBase64String(buffer);
-      if (!bridge.appendPdfChunk(token, base64)) throw new Error('PDF transfer failed');
+    let binaryUploaded = false;
+    if (bridge.getBinaryTransferUrl) {
+      const url: string = bridge.getBinaryTransferUrl(token);
+      if (url && /^http:\/\/127\.0\.0\.1:\\d+\/pdf\/[a-f0-9-]+$/i.test(url)) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 20000);
+        try {
+          // Rewrap to remove application/pdf Content-Type so WebView sends
+          // a simple CORS POST without a preflight; the body remains binary.
+          const response = await fetch(url, {
+            method: 'POST',
+            body: new Blob([blob]),
+            signal: controller.signal,
+          });
+          binaryUploaded = response.ok;
+        } catch (error) {
+          console.warn('Native binary upload not available, using bounded chunk fallback:', error);
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+    }
+    if (!binaryUploaded) {
+      bridge.resetPdfTransfer?.(token);
+      const chunkSize = 48 * 1024;
+      for (let offset = 0; offset < blob.size; offset += chunkSize) {
+        const buffer = await blob.slice(offset, offset + chunkSize).arrayBuffer();
+        const base64 = await toBase64String(buffer);
+        if (!bridge.appendPdfChunk(token, base64)) throw new Error('PDF transfer failed');
+      }
     }
     return Boolean(bridge.finishPdfTransfer(token, action, name));
   } finally {
