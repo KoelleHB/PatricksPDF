@@ -93,14 +93,22 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
           setSelectedPageId(currentSpec.id);
         }
 
-        // Render thumbnails for each original page
-        const thumbs: Record<string, string> = {};
-        for (let i = 0; i < specs.length; i++) {
+        // Allow the page manager to become interactive immediately after metadata loads.
+        // Thumbnail rendering is progressive and must not hold the loading overlay open.
+        setIsLoadingPages(false);
+        setThumbnails({});
+        const order = specs.map((_, i) => i);
+        // Prioritize the currently selected page, then its neighbors.
+        const focus = Math.max(0, Math.min(specs.length - 1, currentPage - 1));
+        order.sort((a, b) => Math.abs(a - focus) - Math.abs(b - focus));
+        for (const i of order) {
+          if (isCancelled) break;
+          // Yield to browser input and paint between renders (important on Android).
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
           if (isCancelled) break;
           try {
-            const thumbUrl = await renderPageThumbnail(pdfState.arrayBuffer!, i + 1, 260);
-            thumbs[specs[i].id] = thumbUrl;
-            setThumbnails((prev) => ({ ...prev, [specs[i].id]: thumbUrl }));
+            const thumbUrl = await renderPageThumbnail(pdfState.arrayBuffer!, i + 1, 180);
+            if (!isCancelled) setThumbnails(prev => ({ ...prev, [specs[i].id]: thumbUrl }));
           } catch (err) {
             console.warn(`Could not render thumbnail for page ${i + 1}:`, err);
           }
