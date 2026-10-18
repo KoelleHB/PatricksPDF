@@ -96,8 +96,10 @@ export async function savePdfDocument(
     try {
       const ok = await nativeFileAction('save', safeName, pdfData);
       if (ok) return { success: true, method: 'native-android' };
+      throw new Error('Android-Dateiaktion wurde nicht erfolgreich abgeschlossen.');
     } catch (err) {
-      console.warn('Native Android file transfer failed:', err);
+      console.error('Native Android save failed:', err);
+      throw err;
     }
   }
 
@@ -160,8 +162,10 @@ export async function sharePdfDocument(
     try {
       const ok = await nativeFileAction('share', safeName, pdfData);
       if (ok) return { success: true, method: 'native-android' };
+      throw new Error('Android-Dateiaktion wurde nicht erfolgreich abgeschlossen.');
     } catch (err) {
-      console.warn('Native Android file transfer failed:', err);
+      console.error('Native Android share failed:', err);
+      throw err;
     }
   }
 
@@ -219,8 +223,10 @@ export async function printPdfDocument(
     try {
       const ok = await nativeFileAction('print', safeTitle, pdfData);
       if (ok) return { success: true, method: 'native-android' };
+      throw new Error('Android-Dateiaktion wurde nicht erfolgreich abgeschlossen.');
     } catch (err) {
-      console.warn('Native Android file transfer failed:', err);
+      console.error('Native Android print failed:', err);
+      throw err;
     }
   }
 
