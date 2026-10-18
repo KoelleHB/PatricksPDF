@@ -33,6 +33,7 @@ export default function App() {
   } | null>(null);
   const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
   const manualFileInputRef = useRef<HTMLInputElement>(null);
+  const originalPdfBufferRef = useRef<ArrayBuffer | null>(null);
 
   // Native Form Fields metadata (structural fields from PDF)
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
@@ -151,6 +152,7 @@ export default function App() {
       const page1 = await pdfJsDoc.getPage(1);
       const viewport = page1.getViewport({ scale: 1.0 });
 
+      originalPdfBufferRef.current = arrayBuffer;
       setPdfState({
         file,
         name: file.name,
@@ -778,7 +780,7 @@ export default function App() {
         pageWidth: doc.pageWidth, pageHeight: doc.pageHeight,
       } : null);
       setFormFields(doc.formFields);
-      setHasPageModifications(doc.arrayBuffer !== pdfState.file?.arrayBuffer);
+      setHasPageModifications(doc.arrayBuffer !== originalPdfBufferRef.current);
     }
     if (targetPage !== null) markUnsaved();
   }, [undo, getPageDocument, pdfState, markUnsaved]);
@@ -795,7 +797,7 @@ export default function App() {
         pageWidth: doc.pageWidth, pageHeight: doc.pageHeight,
       } : null);
       setFormFields(doc.formFields);
-      setHasPageModifications(doc.arrayBuffer !== pdfState.file?.arrayBuffer);
+      setHasPageModifications(doc.arrayBuffer !== originalPdfBufferRef.current);
     }
     if (targetPage !== null) markUnsaved();
   }, [redo, getPageDocument, pdfState, markUnsaved]);
