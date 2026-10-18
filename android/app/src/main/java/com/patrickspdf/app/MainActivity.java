@@ -35,6 +35,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.FileInputStream;
 import java.io.RandomAccessFile;
+import java.net.ServerSocket;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.ArrayList;
 
@@ -93,6 +99,7 @@ public class MainActivity extends BridgeActivity {
         // Base64 is used only for individual bridge chunks, never for an entire document.
         private File transferFile;
         private String transferToken;
+        private ServerSocket binaryServer;
 
         @JavascriptInterface
         public synchronized String beginPdfTransfer() {
@@ -110,6 +117,112 @@ public class MainActivity extends BridgeActivity {
             }
         }
 
+        /**
+         * Short-lived, loopback-only binary transfer. The WebView sends its Blob
+         * directly as an HTTP request body: no Base64 or JS byte-string copies.
+         * Existing bounded chunks remain as compatibility fallback.
+         */
+        @JavascriptInterface
+        public synchronized String getBinaryTransferUrl(String token) {
+            if (transferFile == null || token == null || !token.equals(transferToken)) return "";
+            try {
+                if (binaryServer != null) binaryServer.close();
+                binaryServer = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
+                binaryServer.setSoTimeout(30000);
+                final ServerSocket listener = binaryServer;
+                final File target = transferFile;
+                final String secret = token;
+                new Thread(() -> {
+                    try {
+                        // Some WebViews preflight localhost/private-network requests.
+                        for (int attempt = 0; attempt < 2; attempt++) {
+                            try (Socket socket = listener.accept()) {
+                        socket.setSoTimeout(30000);
+                        BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+                        BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream());
+                        String request = readHttpLine(in);
+                        boolean preflight = request != null && request.equals("OPTIONS /pdf/" + secret + " HTTP/1.1");
+                        boolean accepted = request != null && request.equals("POST /pdf/" + secret + " HTTP/1.1");
+                        long length = -1;
+                        String header;
+                        while ((header = readHttpLine(in)) != null && !header.isEmpty()) {
+                            if (header.toLowerCase(java.util.Locale.ROOT).startsWith("content-length:")) {
+                                try { length = Long.parseLong(header.substring(15).trim()); } catch (Exception ignored) {}
+                            }
+                        }
+                        if (preflight) {
+                            respondBinaryUpload(out, "204 No Content", "");
+                            continue;
+                        }
+                        if (accepted && length >= 0 && length <= 512L * 1024 * 1024) {
+                            long remaining = length;
+                            try (FileOutputStream fileOut = new FileOutputStream(target, false)) {
+                                byte[] buffer = new byte[65536];
+                                while (remaining > 0) {
+                                    int n = in.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+                                    if (n < 0) throw new java.io.EOFException();
+                                    fileOut.write(buffer, 0, n);
+                                    remaining -= n;
+                                }
+                                fileOut.flush();
+                            }
+                            respondBinaryUpload(out, "200 OK", "ok");
+                        } else {
+                            respondBinaryUpload(out, "400 Bad Request", "invalid upload");
+                        }
+                        break;
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "Binary PDF upload unavailable, chunk fallback possible", e);
+                    } finally {
+                        try { listener.close(); } catch (Exception ignored) {}
+                    }
+                }, "pdf-binary-upload").start();
+                return "http://127.0.0.1:" + listener.getLocalPort() + "/pdf/" + secret;
+            } catch (Exception e) {
+                Log.w(TAG, "Cannot start binary upload", e);
+                return "";
+            }
+        }
+
+        private static String readHttpLine(InputStream in) throws java.io.IOException {
+            StringBuilder text = new StringBuilder();
+            int ch;
+            while ((ch = in.read()) != -1) {
+                if (ch == '\n') break;
+                if (ch != '\r') text.append((char) ch);
+                if (text.length() > 8192) throw new java.io.IOException("Header line too long");
+            }
+            if (ch == -1) return null;
+            return text.toString();
+        }
+
+        private static void respondBinaryUpload(OutputStream out, String status, String body) throws java.io.IOException {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            String headers = "HTTP/1.1 " + status + "\r\n" +
+                "Access-Control-Allow-Origin: https://localhost\r\n" +
+                "Access-Control-Allow-Methods: POST, OPTIONS\r\n" +
+                "Access-Control-Allow-Headers: Content-Type\r\n" +
+                "Access-Control-Allow-Private-Network: true\r\n" +
+                "Content-Type: text/plain\r\n" +
+                "Content-Length: " + bytes.length + "\r\n" +
+                "Connection: close\r\n\r\n";
+            out.write(headers.getBytes(StandardCharsets.UTF_8));
+            out.write(bytes);
+            out.flush();
+        }
+
+        @JavascriptInterface
+        public synchronized void resetPdfTransfer(String token) {
+            if (transferFile == null || !token.equals(transferToken)) return;
+            try {
+                if (binaryServer != null) binaryServer.close();
+                binaryServer = null;
+                try (FileOutputStream ignored = new FileOutputStream(transferFile, false)) {}
+            } catch (Exception e) { Log.w(TAG, "Could not reset binary transfer", e); }
+        }
+
         @JavascriptInterface
         public synchronized boolean appendPdfChunk(String token, String chunkBase64) {
             if (transferFile == null || !token.equals(transferToken)) return false;
@@ -124,6 +237,10 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public synchronized void cancelPdfTransfer() {
+            if (binaryServer != null) {
+                try { binaryServer.close(); } catch (Exception ignored) {}
+                binaryServer = null;
+            }
             if (transferFile != null) transferFile.delete();
             transferFile = null;
             transferToken = null;
