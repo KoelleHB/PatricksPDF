@@ -179,8 +179,8 @@ public class MainActivity extends BridgeActivity {
             StringBuilder text = new StringBuilder();
             int ch;
             while ((ch = in.read()) != -1) {
-                if (ch == '\\n') break;
-                if (ch != '\\r') text.append((char) ch);
+                if (ch == '\n') break;
+                if (ch != '\r') text.append((char) ch);
                 if (text.length() > 8192) throw new java.io.IOException("Header line too long");
             }
             if (ch == -1) return null;
@@ -189,11 +189,11 @@ public class MainActivity extends BridgeActivity {
 
         private static void respondBinaryUpload(OutputStream out, String status, String body) throws java.io.IOException {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            String headers = "HTTP/1.1 " + status + "\\r\\n" +
-                "Access-Control-Allow-Origin: https://localhost\\r\\n" +
-                "Content-Type: text/plain\\r\\n" +
-                "Content-Length: " + bytes.length + "\\r\\n" +
-                "Connection: close\\r\\n\\r\\n";
+            String headers = "HTTP/1.1 " + status + "\r\n" +
+                "Access-Control-Allow-Origin: https://localhost\r\n" +
+                "Content-Type: text/plain\r\n" +
+                "Content-Length: " + bytes.length + "\r\n" +
+                "Connection: close\r\n\r\n";
             out.write(headers.getBytes(StandardCharsets.UTF_8));
             out.write(bytes);
             out.flush();
