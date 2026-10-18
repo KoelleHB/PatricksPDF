@@ -11,3 +11,10 @@ coverage/
 android/.gradle/
 android/build/
 android/app/build/
+
+# Never commit Android release credentials
+*.jks
+*.keystore
+*.p12
+*.pfx
+android/key.properties
