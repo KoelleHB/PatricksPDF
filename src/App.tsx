@@ -33,6 +33,7 @@ export default function App() {
   } | null>(null);
   const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
   const manualFileInputRef = useRef<HTMLInputElement>(null);
+  const originalPdfBufferRef = useRef<ArrayBuffer | null>(null);
 
   // Native Form Fields metadata (structural fields from PDF)
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
@@ -60,6 +61,7 @@ export default function App() {
     redoActionName,
     historyNotice,
     resetHistory,
+    getPageDocument,
   } = useDocumentHistory();
 
   // Save / unsaved changes tracking
@@ -150,6 +152,7 @@ export default function App() {
       const page1 = await pdfJsDoc.getPage(1);
       const viewport = page1.getViewport({ scale: 1.0 });
 
+      originalPdfBufferRef.current = arrayBuffer;
       setPdfState({
         file,
         name: file.name,
@@ -162,9 +165,11 @@ export default function App() {
 
       // Extract native PDF AcroForm fields if present
       let initialValues: FormValuesState = {};
+      let initialFields: FormFieldItem[] = [];
       try {
         const { fields, initialValues: extractedVals } = await extractPdfFormFields(arrayBuffer);
         setFormFields(fields);
+        initialFields = fields;
         initialValues = extractedVals;
         initialFormValuesRef.current = { ...extractedVals };
       } catch (err) {
@@ -175,6 +180,11 @@ export default function App() {
 
       // Reset document history with clean initial state
       resetHistory({
+        pageDocument: {
+          arrayBuffer, numPages: pdfJsDoc.numPages, currentPage: 1,
+          pageWidth: viewport.width, pageHeight: viewport.height,
+          formFields: initialFields,
+        },
         signatures: [],
         textOverlays: [],
         formValues: initialValues,
@@ -495,22 +505,40 @@ export default function App() {
 
   // Listen for native Android "Open with" and Share Sheet intents from Capacitor BridgeActivity
   useEffect(() => {
-    const processNativePdf = (data: { name: string; base64: string }) => {
-      if (!data || !data.base64) return;
+    const processNativePdf = async (data: { name: string; token?: string; size?: number; base64?: string }) => {
+      if (!data) return;
+      const bridge = (window as any).NativePdfBridge;
       try {
-        const binaryString = atob(data.base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const file = new File([bytes], data.name || 'document.pdf', {
-          type: 'application/pdf',
-        });
+        let bytes: Uint8Array;
+        if (data.token && typeof bridge?.readIncomingPdfChunk === 'function') {
+          const size = Number(data.size);
+          if (!Number.isSafeInteger(size) || size <= 0 || size > 512 * 1024 * 1024) {
+            throw new Error('Unsupported incoming PDF size');
+          }
+          bytes = new Uint8Array(size);
+          const chunkSize = 48 * 1024;
+          for (let offset = 0; offset < size; offset += chunkSize) {
+            const encoded = bridge.readIncomingPdfChunk(data.token, offset);
+            if (!encoded) throw new Error('Incoming PDF transfer interrupted');
+            const binary = atob(encoded);
+            if (binary.length > size - offset) throw new Error('Invalid PDF chunk');
+            for (let i = 0; i < binary.length; i++) bytes[offset + i] = binary.charCodeAt(i);
+          }
+        } else if (data.base64) {
+          // Compatibility with an older installed Android bridge.
+          const binary = atob(data.base64);
+          bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        } else return;
+        const file = new File([bytes as any], data.name || 'document.pdf', { type: 'application/pdf' });
         setIsReceivingSharedPdf(false);
         setShareIssueNotice(null);
-        handleFileSelect(file);
+        await handleFileSelect(file);
       } catch (err) {
-        console.error('[Native Bridge] Error parsing incoming PDF:', err);
+        console.error('[Native Bridge] Error reading incoming PDF:', err);
+        setShareIssueNotice({ title: 'Android-Dateiübertragung', message: 'PDF konnte nicht aus Android übernommen werden.' });
+      } finally {
+        if (data.token) bridge?.releaseIncomingPdf?.(data.token);
       }
     };
 
@@ -761,20 +789,36 @@ export default function App() {
   // Undo action with automatic page navigation if the affected item was on another page
   const handleUndo = useCallback(() => {
     const targetPage = undo();
-    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
-      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    const doc = getPageDocument();
+    if (doc && pdfState && targetPage !== null) {
+      clearThumbnailCache();
+      setPdfState(prev => prev ? {
+        ...prev, arrayBuffer: doc.arrayBuffer, numPages: doc.numPages,
+        currentPage: Math.max(1, Math.min(targetPage || doc.currentPage, doc.numPages)),
+        pageWidth: doc.pageWidth, pageHeight: doc.pageHeight,
+      } : null);
+      setFormFields(doc.formFields);
+      setHasPageModifications(doc.arrayBuffer !== originalPdfBufferRef.current);
     }
-    markUnsaved();
-  }, [undo, pdfState, markUnsaved]);
+    if (targetPage !== null) markUnsaved();
+  }, [undo, getPageDocument, pdfState, markUnsaved]);
 
   // Redo action with automatic page navigation
   const handleRedo = useCallback(() => {
     const targetPage = redo();
-    if (targetPage && pdfState && targetPage !== pdfState.currentPage) {
-      setPdfState((prev) => (prev ? { ...prev, currentPage: targetPage } : null));
+    const doc = getPageDocument();
+    if (doc && pdfState && targetPage !== null) {
+      clearThumbnailCache();
+      setPdfState(prev => prev ? {
+        ...prev, arrayBuffer: doc.arrayBuffer, numPages: doc.numPages,
+        currentPage: Math.max(1, Math.min(targetPage || doc.currentPage, doc.numPages)),
+        pageWidth: doc.pageWidth, pageHeight: doc.pageHeight,
+      } : null);
+      setFormFields(doc.formFields);
+      setHasPageModifications(doc.arrayBuffer !== originalPdfBufferRef.current);
     }
-    markUnsaved();
-  }, [redo, pdfState, markUnsaved]);
+    if (targetPage !== null) markUnsaved();
+  }, [redo, getPageDocument, pdfState, markUnsaved]);
 
   // Global keyboard shortcuts (Ctrl+Z, Ctrl+Y, Delete)
   useEffect(() => {
@@ -964,19 +1008,29 @@ export default function App() {
       }
     });
 
-    const updatedSignatures = signatures
-      .filter((s) => oldToNewPageMap.has(s.pageNumber))
-      .map((s) => ({
-        ...s,
-        pageNumber: oldToNewPageMap.get(s.pageNumber)!,
-      }));
+    // Map annotations to every surviving copy of their source page.
+    // Duplicated pages must receive independent overlay IDs.
+    const updatedSignatures = newPages.flatMap((spec, idx) => {
+      if (spec.source !== 'existing') return [];
+      return signatures.filter(s => s.pageNumber === spec.originalPageIndex + 1)
+        .map(s => ({
+          ...s,
+          id: idx + 1 === oldToNewPageMap.get(s.pageNumber)
+            ? s.id : `${s.id}-copy-${spec.id}`,
+          pageNumber: idx + 1,
+        }));
+    });
 
-    const updatedTextOverlays = textOverlays
-      .filter((t) => oldToNewPageMap.has(t.pageNumber))
-      .map((t) => ({
-        ...t,
-        pageNumber: oldToNewPageMap.get(t.pageNumber)!,
-      }));
+    const updatedTextOverlays = newPages.flatMap((spec, idx) => {
+      if (spec.source !== 'existing') return [];
+      return textOverlays.filter(t => t.pageNumber === spec.originalPageIndex + 1)
+        .map(t => ({
+          ...t,
+          id: idx + 1 === oldToNewPageMap.get(t.pageNumber)
+            ? t.id : `${t.id}-copy-${spec.id}`,
+          pageNumber: idx + 1,
+        }));
+    });
 
     // Target current page: stay on mapped current page or clamp to [1, numPages]
     let nextCurrentPage = oldToNewPageMap.get(pdfState.currentPage) || 1;
@@ -1008,6 +1062,10 @@ export default function App() {
 
     commitAction(
       {
+        pageDocument: {
+          arrayBuffer: newBuffer, numPages, currentPage: nextCurrentPage,
+          pageWidth: viewport.width, pageHeight: viewport.height, formFields: updatedFormFields,
+        },
         signatures: updatedSignatures,
         textOverlays: updatedTextOverlays,
         selectedSignatureId: null,

@@ -33,11 +33,16 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.FileInputStream;
+import java.io.RandomAccessFile;
+import java.util.UUID;
 import java.util.ArrayList;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "PatricksPDF_Native";
     private volatile String pendingPdfJson = null;
+    private volatile File incomingPdfFile = null;
+    private volatile String incomingPdfToken = null;
 
     public static class NativePdfBridgeInterface {
         private final MainActivity activity;
@@ -54,9 +59,175 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public synchronized String readIncomingPdfChunk(String token, int offset) {
+            if (token == null || !token.equals(activity.incomingPdfToken) || offset < 0) return "";
+            File file = activity.incomingPdfFile;
+            if (file == null) return "";
+            try (RandomAccessFile stream = new RandomAccessFile(file, "r")) {
+                if (offset >= stream.length()) return "";
+                stream.seek(offset);
+                byte[] buffer = new byte[(int) Math.min(48 * 1024L, stream.length() - offset)];
+                stream.readFully(buffer);
+                return Base64.encodeToString(buffer, Base64.NO_WRAP);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed reading incoming PDF chunk", e);
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized void releaseIncomingPdf(String token) {
+            if (token != null && token.equals(activity.incomingPdfToken)) {
+                if (activity.incomingPdfFile != null) activity.incomingPdfFile.delete();
+                activity.incomingPdfFile = null;
+                activity.incomingPdfToken = null;
+            }
+        }
+
+        @JavascriptInterface
         public boolean isNativeBridge() {
             return true;
         }
+
+        // File-backed transfer: each JS bridge message is at most 64 KiB of binary PDF.
+        // Base64 is used only for individual bridge chunks, never for an entire document.
+        private File transferFile;
+        private String transferToken;
+
+        @JavascriptInterface
+        public synchronized String beginPdfTransfer() {
+            cancelPdfTransfer();
+            try {
+                transferToken = UUID.randomUUID().toString();
+                transferFile = new File(activity.getCacheDir(), "pdf-transfer-" + transferToken + ".tmp");
+                if (!transferFile.createNewFile()) throw new IllegalStateException("Transfer file already exists");
+                return transferToken;
+            } catch (Exception e) {
+                Log.e(TAG, "Cannot start PDF transfer", e);
+                transferFile = null;
+                transferToken = null;
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized boolean appendPdfChunk(String token, String chunkBase64) {
+            if (transferFile == null || !token.equals(transferToken)) return false;
+            try (FileOutputStream stream = new FileOutputStream(transferFile, true)) {
+                stream.write(Base64.decode(chunkBase64, Base64.DEFAULT));
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "Failed appending PDF transfer chunk", e);
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized void cancelPdfTransfer() {
+            if (transferFile != null) transferFile.delete();
+            transferFile = null;
+            transferToken = null;
+        }
+
+        private static String safePdfName(String name) {
+            String safe = name == null ? "document.pdf" : name.replace('/', '_').replace('\\', '_').trim();
+            if (safe.isEmpty() || ".".equals(safe) || "..".equals(safe)) safe = "document.pdf";
+            if (!safe.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf")) safe += ".pdf";
+            return safe;
+        }
+
+        private static void copyPdf(File source, OutputStream destination) throws java.io.IOException {
+            try (InputStream input = new FileInputStream(source)) {
+                byte[] buffer = new byte[65536];
+                int count;
+                while ((count = input.read(buffer)) != -1) destination.write(buffer, 0, count);
+                destination.flush();
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized boolean finishPdfTransfer(String token, String action, String name) {
+            if (transferFile == null || !token.equals(transferToken)) return false;
+            File source = transferFile;
+            String safeName = safePdfName(name);
+            try {
+                if (source.length() == 0) return false;
+                if ("save".equals(action)) {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, safeName);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                    Uri uri = activity.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) return false;
+                    try {
+                        try (OutputStream out = activity.getContentResolver().openOutputStream(uri)) {
+                            if (out == null) throw new java.io.IOException("No destination stream");
+                            copyPdf(source, out);
+                        }
+                        values.clear();
+                        values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                        activity.getContentResolver().update(uri, values, null, null);
+                    } catch (Exception e) {
+                        activity.getContentResolver().delete(uri, null, null);
+                        throw e;
+                    }
+                    activity.runOnUiThread(() -> Toast.makeText(activity, "PDF gespeichert: " + safeName, Toast.LENGTH_LONG).show());
+                    return true;
+                }
+                if ("share".equals(action)) {
+                    File dir = new File(activity.getCacheDir(), "shared_pdfs");
+                    if (!dir.exists() && !dir.mkdirs()) return false;
+                    File dest = new File(dir, safeName);
+                    try (OutputStream out = new FileOutputStream(dest)) { copyPdf(source, out); }
+                    Uri uri = FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", dest);
+                    Intent intent = new Intent(Intent.ACTION_SEND);
+                    intent.setType("application/pdf");
+                    intent.putExtra(Intent.EXTRA_STREAM, uri);
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    activity.runOnUiThread(() -> activity.startActivity(Intent.createChooser(intent, "PDF teilen")));
+                    return true;
+                }
+                if ("print".equals(action)) {
+                    // The spooler callback is asynchronous: retain the backing file until onWrite completes.
+                    File dir = new File(activity.getCacheDir(), "print_pdfs");
+                    if (!dir.exists() && !dir.mkdirs()) return false;
+                    File dest = new File(dir, UUID.randomUUID() + ".pdf");
+                    try (OutputStream out = new FileOutputStream(dest)) { copyPdf(source, out); }
+                    activity.runOnUiThread(() -> {
+                        PrintManager manager = (PrintManager) activity.getSystemService(Context.PRINT_SERVICE);
+                        if (manager == null) { dest.delete(); return; }
+                        manager.print(safeName, new PrintDocumentAdapter() {
+                            @Override public void onLayout(PrintAttributes oldA, PrintAttributes newA,
+                                CancellationSignal signal, LayoutResultCallback callback, Bundle extras) {
+                                if (signal.isCanceled()) { callback.onLayoutCancelled(); return; }
+                                callback.onLayoutFinished(new PrintDocumentInfo.Builder(safeName)
+                                    .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                                    .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN).build(), true);
+                            }
+                            @Override public void onWrite(PageRange[] pages, ParcelFileDescriptor destination,
+                                CancellationSignal signal, WriteResultCallback callback) {
+                                try (OutputStream out = new FileOutputStream(destination.getFileDescriptor())) {
+                                    if (signal.isCanceled()) { callback.onWriteCancelled(); return; }
+                                    copyPdf(dest, out);
+                                    callback.onWriteFinished(new PageRange[]{PageRange.ALL_PAGES});
+                                } catch (Exception e) { callback.onWriteFailed(e.getMessage()); }
+                            }
+                            @Override public void onFinish() { dest.delete(); }
+                        }, new PrintAttributes.Builder().build());
+                    });
+                    return true;
+                }
+                return false;
+            } catch (Exception e) {
+                Log.e(TAG, "File-backed PDF action failed", e);
+                return false;
+            } finally {
+                cancelPdfTransfer();
+            }
+        }
+
 
         @JavascriptInterface
         public boolean savePdf(final String fileName, final String base64Data) {
@@ -323,30 +494,26 @@ public class MainActivity extends BridgeActivity {
                         }
                     }
 
-                    // Read bytes directly from ContentResolver with granted URI permissions
-                    InputStream is = getContentResolver().openInputStream(uri);
-                    if (is == null) {
-                        Log.e(TAG, "ContentResolver returned null InputStream for " + uri);
-                        return;
+                    // Stream the content URI to a temporary file, not into Java heap.
+                    String token = UUID.randomUUID().toString();
+                    File staged = new File(getCacheDir(), "incoming-pdf-" + token + ".tmp");
+                    try (InputStream input = getContentResolver().openInputStream(uri);
+                         FileOutputStream output = new FileOutputStream(staged)) {
+                        if (input == null) throw new java.io.IOException("ContentResolver returned no stream");
+                        byte[] chunk = new byte[65536];
+                        int n;
+                        while ((n = input.read(chunk)) != -1) output.write(chunk, 0, n);
                     }
 
-                    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                    byte[] chunk = new byte[32768];
-                    int nRead;
-                    while ((nRead = is.read(chunk, 0, chunk.length)) != -1) {
-                        buffer.write(chunk, 0, nRead);
-                    }
-                    buffer.flush();
-                    is.close();
-
-                    byte[] pdfBytes = buffer.toByteArray();
-                    Log.d(TAG, "Read " + pdfBytes.length + " bytes for " + fileName);
-
-                    String base64 = Base64.encodeToString(pdfBytes, Base64.NO_WRAP);
+                    File previous = incomingPdfFile;
+                    incomingPdfFile = staged;
+                    incomingPdfToken = token;
+                    if (previous != null) previous.delete();
 
                     JSONObject json = new JSONObject();
                     json.put("name", fileName);
-                    json.put("base64", base64);
+                    json.put("token", token);
+                    json.put("size", staged.length());
                     final String jsonStr = json.toString();
 
                     pendingPdfJson = jsonStr;

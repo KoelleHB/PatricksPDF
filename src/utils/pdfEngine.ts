@@ -763,13 +763,24 @@ export async function embedSignaturesIntoPdf(
   // Defensive copy to ensure PDFDocument.load never mutates or detaches the original buffer
   const copy = originalPdfBytes.slice(0);
   
-  // Load original PDF with options that maximize tolerance and preserve original document metadata
-  const pdfDoc = await PDFDocument.load(copy, {
-    ignoreEncryption: true,
-    updateMetadata: false,
-    throwOnInvalidObject: false,
-    capNumbers: true,
-  });
+  // pdf-lib cannot safely edit an encrypted PDF. ignoreEncryption bypasses
+  // the load-time exception but does NOT decrypt its object streams and can
+  // produce opaque serialization errors such as "Expected instance of ...".
+  // Never export a potentially corrupt edited document.
+  let pdfDoc: PDFDocument;
+  try {
+    pdfDoc = await PDFDocument.load(copy, {
+      ignoreEncryption: false,
+      updateMetadata: false,
+      throwOnInvalidObject: false,
+      capNumbers: true,
+    });
+  } catch (err: any) {
+    if (err?.name === 'EncryptedPDFError' || /encrypt/i.test(String(err?.message || ''))) {
+      throw new Error('Diese PDF ist verschlüsselt oder bearbeitungsgeschützt. PatricksPDF kann sie anzeigen, aber mit pdf-lib nicht sicher bearbeiten oder neu speichern. Bitte verwende eine vom Rechteinhaber zur Bearbeitung freigegebene, unverschlüsselte PDF.');
+    }
+    throw err;
+  }
 
   // Register fontkit for custom true-type fonts (Caveat)
   pdfDoc.registerFontkit(fontkit);
@@ -1057,7 +1068,7 @@ export async function applyPageModifications(
   // Load target document and clone document for safe page cloning/duplication
   const copy = originalPdfBytes.slice(0);
   const pdfDoc = await PDFDocument.load(copy, {
-    ignoreEncryption: true,
+    ignoreEncryption: false,
     updateMetadata: false,
     throwOnInvalidObject: false,
     capNumbers: true,
