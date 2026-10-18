@@ -505,22 +505,40 @@ export default function App() {
 
   // Listen for native Android "Open with" and Share Sheet intents from Capacitor BridgeActivity
   useEffect(() => {
-    const processNativePdf = (data: { name: string; base64: string }) => {
-      if (!data || !data.base64) return;
+    const processNativePdf = async (data: { name: string; token?: string; size?: number; base64?: string }) => {
+      if (!data) return;
+      const bridge = (window as any).NativePdfBridge;
       try {
-        const binaryString = atob(data.base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const file = new File([bytes], data.name || 'document.pdf', {
-          type: 'application/pdf',
-        });
+        let bytes: Uint8Array;
+        if (data.token && typeof bridge?.readIncomingPdfChunk === 'function') {
+          const size = Number(data.size);
+          if (!Number.isSafeInteger(size) || size <= 0 || size > 512 * 1024 * 1024) {
+            throw new Error('Unsupported incoming PDF size');
+          }
+          bytes = new Uint8Array(size);
+          const chunkSize = 48 * 1024;
+          for (let offset = 0; offset < size; offset += chunkSize) {
+            const encoded = bridge.readIncomingPdfChunk(data.token, offset);
+            if (!encoded) throw new Error('Incoming PDF transfer interrupted');
+            const binary = atob(encoded);
+            if (binary.length > size - offset) throw new Error('Invalid PDF chunk');
+            for (let i = 0; i < binary.length; i++) bytes[offset + i] = binary.charCodeAt(i);
+          }
+        } else if (data.base64) {
+          // Compatibility with an older installed Android bridge.
+          const binary = atob(data.base64);
+          bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        } else return;
+        const file = new File([bytes as any], data.name || 'document.pdf', { type: 'application/pdf' });
         setIsReceivingSharedPdf(false);
         setShareIssueNotice(null);
-        handleFileSelect(file);
+        await handleFileSelect(file);
       } catch (err) {
-        console.error('[Native Bridge] Error parsing incoming PDF:', err);
+        console.error('[Native Bridge] Error reading incoming PDF:', err);
+        setShareIssueNotice('PDF konnte nicht aus Android übernommen werden.');
+      } finally {
+        if (data.token) bridge?.releaseIncomingPdf?.(data.token);
       }
     };
 
