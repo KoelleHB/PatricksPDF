@@ -34,12 +34,15 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.FileInputStream;
+import java.io.RandomAccessFile;
 import java.util.UUID;
 import java.util.ArrayList;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "PatricksPDF_Native";
     private volatile String pendingPdfJson = null;
+    private volatile File incomingPdfFile = null;
+    private volatile String incomingPdfToken = null;
 
     public static class NativePdfBridgeInterface {
         private final MainActivity activity;
@@ -53,6 +56,32 @@ public class MainActivity extends BridgeActivity {
             String res = activity.pendingPdfJson;
             activity.pendingPdfJson = null;
             return res;
+        }
+
+        @JavascriptInterface
+        public synchronized String readIncomingPdfChunk(String token, int offset) {
+            if (token == null || !token.equals(activity.incomingPdfToken) || offset < 0) return "";
+            File file = activity.incomingPdfFile;
+            if (file == null) return "";
+            try (RandomAccessFile stream = new RandomAccessFile(file, "r")) {
+                if (offset >= stream.length()) return "";
+                stream.seek(offset);
+                byte[] buffer = new byte[(int) Math.min(48 * 1024L, stream.length() - offset)];
+                stream.readFully(buffer);
+                return Base64.encodeToString(buffer, Base64.NO_WRAP);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed reading incoming PDF chunk", e);
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized void releaseIncomingPdf(String token) {
+            if (token != null && token.equals(activity.incomingPdfToken)) {
+                if (activity.incomingPdfFile != null) activity.incomingPdfFile.delete();
+                activity.incomingPdfFile = null;
+                activity.incomingPdfToken = null;
+            }
         }
 
         @JavascriptInterface
@@ -465,30 +494,26 @@ public class MainActivity extends BridgeActivity {
                         }
                     }
 
-                    // Read bytes directly from ContentResolver with granted URI permissions
-                    InputStream is = getContentResolver().openInputStream(uri);
-                    if (is == null) {
-                        Log.e(TAG, "ContentResolver returned null InputStream for " + uri);
-                        return;
+                    // Stream the content URI to a temporary file, not into Java heap.
+                    String token = UUID.randomUUID().toString();
+                    File staged = new File(getCacheDir(), "incoming-pdf-" + token + ".tmp");
+                    try (InputStream input = getContentResolver().openInputStream(uri);
+                         FileOutputStream output = new FileOutputStream(staged)) {
+                        if (input == null) throw new java.io.IOException("ContentResolver returned no stream");
+                        byte[] chunk = new byte[65536];
+                        int n;
+                        while ((n = input.read(chunk)) != -1) output.write(chunk, 0, n);
                     }
 
-                    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                    byte[] chunk = new byte[32768];
-                    int nRead;
-                    while ((nRead = is.read(chunk, 0, chunk.length)) != -1) {
-                        buffer.write(chunk, 0, nRead);
-                    }
-                    buffer.flush();
-                    is.close();
-
-                    byte[] pdfBytes = buffer.toByteArray();
-                    Log.d(TAG, "Read " + pdfBytes.length + " bytes for " + fileName);
-
-                    String base64 = Base64.encodeToString(pdfBytes, Base64.NO_WRAP);
+                    File previous = incomingPdfFile;
+                    incomingPdfFile = staged;
+                    incomingPdfToken = token;
+                    if (previous != null) previous.delete();
 
                     JSONObject json = new JSONObject();
                     json.put("name", fileName);
-                    json.put("base64", base64);
+                    json.put("token", token);
+                    json.put("size", staged.length());
                     final String jsonStr = json.toString();
 
                     pendingPdfJson = jsonStr;
