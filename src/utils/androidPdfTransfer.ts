@@ -69,7 +69,9 @@ export async function nativeFileAction(
         }
       }
     }
+    if (binaryUploaded) console.info('[PatricksPDF] Android PDF transfer: binary loopback');
     if (!binaryUploaded) {
+      console.info('[PatricksPDF] Android PDF transfer: bounded Base64 compatibility fallback');
       // Restart with a fresh file/token: a timed-out HTTP request could still
       // be writing asynchronously to the previous temporary file.
       bridge.cancelPdfTransfer();
