@@ -536,7 +536,7 @@ export default function App() {
         await handleFileSelect(file);
       } catch (err) {
         console.error('[Native Bridge] Error reading incoming PDF:', err);
-        setShareIssueNotice('PDF konnte nicht aus Android übernommen werden.');
+        setShareIssueNotice({ title: 'Android-Dateiübertragung', message: 'PDF konnte nicht aus Android übernommen werden.' });
       } finally {
         if (data.token) bridge?.releaseIncomingPdf?.(data.token);
       }
