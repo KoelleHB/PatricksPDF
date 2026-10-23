@@ -1214,7 +1214,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const hit = layer?.querySelector('.pdf-inline-search-selected') as HTMLElement | null;
       const span = (hit?.closest('.textLayer > span') || layer?.querySelector(':scope > span')) as HTMLElement | null;
       if (!page || !layer || !canvas || !span) {
-        setTextDiagnostics(`PDF.js ${pdfjsLib.version} | Seite ${pageNo} | ${zoomLevel}%\\nTextlayer noch nicht sichtbar/geladen`);
+        setTextDiagnostics(`PDF.js ${pdfjsLib.version} | Seite ${pageNo} | ${zoomLevel}%\nTextlayer noch nicht sichtbar/geladen`);
         return;
       }
       const rect = (el: Element) => el.getBoundingClientRect();
@@ -1227,10 +1227,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const mark = hit ? rect(hit) : null;
       // Positions relative to the same page rectangle, for safe comparison.
       setTextDiagnostics(
-        `PDF.js ${pdfjsLib.version} | Seite ${pageNo} | Zoom ${zoomLevel}%\\n` +
-        `DPR ${round(window.devicePixelRatio)} | Skala ${raw || '—'} | minFont ${min || '—'}\\n` +
-        `Canvas ${round(c.width)}×${round(c.height)} | Layer ${round(t.width)}×${round(t.height)}\\n` +
-        `Textspan x=${round(r.x-p.x)} y=${round(r.y-p.y)} w=${round(r.width)} | Schrift ${st.fontSize} (${baseFont || '—'})\\n` +
+        `PDF.js ${pdfjsLib.version} | Seite ${pageNo} | Zoom ${zoomLevel}%\n` +
+        `DPR ${round(window.devicePixelRatio)} | Skala ${raw || '—'} | minFont ${min || '—'}\n` +
+        `Canvas ${round(c.width)}×${round(c.height)} | Layer ${round(t.width)}×${round(t.height)}\n` +
+        `Textspan x=${round(r.x-p.x)} y=${round(r.y-p.y)} w=${round(r.width)} | Schrift ${st.fontSize} (${baseFont || '—'})\n` +
         `Treffer x=${mark ? round(mark.x-p.x) : '—'} y=${mark ? round(mark.y-p.y) : '—'} w=${mark ? round(mark.width) : '—'}`
       );
     };

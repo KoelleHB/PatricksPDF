@@ -264,7 +264,7 @@ export async function renderPdfTextLayer(
       },
     } as any);
     session.builder = builder;
-    await builder.render({ viewport });
+    await builder.render({ viewport, images: undefined as any });
     if (!isCurrent()) return null;
 
     return builder;

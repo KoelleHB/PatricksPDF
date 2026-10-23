@@ -87,7 +87,6 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     // Unlimited image dimensions in object streams
     maxImageSize: -1,
     // Support function evaluation for blend modes and shading patterns
-    isEvalSupported: true,
     password: password || undefined,
   });
 
@@ -116,7 +115,6 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
       enableXfa: true,
       useSystemFonts: true,
       maxImageSize: -1,
-      isEvalSupported: true,
       disableStream: true,
       disableAutoFetch: true,
       disableRange: true,
