@@ -44,6 +44,7 @@ interface PdfPageViewProps {
   onResetForm?: () => void;
   onNavigateToPage: (page: number) => void;
   isCurrentPage?: boolean;
+  searchHighlight?: { query: string; ordinal: number };
 }
 
 export const PdfPageView = memo<PdfPageViewProps>(({
@@ -73,6 +74,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   onResetForm,
   onNavigateToPage,
   isCurrentPage = false,
+  searchHighlight,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -82,6 +84,84 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   const [isRendered, setIsRendered] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [links, setLinks] = useState<PdfLinkAnnotation[]>([]);
+  const [textLayerVersion, setTextLayerVersion] = useState(0);
+  const [searchRectangles, setSearchRectangles] = useState<Array<{
+    x: number; y: number; width: number; height: number; active: boolean;
+  }>>([]);
+  const lastScrolledSearchRef = useRef('');
+
+  // Create visual highlights without rewriting PDF.js text or interfering with
+  // native Android selection handles. Range boxes also support split text runs.
+  useEffect(() => {
+    const layer = textLayerRef.current;
+    const host = containerRef.current;
+    const phrase = searchHighlight?.query.trim();
+    if (!isNearViewport || !layer || !host || !phrase) {
+      setSearchRectangles([]);
+      return;
+    }
+
+    const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    let current: Node | null;
+    while ((current = walker.nextNode())) {
+      if (current.textContent) nodes.push(current as Text);
+    }
+    const combined = nodes.map((node) => node.textContent || '').join('');
+    const lowercase = combined.toLowerCase();
+    const needle = phrase.toLowerCase();
+    const offsets: number[] = [];
+    let offset = 0;
+    for (const node of nodes) {
+      offsets.push(offset);
+      offset += (node.textContent || '').length;
+    }
+
+    const rects: Array<{ x: number; y: number; width: number; height: number; active: boolean }> = [];
+    const hostRect = host.getBoundingClientRect();
+    let cursor = 0;
+    let ordinal = 0;
+    let selectedTop: number | null = null;
+    while (cursor < lowercase.length) {
+      const at = lowercase.indexOf(needle, cursor);
+      if (at < 0) break;
+      const active = ordinal === searchHighlight?.ordinal;
+      if (ordinal < 32 || active) {
+        const startIndex = offsets.findIndex((from, i) => from <= at && at < from + (nodes[i].textContent?.length || 0));
+        const endOffset = at + needle.length - 1;
+        const endIndex = offsets.findIndex((from, i) => from <= endOffset && endOffset < from + (nodes[i].textContent?.length || 0));
+        if (startIndex >= 0 && endIndex >= 0) {
+          const range = document.createRange();
+          range.setStart(nodes[startIndex], at - offsets[startIndex]);
+          range.setEnd(nodes[endIndex], endOffset + 1 - offsets[endIndex]);
+          const boxes = Array.from(range.getClientRects()).slice(0, 8);
+          for (const box of boxes) {
+            if (box.width < 1 || box.height < 1) continue;
+            rects.push({
+              x: box.left - hostRect.left, y: box.top - hostRect.top,
+              width: box.width, height: box.height, active,
+            });
+            if (active && selectedTop === null) selectedTop = box.top;
+          }
+          range.detach();
+        }
+      }
+      ordinal++;
+      cursor = at + Math.max(1, needle.length);
+    }
+    setSearchRectangles(rects);
+
+    const searchKey = `${phrase}:${pageNumber}:${searchHighlight?.ordinal}`;
+    if (selectedTop !== null && lastScrolledSearchRef.current !== searchKey) {
+      lastScrolledSearchRef.current = searchKey;
+      const scrollRoot = host.closest('[data-pdf-scroll-container]');
+      if (scrollRoot) {
+        const scrollRect = scrollRoot.getBoundingClientRect();
+        scrollRoot.scrollTop += selectedTop - scrollRect.top -
+          Math.min(160, scrollRoot.clientHeight * 0.28);
+      }
+    }
+  }, [isNearViewport, textLayerVersion, searchHighlight?.query, searchHighlight?.ordinal, pageNumber]);
 
   // Filter items specific to this page
   const pageSignatures = signatures.filter((s) => s.pageNumber === pageNumber);
@@ -181,11 +261,11 @@ export const PdfPageView = memo<PdfPageViewProps>(({
 
     const delay = isRendered ? 180 : 0;
     const timer = setTimeout(() => {
-      renderPdfTextLayer(arrayBuffer, pageNumber, textLayerEl, pageWidth).catch((err) => {
-        if (!isCancelled) {
-          console.warn(`Failed to render text layer for page ${pageNumber}:`, err);
-        }
-      });
+      renderPdfTextLayer(arrayBuffer, pageNumber, textLayerEl, pageWidth)
+        .then(() => { if (!isCancelled) setTextLayerVersion((version) => version + 1); })
+        .catch((err) => {
+          if (!isCancelled) console.warn(`Failed to render text layer for page ${pageNumber}:`, err);
+        });
     }, delay);
 
     return () => {
@@ -238,6 +318,19 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         } as React.CSSProperties}
         aria-hidden="false"
       />
+
+      {/* Selected PDF search hit. Pointer events remain on the original text layer. */}
+      {searchRectangles.length > 0 && (
+        <div className="absolute inset-0 z-[6] pointer-events-none overflow-hidden" aria-hidden="true">
+          {searchRectangles.map((rect, index) => (
+            <div
+              key={index}
+              className={rect.active ? 'absolute bg-orange-400/55 ring-1 ring-orange-600/70 rounded-[2px]' : 'absolute bg-yellow-300/45 rounded-[2px]'}
+              style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Internal & External Link Annotations Layer */}
       {links.length > 0 && (

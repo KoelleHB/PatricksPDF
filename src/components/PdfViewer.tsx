@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   BookOpen,
   Check,
+  Search,
 } from 'lucide-react';
 import {
   SignatureItem,
@@ -36,6 +37,8 @@ import {
 import { PdfPageView } from './PdfPageView';
 import { TableOfContentsDrawer } from './TableOfContentsDrawer';
 import { TextSelectionToolbar } from './TextSelectionToolbar';
+import { PdfSearchPanel } from './PdfSearchPanel';
+import type { PdfSearchHit } from '../utils/pdfSearch';
 
 interface PdfViewerProps {
   pdfState: PdfDocumentState;
@@ -197,6 +200,43 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Table of Contents state
   const [outline, setOutline] = useState<PdfOutlineItem[]>([]);
   const [isTocOpen, setIsTocOpen] = useState<boolean>(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [activeSearchMatch, setActiveSearchMatch] = useState<{
+    pageNumber: number; query: string; ordinal: number;
+  } | null>(null);
+
+  const closeSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    setActiveSearchMatch(null);
+  }, []);
+
+  const handleSearchHit = useCallback((hit: PdfSearchHit, phrase: string) => {
+    setActiveSearchMatch({ pageNumber: hit.pageNumber, query: phrase, ordinal: hit.ordinal });
+    if (isReflowMode) {
+      setIsReflowMode(false);
+      // Restore the ordinary page DOM before positioning the search result.
+      onChangePage(hit.pageNumber);
+      requestAnimationFrame(() => scrollToPageRef.current?.(hit.pageNumber));
+    } else {
+      scrollToPageRef.current?.(hit.pageNumber);
+    }
+  }, [isReflowMode, onChangePage]);
+
+  const scrollToPageRef = useRef<((page: number) => void) | null>(null);
+
+  // Ctrl/Cmd+F searches the PDF text instead of the surrounding browser UI.
+  useEffect(() => {
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setIsSearchOpen(true);
+      } else if (event.key === 'Escape' && isSearchOpen) {
+        closeSearch();
+      }
+    };
+    window.addEventListener('keydown', handleSearchShortcut);
+    return () => window.removeEventListener('keydown', handleSearchShortcut);
+  }, [isSearchOpen, closeSearch]);
 
   // Reflow Text state and cache
   const [isReflowMode, setIsReflowMode] = useState<boolean>(false);
@@ -498,6 +538,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     },
     [pdfState.numPages, onChangePage]
   );
+
+  scrollToPageRef.current = (page: number) => scrollToPage(page, 'auto');
 
   // Sync external page changes (e.g. Undo/Redo or page reordering)
   useEffect(() => {
@@ -1295,6 +1337,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             </button>
             <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
 
+            {/* Full-document search: also available via Ctrl/Cmd+F */}
+            <button
+              id="viewer-search-btn"
+              type="button"
+              onClick={() => isSearchOpen ? closeSearch() : setIsSearchOpen(true)}
+              className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[11px] font-medium hover:bg-white hover:text-blue-600 transition flex items-center gap-1 cursor-pointer ${isSearchOpen ? 'text-blue-600 bg-blue-50' : 'text-slate-700'}`}
+              title="Im gesamten PDF suchen (Strg+F)"
+              aria-label="PDF durchsuchen"
+              aria-expanded={isSearchOpen}
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Suchen</span>
+            </button>
+
             {/* Table of Contents Button */}
             <button
               id="viewer-toc-btn"
@@ -1480,6 +1536,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
           <span className="w-px h-3.5 bg-white/20" />
 
+          <button
+            onClick={() => isSearchOpen ? closeSearch() : setIsSearchOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-slate-300 hover:text-white hover:bg-white/15"
+            title="PDF durchsuchen (Strg+F)"
+            aria-label="PDF durchsuchen"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+
           {/* Table of Contents trigger in Reader mode */}
           <button
             onClick={() => setIsTocOpen(true)}
@@ -1510,9 +1575,18 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         </aside>
       )}
 
+      {isSearchOpen && pdfState.arrayBuffer && (
+        <PdfSearchPanel
+          arrayBuffer={pdfState.arrayBuffer}
+          onClose={closeSearch}
+          onNavigate={handleSearchHit}
+        />
+      )}
+
       {/* Main PDF Scrollable Workspace with Continuous Page Rolling */}
       <div
         ref={containerRef}
+        data-pdf-scroll-container="true"
         onClick={handleContainerClick}
         onMouseDown={handleMouseDown}
         className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative touch-pan-x touch-pan-y overscroll-contain scroll-auto ${
@@ -1654,6 +1728,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   onResetForm={onResetForm}
                   onNavigateToPage={scrollToPage}
                   isCurrentPage={pageNum === pdfState.currentPage}
+                  searchHighlight={activeSearchMatch?.pageNumber === pageNum ? activeSearchMatch : undefined}
                 />
                 {/* Subtle page indicator between pages */}
                 <div className="mt-2 text-[10px] font-mono text-slate-400 select-none">
