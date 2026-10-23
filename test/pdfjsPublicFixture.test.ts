@@ -38,7 +38,7 @@ test('extract and search text in a synthetic public PDF on PDF.js v6', async () 
     const segments = getPdfInlineMatchSegments(strings, 'minutes', 0);
     assert.ok(segments.some(segment => segment.selected));
   } finally {
-    await document?.destroy();
+    // PDF.js v6 owns resources through the loading task.
     await loading.destroy();
   }
 });
