@@ -244,7 +244,7 @@ export async function renderPdfTextLayer(
       onAppend: (layer: HTMLDivElement) => {
         if (isCurrent()) host.append(layer);
       },
-    });
+    } as any);
     session.builder = builder;
     await builder.render(viewport);
     if (!isCurrent()) return null;
