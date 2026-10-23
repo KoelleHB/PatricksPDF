@@ -8,10 +8,14 @@ interface PdfSearchPanelProps {
   arrayBuffer: ArrayBuffer;
   onClose: () => void;
   onNavigate: (hit: PdfSearchHit, phrase: string) => void;
+  diagnosticsEnabled: boolean;
+  onToggleDiagnostics: () => void;
+  diagnosticsText: string;
 }
 
 export const PdfSearchPanel: React.FC<PdfSearchPanelProps> = ({
   arrayBuffer, onClose, onNavigate,
+  diagnosticsEnabled, onToggleDiagnostics, diagnosticsText,
 }) => {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<PdfSearchHit[]>([]);
@@ -142,6 +146,12 @@ export const PdfSearchPanel: React.FC<PdfSearchPanelProps> = ({
               ? `Durchsuche ${progress?.scannedPages || 0} / ${progress?.totalPages || '…'} Seiten · ${hits.length} Treffer`
               : `${hits.length} Treffer${activeIndex >= 0 ? ` · ${activeIndex + 1} / ${hits.length}` : ''}`}
         {progress?.truncated && <span className="text-amber-700">Erste 1000 Treffer</span>}
+        <button
+          type="button"
+          onClick={onToggleDiagnostics}
+          aria-pressed={diagnosticsEnabled}
+          className="ml-auto text-xs font-medium text-indigo-700 hover:underline"
+        >{diagnosticsEnabled ? 'Diagnose aus' : 'Diagnose'}</button>
       </div>
 
       {/* On Android the search field occupies its own small row above the PDF.
@@ -156,6 +166,13 @@ export const PdfSearchPanel: React.FC<PdfSearchPanelProps> = ({
           </span>
           <button
             type="button"
+            onClick={onToggleDiagnostics}
+            aria-pressed={diagnosticsEnabled}
+            title="Textpositionen lokal prüfen – keine Dateidaten werden gesendet"
+            className={`shrink-0 px-1.5 py-0.5 text-xs rounded border ${diagnosticsEnabled ? 'text-white bg-indigo-600 border-indigo-600' : 'text-indigo-700 border-indigo-200'}`}
+          >Diagnose</button>
+          <button
+            type="button"
             onClick={() => setResultsExpanded((expanded) => !expanded)}
             disabled={hits.length === 0}
             aria-expanded={resultsExpanded}
@@ -165,6 +182,22 @@ export const PdfSearchPanel: React.FC<PdfSearchPanelProps> = ({
             {resultsExpanded ? 'Liste schließen' : 'Treffer anzeigen'}
             {resultsExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
           </button>
+        </div>
+      )}
+
+      {diagnosticsEnabled && (
+        <div className="px-3 py-2 text-[11px] border-t border-indigo-100 bg-indigo-50 text-slate-700">
+          <div className="flex justify-between items-center gap-3 mb-1">
+            <strong>Lokale Text-Diagnose</strong>
+            <button
+              type="button"
+              onClick={() => { void navigator.clipboard?.writeText(diagnosticsText).catch(() => {}); }}
+              className="font-semibold text-indigo-700 underline"
+              title="Nur technische Zahlen kopieren – niemals Dokumenttexte"
+            >Messwerte kopieren</button>
+          </div>
+          <pre className="whitespace-pre-wrap break-words leading-4 font-mono">{diagnosticsText || 'Messung wird vorbereitet …'}</pre>
+          <p className="mt-1 text-[10px] text-slate-500">Keine PDF-Texte, Dateinamen oder Inhalte werden übertragen oder protokolliert.</p>
         </div>
       )}
 
