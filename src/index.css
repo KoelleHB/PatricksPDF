@@ -39,8 +39,9 @@ html, body, #root {
   user-select: text !important;
   -webkit-user-select: text !important;
   -webkit-touch-callout: default !important;
-  touch-action: pan-x pan-y !important;
-  pointer-events: auto !important;
+  /* Let Android WebView handle native long-press selection and handles. */
+  touch-action: auto;
+  pointer-events: auto;
 }
 
 .textLayer :is(span, br) {
@@ -52,7 +53,19 @@ html, body, #root {
   user-select: text !important;
   -webkit-user-select: text !important;
   -webkit-touch-callout: default !important;
-  pointer-events: auto !important;
+  pointer-events: auto;
+}
+
+/* PDF.js 4.10 uses unrotated raw page dimensions on the text layer and
+   expects this exact companion transform for rotated pages. */
+.textLayer[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+.textLayer[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+.textLayer[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
 }
 
 .textLayer > :not(.markedContent),

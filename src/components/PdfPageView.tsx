@@ -12,6 +12,7 @@ import {
   cancelCanvasRender,
   extractPageLinks,
   renderPdfTextLayer,
+  cancelPdfTextLayer,
 } from '../utils/pdfEngine';
 import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
@@ -85,6 +86,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [links, setLinks] = useState<PdfLinkAnnotation[]>([]);
   const [textLayerVersion, setTextLayerVersion] = useState(0);
+  const [renderedTextWidth, setRenderedTextWidth] = useState<number | null>(null);
   const [searchRectangles, setSearchRectangles] = useState<Array<{
     x: number; y: number; width: number; height: number; active: boolean;
   }>>([]);
@@ -96,7 +98,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     const layer = textLayerRef.current;
     const host = containerRef.current;
     const phrase = searchHighlight?.query.trim();
-    if (!isNearViewport || !layer || !host || !phrase) {
+    if (!isNearViewport || !layer || !host || !phrase || renderedTextWidth !== pageWidth) {
       setSearchRectangles([]);
       return;
     }
@@ -118,7 +120,9 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     }
 
     const rects: Array<{ x: number; y: number; width: number; height: number; active: boolean }> = [];
-    const hostRect = host.getBoundingClientRect();
+    const layerRect = layer.getBoundingClientRect();
+    const scaleX = layerRect.width > 0 ? layer.offsetWidth / layerRect.width : 1;
+    const scaleY = layerRect.height > 0 ? layer.offsetHeight / layerRect.height : 1;
     let cursor = 0;
     let ordinal = 0;
     let selectedTop: number | null = null;
@@ -138,8 +142,11 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           for (const box of boxes) {
             if (box.width < 1 || box.height < 1) continue;
             rects.push({
-              x: box.left - hostRect.left, y: box.top - hostRect.top,
-              width: box.width, height: box.height, active,
+              x: (box.left - layerRect.left) * scaleX,
+              y: (box.top - layerRect.top) * scaleY,
+              width: box.width * scaleX,
+              height: box.height * scaleY,
+              active,
             });
             if (active && selectedTop === null) selectedTop = box.top;
           }
@@ -161,7 +168,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           Math.min(160, scrollRoot.clientHeight * 0.28);
       }
     }
-  }, [isNearViewport, textLayerVersion, searchHighlight?.query, searchHighlight?.ordinal, pageNumber]);
+  }, [isNearViewport, textLayerVersion, renderedTextWidth, pageWidth, searchHighlight?.query, searchHighlight?.ordinal, pageNumber]);
 
   // Filter items specific to this page
   const pageSignatures = signatures.filter((s) => s.pageNumber === pageNumber);
@@ -252,25 +259,32 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     };
   }, [isNearViewport, arrayBuffer, pageNumber, zoomLevel]);
 
-  // Render selectable text layer (debounced on zoom/width changes)
+  // Only the latest text-layer render is allowed to publish selectable spans.
+  // Unmounting an offscreen page or changing zoom invalidates the previous work.
   useEffect(() => {
-    if (!isNearViewport || !arrayBuffer || !textLayerRef.current) return;
-
-    let isCancelled = false;
     const textLayerEl = textLayerRef.current;
+    if (!textLayerEl || !isNearViewport || !arrayBuffer) {
+      setRenderedTextWidth(null);
+      return;
+    }
 
-    const delay = isRendered ? 180 : 0;
+    let cancelled = false;
+    setRenderedTextWidth(null);
+    cancelPdfTextLayer(textLayerEl);
     const timer = setTimeout(() => {
-      renderPdfTextLayer(arrayBuffer, pageNumber, textLayerEl, pageWidth)
-        .then(() => { if (!isCancelled) setTextLayerVersion((version) => version + 1); })
-        .catch((err) => {
-          if (!isCancelled) console.warn(`Failed to render text layer for page ${pageNumber}:`, err);
+      void renderPdfTextLayer(arrayBuffer, pageNumber, textLayerEl, pageWidth)
+        .then((layer) => {
+          if (!cancelled && layer) {
+            setRenderedTextWidth(pageWidth);
+            setTextLayerVersion((version) => version + 1);
+          }
         });
-    }, delay);
+    }, isRendered ? 140 : 0);
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
       clearTimeout(timer);
+      cancelPdfTextLayer(textLayerEl);
     };
   }, [isNearViewport, arrayBuffer, pageNumber, pageWidth]);
 
@@ -314,7 +328,8 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         style={{
           width: `${pageWidth}px`,
           height: `${pageHeight}px`,
-          '--scale-factor': zoomLevel / 100,
+          // PDF.js sets this to the precise viewport.scale used for this page.
+          // Do not overwrite it with a rounded/global zoom value.
         } as React.CSSProperties}
         aria-hidden="false"
       />

@@ -33,6 +33,7 @@ export interface RenderPageResult {
 
 // Kept as compatibility exports for consumers of the original PDF engine.
 export { loadPdfJsDoc, cancelCanvasRender, disposePdfJsResources } from './pdfDocumentLifecycle';
+import { installPdfTextSelection } from './pdfTextSelection';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -182,9 +183,29 @@ export async function renderPdfPageToCanvas(
 }
 
 /**
- * Renders the selectable text layer for a PDF page into a target container div.
- * Enables user text marking, cursor selection, dragging, and standard clipboard copying.
+ * The PDF.js canvas and selectable text must use the same viewport.
+ * Rapid zooming used to allow an older asynchronous getTextContent() call
+ * to paint its spans after a newer render, producing offset/duplicated
+ * invisible selectable text and mismatched search rectangles.
  */
+interface TextLayerSession {
+  token: symbol;
+  layer: { cancel(): void } | null;
+  detachSelection: (() => void) | null;
+}
+
+const textLayerSessions = new WeakMap<HTMLDivElement, TextLayerSession>();
+
+export function cancelPdfTextLayer(container: HTMLDivElement): void {
+  const previous = textLayerSessions.get(container);
+  if (previous) {
+    textLayerSessions.delete(container);
+    previous.detachSelection?.();
+    try { previous.layer?.cancel(); } catch { /* rendering already settled */ }
+  }
+  container.replaceChildren();
+}
+
 export async function renderPdfTextLayer(
   data: ArrayBuffer,
   pageNumber: number,
@@ -193,37 +214,50 @@ export async function renderPdfTextLayer(
 ): Promise<any> {
   if (!container || !data) return null;
 
+  // Invalidate all older tasks BEFORE waiting for PDF.js document/page data.
+  cancelPdfTextLayer(container);
+  const session: TextLayerSession = {
+    token: Symbol('pdf-text-layer'), layer: null, detachSelection: null,
+  };
+  textLayerSessions.set(container, session);
+  const isCurrent = () => textLayerSessions.get(container) === session;
+
   try {
     const pdfDoc = await loadPdfJsDoc(data);
+    if (!isCurrent()) return null;
     const page = await pdfDoc.getPage(pageNumber);
+    if (!isCurrent()) return null;
 
-    const baseViewport = page.getViewport({ scale: 1.0 });
+    const baseViewport = page.getViewport({ scale: 1 });
+    // Use the page's exact dimensions, not the first page's width.
     const scale = targetWidth / baseViewport.width;
     const viewport = page.getViewport({ scale });
+    const textContent = await page.getTextContent();
+    if (!isCurrent()) return null;
 
-    // Reset container contents and inject precise PDF.js scale factor custom properties
-    container.innerHTML = '';
-    container.style.width = `${Math.round(viewport.width)}px`;
-    container.style.height = `${Math.round(viewport.height)}px`;
-    container.style.setProperty('--scale-factor', `${scale}`);
+    // PDF.js TextLayer must own its dimensions. For rotated pages
+    // setLayerDimensions uses raw (unrotated) page geometry, and the
+    // matching CSS data-main-rotation transform rotates the layer.
+    container.style.setProperty('--scale-factor', String(viewport.scale));
     container.style.setProperty('--scale-round-x', '1px');
     container.style.setProperty('--scale-round-y', '1px');
-    container.setAttribute('data-main-rotation', `${viewport.rotation || 0}`);
-
-    const textContent = await page.getTextContent();
 
     const TextLayerClass = (pdfjsLib as any).TextLayer;
-    if (TextLayerClass) {
-      const textLayer = new TextLayerClass({
-        textContentSource: textContent,
-        container,
-        viewport,
-      });
-      await textLayer.render();
-      return textLayer;
-    }
+    if (!TextLayerClass) return null;
+
+    const layer = new TextLayerClass({
+      textContentSource: textContent,
+      container,
+      viewport,
+    });
+    session.layer = layer;
+    await layer.render();
+    if (!isCurrent()) return null;
+    session.detachSelection = installPdfTextSelection(container);
+    return layer;
   } catch (err: any) {
-    if (err?.name !== 'RenderingCancelledException') {
+    if (isCurrent() && err?.name !== 'AbortException' &&
+        err?.name !== 'RenderingCancelledException') {
       console.warn(`[TextLayer] Render warning for page ${pageNumber}:`, err);
     }
     return null;
