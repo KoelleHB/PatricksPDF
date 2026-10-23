@@ -85,7 +85,7 @@ export default defineConfig(() => {
         },
         workbox: {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,bcmap,pfb,ttf}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,bcmap,pfb,ttf,wasm,icc,dat}'],
           importScripts: ['/sw-share-target.js'],
           navigateFallbackDenylist: [/^\/share-target/],
         },
