@@ -34,6 +34,7 @@ export interface RenderPageResult {
 // Kept as compatibility exports for consumers of the original PDF engine.
 export { loadPdfJsDoc, cancelCanvasRender, disposePdfJsResources } from './pdfDocumentLifecycle';
 import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs';
+import { PdfInlineTextHighlighter } from './pdfInlineTextHighlighter';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -190,6 +191,7 @@ export async function renderPdfPageToCanvas(
  */
 interface TextLayerSession {
   builder: { cancel(): void } | null;
+  highlighter: PdfInlineTextHighlighter;
 }
 
 const textLayerSessions = new WeakMap<HTMLDivElement, TextLayerSession>();
@@ -211,6 +213,18 @@ export function cancelPdfTextLayer(host: HTMLDivElement): void {
  * The React host is a plain positioned wrapper; the official .textLayer
  * is owned by the builder and placed into it only after rendering finishes.
  */
+/**
+ * Update search highlights in the active text layer without re-rendering it.
+ * The returned element belongs to the genuine selectable PDF.js text spans.
+ */
+export function highlightPdfTextMatch(
+  host: HTMLDivElement,
+  phrase: string,
+  ordinal: number,
+): HTMLElement | null {
+  return textLayerSessions.get(host)?.highlighter.setSearch(phrase, ordinal) ?? null;
+}
+
 export async function renderPdfTextLayer(
   data: ArrayBuffer,
   pageNumber: number,
@@ -220,7 +234,10 @@ export async function renderPdfTextLayer(
   if (!host || !data) return null;
 
   cancelPdfTextLayer(host);
-  const session: TextLayerSession = { builder: null };
+  const session: TextLayerSession = {
+    builder: null,
+    highlighter: new PdfInlineTextHighlighter(),
+  };
   textLayerSessions.set(host, session);
   const isCurrent = () => textLayerSessions.get(host) === session;
 
@@ -241,6 +258,7 @@ export async function renderPdfTextLayer(
 
     const builder = new TextLayerBuilder({
       pdfPage: page,
+      highlighter: session.highlighter,
       onAppend: (layer: HTMLDivElement) => {
         if (isCurrent()) host.append(layer);
       },

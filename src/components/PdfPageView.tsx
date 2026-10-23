@@ -13,6 +13,7 @@ import {
   extractPageLinks,
   renderPdfTextLayer,
   cancelPdfTextLayer,
+  highlightPdfTextMatch,
 } from '../utils/pdfEngine';
 import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
@@ -87,88 +88,35 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   const [links, setLinks] = useState<PdfLinkAnnotation[]>([]);
   const [textLayerVersion, setTextLayerVersion] = useState(0);
   const [renderedTextWidth, setRenderedTextWidth] = useState<number | null>(null);
-  const [searchRectangles, setSearchRectangles] = useState<Array<{
-    x: number; y: number; width: number; height: number; active: boolean;
-  }>>([]);
   const lastScrolledSearchRef = useRef('');
 
-  // Create visual highlights without rewriting PDF.js text or interfering with
-  // native Android selection handles. Range boxes also support split text runs.
+  // Search marks are now *inside* the PDF.js selectable text spans.
+  // This avoids Android WebView's inaccurate Range.getClientRects() boxes
+  // that caused the orange overlay to sit several words to the right.
   useEffect(() => {
     const layer = textLayerRef.current;
     const host = containerRef.current;
-    const phrase = searchHighlight?.query.trim();
-    if (!isNearViewport || !layer || !host || !phrase || renderedTextWidth !== pageWidth) {
-      setSearchRectangles([]);
-      return;
-    }
+    if (!layer || !host || !isNearViewport || renderedTextWidth !== pageWidth) return;
 
-    const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
-    const nodes: Text[] = [];
-    let current: Node | null;
-    while ((current = walker.nextNode())) {
-      if (current.textContent) nodes.push(current as Text);
-    }
-    const combined = nodes.map((node) => node.textContent || '').join('');
-    const lowercase = combined.toLowerCase();
-    const needle = phrase.toLowerCase();
-    const offsets: number[] = [];
-    let offset = 0;
-    for (const node of nodes) {
-      offsets.push(offset);
-      offset += (node.textContent || '').length;
-    }
+    const phrase = searchHighlight?.query || '';
+    const selectedOrdinal = searchHighlight?.ordinal ?? -1;
+    const selected = highlightPdfTextMatch(layer, phrase, selectedOrdinal);
 
-    const rects: Array<{ x: number; y: number; width: number; height: number; active: boolean }> = [];
-    const layerRect = layer.getBoundingClientRect();
-    const scaleX = layerRect.width > 0 ? layer.offsetWidth / layerRect.width : 1;
-    const scaleY = layerRect.height > 0 ? layer.offsetHeight / layerRect.height : 1;
-    let cursor = 0;
-    let ordinal = 0;
-    let selectedTop: number | null = null;
-    while (cursor < lowercase.length) {
-      const at = lowercase.indexOf(needle, cursor);
-      if (at < 0) break;
-      const active = ordinal === searchHighlight?.ordinal;
-      if (ordinal < 32 || active) {
-        const startIndex = offsets.findIndex((from, i) => from <= at && at < from + (nodes[i].textContent?.length || 0));
-        const endOffset = at + needle.length - 1;
-        const endIndex = offsets.findIndex((from, i) => from <= endOffset && endOffset < from + (nodes[i].textContent?.length || 0));
-        if (startIndex >= 0 && endIndex >= 0) {
-          const range = document.createRange();
-          range.setStart(nodes[startIndex], at - offsets[startIndex]);
-          range.setEnd(nodes[endIndex], endOffset + 1 - offsets[endIndex]);
-          const boxes = Array.from(range.getClientRects()).slice(0, 8);
-          for (const box of boxes) {
-            if (box.width < 1 || box.height < 1) continue;
-            rects.push({
-              x: (box.left - layerRect.left) * scaleX,
-              y: (box.top - layerRect.top) * scaleY,
-              width: box.width * scaleX,
-              height: box.height * scaleY,
-              active,
-            });
-            if (active && selectedTop === null) selectedTop = box.top;
-          }
-          range.detach();
-        }
-      }
-      ordinal++;
-      cursor = at + Math.max(1, needle.length);
-    }
-    setSearchRectangles(rects);
-
-    const searchKey = `${phrase}:${pageNumber}:${searchHighlight?.ordinal}`;
-    if (selectedTop !== null && lastScrolledSearchRef.current !== searchKey) {
+    const searchKey = `${phrase}:${pageNumber}:${selectedOrdinal}`;
+    if (selected && lastScrolledSearchRef.current !== searchKey) {
       lastScrolledSearchRef.current = searchKey;
       const scrollRoot = host.closest('[data-pdf-scroll-container]');
       if (scrollRoot) {
-        const scrollRect = scrollRoot.getBoundingClientRect();
-        scrollRoot.scrollTop += selectedTop - scrollRect.top -
+        const rect = selected.getBoundingClientRect();
+        const view = scrollRoot.getBoundingClientRect();
+        scrollRoot.scrollTop += rect.top - view.top -
           Math.min(160, scrollRoot.clientHeight * 0.28);
       }
     }
-  }, [isNearViewport, textLayerVersion, renderedTextWidth, pageWidth, searchHighlight?.query, searchHighlight?.ordinal, pageNumber]);
+  }, [
+    isNearViewport, textLayerVersion, renderedTextWidth, pageWidth,
+    searchHighlight?.query, searchHighlight?.ordinal, pageNumber,
+  ]);
 
   // Filter items specific to this page
   const pageSignatures = signatures.filter((s) => s.pageNumber === pageNumber);
@@ -331,19 +279,6 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         } as React.CSSProperties}
         aria-hidden="false"
       />
-
-      {/* Selected PDF search hit. Pointer events remain on the original text layer. */}
-      {searchRectangles.length > 0 && (
-        <div className="absolute inset-0 z-[6] pointer-events-none overflow-hidden" aria-hidden="true">
-          {searchRectangles.map((rect, index) => (
-            <div
-              key={index}
-              className={rect.active ? 'absolute bg-orange-400/55 ring-1 ring-orange-600/70 rounded-[2px]' : 'absolute bg-yellow-300/45 rounded-[2px]'}
-              style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
-            />
-          ))}
-        </div>
-      )}
 
       {/* Internal & External Link Annotations Layer */}
       {links.length > 0 && (

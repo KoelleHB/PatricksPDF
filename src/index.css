@@ -116,3 +116,23 @@ html, body, #root {
   top: 0;
 }
 
+
+
+/* Search matches are descendants of the actual PDF.js text spans. They must
+   NOT inherit .textLayer span { position:absolute }, otherwise Android's
+   selection/font metrics and the highlight would be offset again. */
+.textLayer span.pdf-inline-search-match {
+  position: static !important;
+  display: inline !important;
+  background: rgba(250, 204, 21, 0.42) !important;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border-radius: 2px;
+  padding: 0 !important;
+  margin: 0 !important;
+  pointer-events: auto;
+}
+.textLayer span.pdf-inline-search-selected {
+  background: rgba(251, 146, 60, 0.52) !important;
+  box-shadow: inset 0 0 0 1px rgba(234, 88, 12, 0.75);
+}
