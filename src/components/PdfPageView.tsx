@@ -96,8 +96,11 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry.isIntersecting) {
-          setIsNearViewport(true);
+        // Unmount offscreen canvases and text layers to release GPU/DOM memory.
+        setIsNearViewport(entry.isIntersecting);
+        if (!entry.isIntersecting) {
+          setIsRendered(false);
+          setIsLoading(false);
         }
       },
       {
@@ -163,7 +166,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     return () => {
       isCancelled = true;
       clearTimeout(timer);
-      if (canvas && !isRendered) {
+      if (canvas) {
         cancelCanvasRender(canvas);
       }
     };
@@ -206,6 +209,9 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           : 'border-slate-300 shadow-sm'
       }`}
     >
+      {/* Keep a correctly sized shell for every page, but mount heavy content only nearby. */}
+      {isNearViewport ? (
+        <>
       {/* Loading placeholder spinner ONLY on initial render before page is first painted */}
       {!isRendered && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 text-slate-400 gap-2 z-5">
@@ -336,6 +342,10 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           />
         ))}
       </div>
+        </>
+      ) : (
+        <div className="absolute inset-0 bg-white" aria-hidden="true" />
+      )}
     </div>
   );
 });

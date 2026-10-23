@@ -24,10 +24,12 @@ import {
   FormFieldItem,
   FormValuesState,
   PdfOutlineItem,
+  PageInfo,
 } from '../types';
 import {
   extractPageReflowText,
   extractDocumentOutline,
+  getPageInfoList,
   ReflowPageData,
 } from '../utils/pdfEngine';
 import { PdfPageView } from './PdfPageView';
@@ -112,6 +114,19 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     width: pdfState.pageWidth || 595,
     height: pdfState.pageHeight || 842,
   });
+  const [pageInfos, setPageInfos] = useState<PageInfo[]>([]);
+
+  // Every page has its own dimensions and rotation. Load metadata independently
+  // from canvas rendering so mixed A4/landscape documents lay out correctly.
+  useEffect(() => {
+    let cancelled = false;
+    setPageInfos([]);
+    if (!pdfState.arrayBuffer) return;
+    getPageInfoList(pdfState.arrayBuffer).then((infos) => {
+      if (!cancelled) setPageInfos(infos);
+    }).catch((err) => console.warn('Page metadata unavailable:', err));
+    return () => { cancelled = true; };
+  }, [pdfState.arrayBuffer]);
 
   // Calculate fit-width zoom percentage based on current container or window width
   const calculateFitWidthZoom = useCallback(
@@ -1553,7 +1568,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             onDoubleClick={handlePageDoubleClick}
             className="w-fit min-w-full min-h-full flex flex-col items-center justify-start p-4 sm:p-8 pb-32 space-y-6"
           >
-            {Array.from({ length: pdfState.numPages }, (_, i) => i + 1).map((pageNum) => (
+            {Array.from({ length: pdfState.numPages }, (_, i) => i + 1).map((pageNum) => {
+              const pageInfo = pageInfos[pageNum - 1];
+              const pageScale = zoomLevel / 100;
+              const thisPageWidth = Math.round((pageInfo?.width || renderedDimensions.width) * pageScale);
+              const thisPageHeight = Math.round((pageInfo?.height || renderedDimensions.height) * pageScale);
+              return (
               <div
                 key={pageNum}
                 ref={(el) => {
@@ -1566,8 +1586,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   pageNumber={pageNum}
                   arrayBuffer={pdfState.arrayBuffer!}
                   zoomLevel={zoomLevel}
-                  pageWidth={pageWidth}
-                  pageHeight={pageHeight}
+                  pageWidth={thisPageWidth}
+                  pageHeight={thisPageHeight}
                   signatures={signatures}
                   selectedSignatureId={selectedSignatureId}
                   textOverlays={textOverlays}
@@ -1595,7 +1615,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   Page {pageNum} of {pdfState.numPages}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
