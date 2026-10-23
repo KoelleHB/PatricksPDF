@@ -252,7 +252,7 @@ export async function renderPdfTextLayer(
 
     // CSS variables live on the host and are inherited by the builder's div.
     // The viewport (not devicePixelRatio) defines the CSS display dimensions.
-    host.style.setProperty('--scale-factor', String(viewport.scale));
+    host.style.setProperty('--total-scale-factor', String(viewport.scale));
     host.style.setProperty('--scale-round-x', '1px');
     host.style.setProperty('--scale-round-y', '1px');
 
@@ -264,7 +264,7 @@ export async function renderPdfTextLayer(
       },
     } as any);
     session.builder = builder;
-    await builder.render(viewport);
+    await builder.render({ viewport });
     if (!isCurrent()) return null;
 
     return builder;

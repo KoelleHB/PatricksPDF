@@ -12,7 +12,7 @@ export default defineConfig(() => {
         name: 'local-pdfjs-resources',
         buildStart() {
           // One dependency version supplies CMaps and standard fonts for both PWA and APK.
-          for (const dir of ['cmaps', 'standard_fonts']) {
+          for (const dir of ['cmaps', 'standard_fonts', 'wasm', 'iccs']) {
             const source = path.resolve(__dirname, 'node_modules/pdfjs-dist', dir);
             const target = path.resolve(__dirname, 'public/pdfjs', dir);
             if (!fs.existsSync(source)) throw new Error(`PDF.js resources missing: ${source}`);

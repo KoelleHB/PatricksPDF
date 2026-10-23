@@ -21,118 +21,58 @@ html, body, #root {
   font-family: 'Caveat', cursive, sans-serif;
 }
 
-/* PDF.js Selectable Text Layer Styling (High-Precision Selection & Copying) */
+/* PDF.js v6.4 text-layer CSS, adapted from Mozilla's text_layer_builder.css.
+   Keep font metric compensation and coordinate variables in sync with PDF.js. */
 .textLayer {
-  position: absolute;
-  text-align: initial;
-  inset: 0;
-  overflow: clip;
-  opacity: 1;
-  line-height: 1;
-  -webkit-text-size-adjust: none;
-  -moz-text-size-adjust: none;
-  text-size-adjust: none;
-  forced-color-adjust: none;
-  transform-origin: 0 0;
-  caret-color: #2563eb;
-  z-index: 5;
-  user-select: text !important;
-  -webkit-user-select: text !important;
-  -webkit-touch-callout: default !important;
-  /* Let Android WebView handle native long-press selection and handles. */
-  touch-action: auto;
-  pointer-events: auto;
+  color-scheme: only light;
+  position: absolute; text-align: initial; inset: 0; overflow: clip;
+  opacity: 1; line-height: 1; letter-spacing: normal; word-spacing: normal;
+  text-size-adjust: none; -webkit-text-size-adjust: none;
+  forced-color-adjust: none; transform-origin: 0 0;
+  caret-color: #2563eb; z-index: 5;
+  user-select: text; -webkit-user-select: text;
+  -webkit-touch-callout: default; touch-action: auto; pointer-events: auto;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
 }
-
 .textLayer :is(span, br) {
-  color: transparent !important;
-  position: absolute;
-  white-space: pre;
-  cursor: text;
-  transform-origin: 0% 0%;
-  user-select: text !important;
-  -webkit-user-select: text !important;
-  -webkit-touch-callout: default !important;
-  pointer-events: auto;
+  color: transparent; position: absolute; white-space: pre; cursor: text;
+  transform-origin: 0% 0%; user-select: text; -webkit-user-select: text;
 }
-
-/* PDF.js 4.10 uses unrotated raw page dimensions on the text layer and
-   expects this exact companion transform for rotated pages. */
-.textLayer[data-main-rotation="90"] {
-  transform: rotate(90deg) translateY(-100%);
-}
-.textLayer[data-main-rotation="180"] {
-  transform: rotate(180deg) translate(-100%, -100%);
-}
-.textLayer[data-main-rotation="270"] {
-  transform: rotate(270deg) translateX(-100%);
-}
-
 .textLayer > :not(.markedContent),
 .textLayer .markedContent span:not(.markedContent) {
-  z-index: 1;
+  z-index: 1; --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1; --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
 }
-
-.textLayer span.markedContent {
-  top: 0;
-  height: 0;
-}
-
-.textLayer span[role="img"] {
-  -webkit-user-select: none;
-  user-select: none;
-  cursor: default;
-}
-
-.textLayer ::selection {
-  background: rgba(37, 99, 235, 0.32) !important;
-  color: transparent !important;
-}
-
-.textLayer ::-moz-selection {
-  background: rgba(37, 99, 235, 0.32) !important;
-  color: transparent !important;
-}
-
-.textLayer br::selection {
-  background: transparent !important;
-}
-
-.textLayer br::-moz-selection {
-  background: transparent !important;
-}
-
+.textLayer .markedContent { display: contents; }
+.textLayer span[role="img"] { user-select: none; cursor: default; }
+.textLayer[data-main-rotation="90"] { transform: rotate(90deg) translateY(-100%); }
+.textLayer[data-main-rotation="180"] { transform: rotate(180deg) translate(-100%, -100%); }
+.textLayer[data-main-rotation="270"] { transform: rotate(270deg) translateX(-100%); }
+.textLayer ::selection { background: rgba(37, 99, 235, 0.32); color: transparent; }
+.textLayer br::selection { background: transparent; }
 .textLayer .endOfContent {
-  display: block;
-  position: absolute;
-  inset: 100% 0 0;
-  z-index: 0;
-  cursor: default;
-  -webkit-user-select: none;
-  user-select: none;
+  display: block; position: absolute; inset: 100% 0 0;
+  z-index: 0; cursor: default; user-select: none;
 }
-
-.textLayer.selecting .endOfContent {
-  top: 0;
-}
-
-
-
-/* Search matches are descendants of the actual PDF.js text spans. They must
-   NOT inherit .textLayer span { position:absolute }, otherwise Android's
-   selection/font metrics and the highlight would be offset again. */
+.textLayer.selecting .endOfContent { top: 0; }
 .textLayer span.pdf-inline-search-match {
-  position: static !important;
-  display: inline !important;
-  background: rgba(250, 204, 21, 0.42) !important;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-  border-radius: 2px;
-  padding: 0 !important;
-  margin: 0 !important;
+  position: static !important; display: inline !important;
+  font-size: inherit !important; transform: none !important;
+  color: transparent !important; background: rgba(250, 204, 21, 0.42) !important;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+  border-radius: 2px; padding: 0 !important; margin: 0 !important;
   pointer-events: auto;
 }
 .textLayer span.pdf-inline-search-selected {
   background: rgba(251, 146, 60, 0.52) !important;
   box-shadow: inset 0 0 0 1px rgba(234, 88, 12, 0.75);
+}
+/* Opt-in only: diagnostic outlines do not expose or transmit PDF data. */
+.pdf-text-diagnostics .textLayer > span:not(.markedContent) {
+  outline: 1px solid rgba(0, 190, 210, 0.6);
+  background: rgba(0, 180, 255, 0.07);
 }
