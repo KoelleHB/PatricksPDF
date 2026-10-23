@@ -5,7 +5,6 @@ import { PdfViewer } from './components/PdfViewer';
 import { SignatureModal } from './components/SignatureModal';
 import { AddTextModal } from './components/AddTextModal';
 import { SaveModal } from './components/SaveModal';
-import { GeneralSetupGuideModal } from './components/GeneralSetupGuideModal';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { PageManagementModal } from './components/PageManagementModal';
 import { MobileBottomBar } from './components/MobileBottomBar';
@@ -133,7 +132,6 @@ export default function App() {
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  const [isSetupGuideModalOpen, setIsSetupGuideModalOpen] = useState(false);
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
   const [isReaderMode, setIsReaderMode] = useState(false);
 
@@ -869,7 +867,6 @@ export default function App() {
           hasUnsavedChanges={hasUnsavedChanges}
           hasPageModifications={hasPageModifications}
           recentCount={recentDocs.length}
-          onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
           onOpenSave={() => setIsSaveModalOpen(true)}
           onOpenPageManager={() => setIsPageManagerOpen(true)}
           onOpenRecent={() => setIsRecentModalOpen(true)}
@@ -1067,11 +1064,6 @@ export default function App() {
         onSelectDoc={handleSelectRecentDoc}
         onRemoveDoc={handleRemoveRecentDoc}
         onClearAll={handleClearAllRecentDocs}
-      />
-
-      <GeneralSetupGuideModal
-        isOpen={isSetupGuideModalOpen}
-        onClose={() => setIsSetupGuideModalOpen(false)}
       />
 
       {/* Page Management Modal: Add, Delete, Reorder, and Rotate */}

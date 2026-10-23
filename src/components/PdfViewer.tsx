@@ -30,6 +30,7 @@ import {
   extractPageReflowText,
   extractDocumentOutline,
   getPageInfoList,
+  loadPdfJsDoc,
   ReflowPageData,
 } from '../utils/pdfEngine';
 import { PdfPageView } from './PdfPageView';
@@ -115,6 +116,30 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     height: pdfState.pageHeight || 842,
   });
   const [pageInfos, setPageInfos] = useState<PageInfo[]>([]);
+  const [focusedPageSize, setFocusedPageSize] = useState<{
+    document: ArrayBuffer; pageNumber: number; width: number;
+  } | null>(null);
+
+  // Resolve the focused page directly: do not wait for metadata for hundreds
+  // of other pages before fitting an individual landscape/portrait page.
+  useEffect(() => {
+    const data = pdfState.arrayBuffer;
+    if (!data) return;
+    let cancelled = false;
+    loadPdfJsDoc(data)
+      .then((doc) => doc.getPage(pdfState.currentPage))
+      .then((page) => {
+        if (!cancelled) {
+          setFocusedPageSize({
+            document: data,
+            pageNumber: pdfState.currentPage,
+            width: page.getViewport({ scale: 1 }).width,
+          });
+        }
+      })
+      .catch((err) => console.warn('Could not determine focused page width:', err));
+    return () => { cancelled = true; };
+  }, [pdfState.arrayBuffer, pdfState.currentPage]);
 
   // Every page has its own dimensions and rotation. Load metadata independently
   // from canvas rendering so mixed A4/landscape documents lay out correctly.
@@ -130,7 +155,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   // Calculate fit-width zoom percentage based on current container or window width
   const calculateFitWidthZoom = useCallback(
-    (customWidth?: number) => {
+    (pageNumber: number = pdfState.currentPage, customWidth?: number) => {
       const container = containerRef.current;
       const clientWidth =
         customWidth || (container && container.clientWidth > 0 ? container.clientWidth : window.innerWidth);
@@ -138,7 +163,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       // Account for container padding (p-4 = 32px on mobile, p-8 = 64px on desktop) + comfortable breathing room
       const horizontalMargin = isMobile ? 32 : 72;
       const availableWidth = clientWidth - horizontalMargin;
-      const baseWidth = pdfState.pageWidth || renderedDimensions.width || 595;
+      const pageWidth = pageInfos[pageNumber - 1]?.width;
+      const focusedWidth = focusedPageSize?.document === pdfState.arrayBuffer &&
+        focusedPageSize.pageNumber === pageNumber ? focusedPageSize.width : undefined;
+      const baseWidth = pageWidth || focusedWidth || pdfState.pageWidth || renderedDimensions.width || 595;
 
       if (availableWidth > 0 && baseWidth > 0) {
         const calculated = Math.round((availableWidth / baseWidth) * 100);
@@ -146,7 +174,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       }
       return 100;
     },
-    [pdfState.pageWidth, renderedDimensions.width]
+    [pdfState.currentPage, pdfState.arrayBuffer, pdfState.pageWidth, pageInfos, focusedPageSize, renderedDimensions.width]
   );
 
   // Always open in "fit width" mode by default
@@ -290,6 +318,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       return () => clearTimeout(timer);
     }
   }, [pdfState.name, pdfState.arrayBuffer, pdfState.pageWidth, pdfState.pageHeight, calculateFitWidthZoom]);
+
+  // When the reading focus moves to a page of different width, recompute
+  // automatically, preserving the reading line rather than jumping to page 1.
+  useEffect(() => {
+    if (!isFitWidthMode || isReflowMode) return;
+    const fitZoom = calculateFitWidthZoom(pdfState.currentPage);
+    if (fitZoom === zoomLevelRef.current) return;
+    const container = containerRef.current;
+    if (container) {
+      const readingY = Math.min(220, container.clientHeight * 0.35);
+      pendingZoomAnchorRef.current = captureZoomAnchor(container.clientWidth / 2, readingY);
+    }
+    setZoomLevel(fitZoom);
+  }, [isFitWidthMode, isReflowMode, pdfState.currentPage, calculateFitWidthZoom, captureZoomAnchor]);
 
   // Keep view fitted to width on screen resize or mobile rotation if fit-width mode is active
   useEffect(() => {
@@ -472,29 +514,32 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
+    const visiblePages = new Map<number, Element>();
     const observer = new IntersectionObserver(
       (entries) => {
+        for (const entry of entries) {
+          const page = Number(entry.target.getAttribute('data-page-number'));
+          if (entry.isIntersecting) visiblePages.set(page, entry.target);
+          else visiblePages.delete(page);
+        }
         if (isScrollingProgrammaticallyRef.current || pinchRef.current?.active) return;
 
         let candidatePage = 0;
         let bestScore = -Infinity;
+        const rootRect = container.getBoundingClientRect();
+        const readingLine = rootRect.top + Math.min(220, rootRect.height * 0.35);
 
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const pNum = Number(entry.target.getAttribute('data-page-number'));
-          if (!pNum) continue;
-
-          const rect = entry.boundingClientRect;
-          const rootRect = entry.rootBounds || container.getBoundingClientRect();
-
-          // Check if page covers the primary reading line (top 15% - 40% of viewport)
-          const readingLine = rootRect.top + Math.min(220, rootRect.height * 0.35);
-          const containsReadingLine = rect.top <= readingLine && rect.bottom >= readingLine;
-
-          const score = (containsReadingLine ? 10 : 0) + entry.intersectionRatio;
+        // IntersectionObserver only reports *changed* entries. Keep the small
+        // visible set so a stale threshold event cannot steal reading focus.
+        for (const [page, element] of visiblePages) {
+          const rect = element.getBoundingClientRect();
+          const intersection = Math.max(0, Math.min(rect.bottom, rootRect.bottom) - Math.max(rect.top, rootRect.top));
+          if (intersection <= 0) continue;
+          const coversLine = rect.top <= readingLine && rect.bottom >= readingLine;
+          const score = (coversLine ? 100 : 0) + intersection / Math.max(1, rect.height);
           if (score > bestScore) {
             bestScore = score;
-            candidatePage = pNum;
+            candidatePage = page;
           }
         }
 
