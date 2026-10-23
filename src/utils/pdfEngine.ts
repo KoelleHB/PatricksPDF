@@ -33,7 +33,7 @@ export interface RenderPageResult {
 
 // Kept as compatibility exports for consumers of the original PDF engine.
 export { loadPdfJsDoc, cancelCanvasRender, disposePdfJsResources } from './pdfDocumentLifecycle';
-import { installPdfTextSelection } from './pdfTextSelection';
+import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -189,38 +189,40 @@ export async function renderPdfPageToCanvas(
  * invisible selectable text and mismatched search rectangles.
  */
 interface TextLayerSession {
-  token: symbol;
-  layer: { cancel(): void } | null;
-  detachSelection: (() => void) | null;
+  builder: { cancel(): void } | null;
 }
 
 const textLayerSessions = new WeakMap<HTMLDivElement, TextLayerSession>();
 
-export function cancelPdfTextLayer(container: HTMLDivElement): void {
-  const previous = textLayerSessions.get(container);
-  if (previous) {
-    textLayerSessions.delete(container);
-    previous.detachSelection?.();
-    try { previous.layer?.cancel(); } catch { /* rendering already settled */ }
+export function cancelPdfTextLayer(host: HTMLDivElement): void {
+  const session = textLayerSessions.get(host);
+  if (session) {
+    textLayerSessions.delete(host);
+    try { session.builder?.cancel(); } catch { /* already settled */ }
   }
-  container.replaceChildren();
+  host.replaceChildren();
 }
 
+/**
+ * Use Mozilla's complete TextLayerBuilder rather than instantiating the
+ * lower-level TextLayer directly. It contains Chromium/Android selection
+ * fixes and streams the PDF text with marked content and original Unicode.
+ *
+ * The React host is a plain positioned wrapper; the official .textLayer
+ * is owned by the builder and placed into it only after rendering finishes.
+ */
 export async function renderPdfTextLayer(
   data: ArrayBuffer,
   pageNumber: number,
-  container: HTMLDivElement,
-  targetWidth: number
-): Promise<any> {
-  if (!container || !data) return null;
+  host: HTMLDivElement,
+  targetWidth: number,
+): Promise<TextLayerBuilder | null> {
+  if (!host || !data) return null;
 
-  // Invalidate all older tasks BEFORE waiting for PDF.js document/page data.
-  cancelPdfTextLayer(container);
-  const session: TextLayerSession = {
-    token: Symbol('pdf-text-layer'), layer: null, detachSelection: null,
-  };
-  textLayerSessions.set(container, session);
-  const isCurrent = () => textLayerSessions.get(container) === session;
+  cancelPdfTextLayer(host);
+  const session: TextLayerSession = { builder: null };
+  textLayerSessions.set(host, session);
+  const isCurrent = () => textLayerSessions.get(host) === session;
 
   try {
     const pdfDoc = await loadPdfJsDoc(data);
@@ -229,36 +231,29 @@ export async function renderPdfTextLayer(
     if (!isCurrent()) return null;
 
     const baseViewport = page.getViewport({ scale: 1 });
-    // Use the page's exact dimensions, not the first page's width.
-    const scale = targetWidth / baseViewport.width;
-    const viewport = page.getViewport({ scale });
-    const textContent = await page.getTextContent();
-    if (!isCurrent()) return null;
+    const viewport = page.getViewport({ scale: targetWidth / baseViewport.width });
 
-    // PDF.js TextLayer must own its dimensions. For rotated pages
-    // setLayerDimensions uses raw (unrotated) page geometry, and the
-    // matching CSS data-main-rotation transform rotates the layer.
-    container.style.setProperty('--scale-factor', String(viewport.scale));
-    container.style.setProperty('--scale-round-x', '1px');
-    container.style.setProperty('--scale-round-y', '1px');
+    // CSS variables live on the host and are inherited by the builder's div.
+    // The viewport (not devicePixelRatio) defines the CSS display dimensions.
+    host.style.setProperty('--scale-factor', String(viewport.scale));
+    host.style.setProperty('--scale-round-x', '1px');
+    host.style.setProperty('--scale-round-y', '1px');
 
-    const TextLayerClass = (pdfjsLib as any).TextLayer;
-    if (!TextLayerClass) return null;
-
-    const layer = new TextLayerClass({
-      textContentSource: textContent,
-      container,
-      viewport,
+    const builder = new TextLayerBuilder({
+      pdfPage: page,
+      onAppend: (layer: HTMLDivElement) => {
+        if (isCurrent()) host.append(layer);
+      },
     });
-    session.layer = layer;
-    await layer.render();
+    session.builder = builder;
+    await builder.render(viewport);
     if (!isCurrent()) return null;
-    session.detachSelection = installPdfTextSelection(container);
-    return layer;
+
+    return builder;
   } catch (err: any) {
     if (isCurrent() && err?.name !== 'AbortException' &&
         err?.name !== 'RenderingCancelledException') {
-      console.warn(`[TextLayer] Render warning for page ${pageNumber}:`, err);
+      console.warn(`[TextLayer] Unable to render page ${pageNumber}:`, err);
     }
     return null;
   }

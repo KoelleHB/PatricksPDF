@@ -324,12 +324,10 @@ export const PdfPageView = memo<PdfPageViewProps>(({
       {/* Selectable & Markable Text Layer for text copying, marking, and selection */}
       <div
         ref={textLayerRef}
-        className="textLayer select-text"
+        className="pdf-text-layer-host absolute inset-0 select-text"
         style={{
           width: `${pageWidth}px`,
           height: `${pageHeight}px`,
-          // PDF.js sets this to the precise viewport.scale used for this page.
-          // Do not overwrite it with a rounded/global zoom value.
         } as React.CSSProperties}
         aria-hidden="false"
       />

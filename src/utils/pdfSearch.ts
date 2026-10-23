@@ -45,7 +45,7 @@ export async function searchPdfDocument(
     if (cancelled()) break;
     try {
       const page = await doc.getPage(pageNumber);
-      const content = await page.getTextContent();
+      const content = await page.getTextContent({ disableNormalization: true } as any);
       if (cancelled()) break;
       // Text runs sometimes end inside a word; join rather than inserting
       // artificial spaces. Real line breaks are respected via hasEOL.

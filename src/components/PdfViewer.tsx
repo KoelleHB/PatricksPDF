@@ -703,6 +703,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             !target.closest('[data-signature-overlay]') &&
             !target.closest('[data-text-overlay]') &&
             !target.closest('[data-form-field]') &&
+            // Double-tap belongs to native word selection on PDF text.
+            // Intercepting it for zoom was causing selection to jump.
+            !target.closest('.textLayer') &&
             !target.closest('button') &&
             !target.closest('textarea') &&
             !target.closest('input') &&
