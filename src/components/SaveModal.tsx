@@ -21,6 +21,7 @@ export interface SaveModalProps {
   textOverlays?: TextOverlayItem[];
   formValues?: FormValuesState;
   hasFormFields?: boolean;
+  isFormModified?: boolean;
   hasPageModifications?: boolean;
   onClose: () => void;
   onSaveSuccess?: () => void;
@@ -34,6 +35,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   textOverlays = [],
   formValues = {},
   hasFormFields = false,
+  isFormModified = false,
   hasPageModifications = false,
   onClose,
   onSaveSuccess,
@@ -57,9 +59,14 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     onExportSuccess?.();
   };
 
+  // Release superseded previews and free the browser's retained PDF Blob URLs.
+  useEffect(() => () => {
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+  }, [pdfUrl]);
+
   useEffect(() => {
+    let cancelled = false;
     if (!isOpen) {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
       setPdfBlob(null);
       setPdfUrl(null);
       setErrorMessage(null);
@@ -72,6 +79,8 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     setFileName(`${baseName}-completed.pdf`);
     setErrorMessage(null);
     setSaveSuccessMsg(null);
+    setPdfBlob(null);
+    setPdfUrl(null);
 
     const generatePdf = async () => {
       if (!pdfState?.arrayBuffer) {
@@ -82,14 +91,16 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       setErrorMessage(null);
 
       try {
-        const modifiedBytes = await embedSignaturesIntoPdf(
-          pdfState.arrayBuffer,
-          signatures,
-          textOverlays,
-          formValues,
-          { flattenForm }
-        );
+        // Structural page edits are already reflected in pdfState.arrayBuffer.
+        // When no overlay/form changes are pending, re-use those exact bytes rather
+        // than parsing and serializing a potentially huge PDF all over again.
+        const unchangedContents = signatures.length === 0 &&
+          textOverlays.length === 0 && !isFormModified && !flattenForm;
+        const modifiedBytes = unchangedContents
+          ? new Uint8Array(pdfState.arrayBuffer)
+          : await embedSignaturesIntoPdf(pdfState.arrayBuffer, signatures, textOverlays, formValues, { flattenForm });
 
+        if (cancelled) return;
         const blob = new Blob([modifiedBytes], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
 
@@ -100,14 +111,15 @@ export const SaveModal: React.FC<SaveModalProps> = ({
         setFileSizeStr(sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`);
       } catch (err: any) {
         console.error('Failed to generate PDF:', err);
-        setErrorMessage(err?.message || 'Failed to embed signatures/text into PDF document.');
+        if (!cancelled) setErrorMessage(err?.message || 'Failed to embed signatures/text into PDF document.');
       } finally {
-        setIsGenerating(false);
+        if (!cancelled) setIsGenerating(false);
       }
     };
 
-    generatePdf();
-  }, [isOpen, pdfState?.arrayBuffer, signatures, textOverlays, formValues, flattenForm, pdfState?.name]);
+    void generatePdf();
+    return () => { cancelled = true; };
+  }, [isOpen, pdfState?.arrayBuffer, signatures, textOverlays, formValues, isFormModified, flattenForm, pdfState?.name]);
 
   // Early return ONLY after all hooks are evaluated
   if (!isOpen) return null;

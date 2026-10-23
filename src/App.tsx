@@ -709,6 +709,12 @@ export default function App() {
   const generateCurrentCompositePdf = async (): Promise<Uint8Array | null> => {
     if (!pdfState || !pdfState.arrayBuffer) return null;
     try {
+      // Directly transfer the final document when it contains no pending
+      // signatures, text, or form fields. Avoid a costly full re-serialization.
+      if (signatures.length === 0 && textOverlays.length === 0 &&
+          !isFormModified && formFields.length === 0) {
+        return new Uint8Array(pdfState.arrayBuffer);
+      }
       return await embedSignaturesIntoPdf(
         pdfState.arrayBuffer,
         signatures,
@@ -1040,6 +1046,7 @@ export default function App() {
           textOverlays={textOverlays}
           formValues={formValues}
           hasFormFields={formFields.length > 0}
+          isFormModified={isFormModified}
           hasPageModifications={hasPageModifications}
           onClose={() => setIsSaveModalOpen(false)}
           onSaveSuccess={() => {

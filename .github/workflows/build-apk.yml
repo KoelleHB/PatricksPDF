@@ -3,6 +3,8 @@ name: Build Android APK
 on:
   push:
     branches: [main, master, feature/native-binary-resource-refactor]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
