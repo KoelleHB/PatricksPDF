@@ -45,6 +45,9 @@ jobs:
       - name: TypeScript check
         run: npm run lint
 
+      - name: Run unit regression tests
+        run: npm test
+
       - name: Build Web App
         run: npm run build
 

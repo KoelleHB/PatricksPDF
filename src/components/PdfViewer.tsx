@@ -38,6 +38,7 @@ import { PdfPageView } from './PdfPageView';
 import { TableOfContentsDrawer } from './TableOfContentsDrawer';
 import { TextSelectionToolbar } from './TextSelectionToolbar';
 import { PdfSearchPanel } from './PdfSearchPanel';
+import { computeFitWidthZoom } from '../utils/pdfZoom';
 import type { PdfSearchHit } from '../utils/pdfSearch';
 
 interface PdfViewerProps {
@@ -171,11 +172,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         focusedPageSize.pageNumber === pageNumber ? focusedPageSize.width : undefined;
       const baseWidth = pageWidth || focusedWidth || pdfState.pageWidth || renderedDimensions.width || 595;
 
-      if (availableWidth > 0 && baseWidth > 0) {
-        const calculated = Math.round((availableWidth / baseWidth) * 100);
-        return Math.min(500, Math.max(35, calculated));
-      }
-      return 100;
+      return computeFitWidthZoom(availableWidth, baseWidth);
     },
     [pdfState.currentPage, pdfState.arrayBuffer, pdfState.pageWidth, pageInfos, focusedPageSize, renderedDimensions.width]
   );
@@ -196,6 +193,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     }
     return 100;
   });
+
+  // Reflow mode must be declared before search navigation callbacks.
+  const [isReflowMode, setIsReflowMode] = useState<boolean>(false);
 
   // Table of Contents state
   const [outline, setOutline] = useState<PdfOutlineItem[]>([]);
@@ -239,7 +239,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   }, [isSearchOpen, closeSearch]);
 
   // Reflow Text state and cache
-  const [isReflowMode, setIsReflowMode] = useState<boolean>(false);
   const [reflowData, setReflowData] = useState<ReflowPageData | null>(null);
   const [isLoadingReflow, setIsLoadingReflow] = useState<boolean>(false);
   const reflowCache = useRef<Map<number, ReflowPageData>>(new Map());
