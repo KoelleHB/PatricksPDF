@@ -91,9 +91,9 @@ export default function App() {
   }, [formValues]);
 
   // Overall check: has user modified anything that has not been saved yet?
-  const hasUnsavedChanges = Boolean(
-    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified || hasPageModifications) && !isSaved
-  );
+  // Do not infer safety from remaining overlays: edits such as removing an
+  // existing signature or resetting a field still require an explicit save.
+  const hasUnsavedChanges = Boolean(pdfState && !isSaved);
 
   // Browser beforeunload event listener (triggers browser's native leave confirmation)
   useEffect(() => {
@@ -718,7 +718,8 @@ export default function App() {
       );
     } catch (err) {
       console.error('Error generating composite PDF for print/share:', err);
-      return new Uint8Array(pdfState.arrayBuffer);
+      // Never share or print the original after edited output has failed.
+      throw err;
     }
   };
 
@@ -731,6 +732,8 @@ export default function App() {
       if (bytes) {
         await printPdfDocument(pdfState.name, bytes);
       }
+    } catch (err: any) {
+      setPdfErrorMessage(`Drucken fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`);
     } finally {
       setIsQuickProcessing(false);
     }
@@ -745,6 +748,8 @@ export default function App() {
       if (bytes) {
         await sharePdfDocument(pdfState.name, bytes);
       }
+    } catch (err: any) {
+      setPdfErrorMessage(`Teilen fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`);
     } finally {
       setIsQuickProcessing(false);
     }
@@ -1039,7 +1044,8 @@ export default function App() {
           onClose={() => setIsSaveModalOpen(false)}
           onSaveSuccess={() => {
             setIsSaved(true);
-            setHasPageModifications(false);
+            // Document still contains structural changes relative to its original.
+            // Saving an export does not replace the active editing buffer.
             getRecentDocuments().then(setRecentDocs).catch(() => {});
           }}
         />

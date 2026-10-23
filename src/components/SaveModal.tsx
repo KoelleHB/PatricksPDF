@@ -146,7 +146,6 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     try {
       const res = await sharePdfDocument(fileName || 'signed-document.pdf', pdfBlob);
       if (res.success) {
-        notifySuccess();
         onClose();
       }
     } catch (err) {
@@ -162,7 +161,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     try {
       const res = await printPdfDocument(fileName || 'signed-document.pdf', pdfBlob);
       if (res.success) {
-        notifySuccess();
+        // Printing does not persist the edited document.
       }
     } catch (err) {
       console.warn('Print error in modal:', err);
