@@ -31,11 +31,15 @@ test('public FRITZ!Box 5690 manual exposes original GoTo / URI annotations', asy
       const links = annotations.filter(a => a.subtype === 'Link');
       const withDest = links.filter(a=> Boolean(a.dest)).length;
       const withUrl = links.filter(a=> Boolean(a.url)).length;
-      const rawLinks=await extractRawPdfLinks(raw,pageNum);
+      let rawError: string | undefined;
+      const rawLinks=await extractRawPdfLinks(raw,pageNum).catch((error: Error) => {
+        rawError = error.message;
+        return [];
+      });
       console.log('PUBLIC_MANUAL_PAGE_RESULT', JSON.stringify({
         pageNum, annotations: annotations.length,subtypeCounts,
         pdfjsLinks:links.length,withDest,withUrl,
-        rawLinks:rawLinks.length,
+        rawLinks:rawLinks.length, rawError,
         rawInternal:rawLinks.filter(a=>Boolean(a.targetPage)).length,
         rawExternal:rawLinks.filter(a=>Boolean(a.url)).length
       }));
