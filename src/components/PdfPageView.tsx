@@ -292,6 +292,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           {links.map((link) => (
             <a
               key={link.id}
+              data-pdf-link-id={link.id}
               href={link.targetPage ? `#page=${link.targetPage}` : (link.url || '#')}
               onClick={(e) => {
                 e.preventDefault();

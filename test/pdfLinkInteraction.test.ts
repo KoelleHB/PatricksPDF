@@ -40,6 +40,8 @@ test('PDF link annotations are rendered as directly clickable anchors, as in mai
 
   assert.ok(anchors > 0, 'the PDF page must render real anchor elements');
   assert.equal(pointerEnabled, true, 'link anchors must be pointer-interactive');
+  assert.equal(source.includes('data-pdf-link-id={link.id}'), true,
+    'local diagnostics must be able to count real PDF link targets');
   assert.equal(clickHandler, true, 'link anchors need a direct click handler');
   assert.equal(internalJump, true, 'internal PDF destinations must be navigable');
   assert.equal(externalOpening, true, 'external HTTPS links must open via the native-safe bridge');
