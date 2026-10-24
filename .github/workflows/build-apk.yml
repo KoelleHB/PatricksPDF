@@ -48,24 +48,14 @@ jobs:
       - name: Run unit regression tests
         run: npm test
 
-      # Validation only; fixture is public, retrieved transiently,
-      # and deleted when the GitHub runner is discarded.
-      - name: Verify public FRITZ!Box manual links (PDF.js and raw PDF)
+      # Synthetic, passwordless-openable AES-128 PDF fixture committed in
+      # test/fixtures. No public network fixture or user PDF is required.
+      - name: Browser smoke-test encrypted PDF links
         run: |
-          curl --fail --location --retry 3 --silent --show-error \
-            'https://gzhls.at/blob/ldb/4/8/9/a/c64fb80cfa9dad3267f3619a3e1fa0bdfa50.pdf' \
-            --output "$RUNNER_TEMP/fritz-manual.pdf"
-          test "$(stat -c%s "$RUNNER_TEMP/fritz-manual.pdf")" -gt 1000000
-          PUBLIC_MANUAL_PATH="$RUNNER_TEMP/fritz-manual.pdf" \
-            node --import tsx --test test/publicFritzLinks.test.ts
-
-      - name: Browser smoke-test actual PDF link extraction
-        run: |
-          cp "$RUNNER_TEMP/fritz-manual.pdf" public/__public_fritz_manual_ci.pdf
           npm install --no-save --package-lock=false --ignore-scripts puppeteer-core@24.26.1
           npm run dev -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/vite.log" 2>&1 &
           VITE_PID=$!
-          trap 'kill "$VITE_PID" || true; rm -f public/__public_fritz_manual_ci.pdf' EXIT
+          trap 'kill "$VITE_PID" || true' EXIT
           sleep 4
           node test/browserLinkProbe.mjs
 

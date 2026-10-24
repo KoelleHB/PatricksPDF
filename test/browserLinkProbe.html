@@ -8,30 +8,30 @@ import {loadPdfJsDoc} from '/src/utils/pdfDocumentLifecycle.ts';
 import {extractPageLinks} from '/src/utils/pdfEngine.ts';
 const out=document.getElementById('pdf-link-probe');
 try {
-  const response=await fetch('/__public_fritz_manual_ci.pdf');
+  const response=await fetch('/test/fixtures/encrypted-pdf-links.pdf');
   if (!response.ok) throw new Error('Public manual download unavailable');
   const bytes=await response.arrayBuffer();
   const doc=await loadPdfJsDoc(bytes);
-  const raw2=await (await doc.getPage(2)).getAnnotations({intent:'display'});
-  const raw14=await (await doc.getPage(14)).getAnnotations({intent:'display'});
-  const result2=await extractPageLinks(bytes,2);
-  const result14=await extractPageLinks(bytes,14);
-  const raw2After=await (await doc.getPage(2)).getAnnotations({intent:'display'});
-  const raw14After=await (await doc.getPage(14)).getAnnotations({intent:'display'});
-  const dest=raw2.find(a=>a.dest)?.dest;
-  const ref=Array.isArray(dest)?dest[0]:null;
+  const annotations=await (await doc.getPage(1)).getAnnotations({intent:'display'});
+  const processed=await extractPageLinks(bytes,1);
+  const first=annotations.find(a=>a.dest)?.dest;
+  const ref=Array.isArray(first)?first[0]:null;
   const targetIdx=ref&&typeof ref==='object'?await doc.getPageIndex(ref):-1;
   const result={
-    raw2:raw2.filter(a=>a.subtype==='Link').length,
-    raw14:raw14.filter(a=>a.subtype==='Link').length,
-    result2:result2.length,
-    result14:result14.length,
+    pages:doc.numPages,
+    rawAnnotations:annotations.filter(a=>a.subtype==='Link').length,
+    processedLinks:processed.length,
+    rawDest:annotations.filter(a=>Boolean(a.dest)).length,
+    rawUrl:annotations.filter(a=>Boolean(a.url)).length,
     targetIdx,
-    raw2After:raw2After.filter(a=>a.subtype==='Link').length,
-    raw14After:raw14After.filter(a=>a.subtype==='Link').length,
-    result2FirstPage:result2[0]?.targetPage??null,
-    result14FirstUrl:result14[0]?.url?.startsWith('https://')??false,
+    hasInternal:processed.some(link=>link.targetPage===2),
+    hasExternal:processed.some(link=>link.url==='https://example.org/docs'),
   };
+  out.dataset.status=result.pages===2 &&
+    result.rawAnnotations===2 && result.processedLinks===2 &&
+    result.rawDest===1 && result.rawUrl===1 &&
+    result.targetIdx===1 && result.hasInternal && result.hasExternal
+      ? 'pass':'fail';
   out.textContent=JSON.stringify(result);
   out.dataset.status=
     result.raw2>=50 && result.raw14>=5 &&
