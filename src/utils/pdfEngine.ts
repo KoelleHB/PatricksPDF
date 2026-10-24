@@ -1379,6 +1379,13 @@ export async function extractPageLinks(
     const page = await doc.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1.0 });
     const annotations = await page.getAnnotations({ intent: 'display' });
+    console.info('PDF_LINK_STAGE', JSON.stringify({
+      pageNumber,
+      total: annotations?.length ?? -1,
+      linkSubtypes: annotations?.filter((a: any) => a.subtype === 'Link').length ?? -1,
+      withDest: annotations?.filter((a: any) => Boolean(a.dest)).length ?? -1,
+      withUrl: annotations?.filter((a: any) => Boolean(a.url)).length ?? -1,
+    }));
 
     if (!annotations || annotations.length === 0) {
       return await extractRawPdfLinks(data, pageNumber);
@@ -1482,6 +1489,7 @@ export async function extractPageLinks(
     }
 
     // Some PDF.js versions omit links in otherwise valid documents.
+    console.info('PDF_LINK_PARSED', JSON.stringify({pageNumber, links:links.length}));
     return links.length > 0 ? links : await extractRawPdfLinks(data, pageNumber);
   } catch (err) {
     console.warn(`PDF.js link extraction failed on page ${pageNumber}; trying raw annotations:`, err);

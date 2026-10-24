@@ -16,6 +16,8 @@ try {
   const raw14=await (await doc.getPage(14)).getAnnotations({intent:'display'});
   const result2=await extractPageLinks(bytes,2);
   const result14=await extractPageLinks(bytes,14);
+  const raw2After=await (await doc.getPage(2)).getAnnotations({intent:'display'});
+  const raw14After=await (await doc.getPage(14)).getAnnotations({intent:'display'});
   const dest=raw2.find(a=>a.dest)?.dest;
   const ref=Array.isArray(dest)?dest[0]:null;
   const targetIdx=ref&&typeof ref==='object'?await doc.getPageIndex(ref):-1;
@@ -25,6 +27,8 @@ try {
     result2:result2.length,
     result14:result14.length,
     targetIdx,
+    raw2After:raw2After.filter(a=>a.subtype==='Link').length,
+    raw14After:raw14After.filter(a=>a.subtype==='Link').length,
     result2FirstPage:result2[0]?.targetPage??null,
     result14FirstUrl:result14[0]?.url?.startsWith('https://')??false,
   };
