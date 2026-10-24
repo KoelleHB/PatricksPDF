@@ -38,6 +38,7 @@ import { PdfPageView } from './PdfPageView';
 import { TableOfContentsDrawer } from './TableOfContentsDrawer';
 import { TextSelectionToolbar } from './TextSelectionToolbar';
 import { PdfSearchPanel } from './PdfSearchPanel';
+import { isNativeAndroid } from '../utils/nativeBridge';
 import { computeFitWidthZoom } from '../utils/pdfZoom';
 import { pdfjsLib } from '../utils/pdfWorker';
 import type { PdfSearchHit } from '../utils/pdfSearch';
@@ -713,6 +714,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             // Double-tap belongs to native word selection on PDF text.
             // Intercepting it for zoom was causing selection to jump.
             !target.closest('.textLayer') &&
+            !target.closest('[data-pdf-link]') &&
             !target.closest('button') &&
             !target.closest('textarea') &&
             !target.closest('input') &&
@@ -1138,6 +1140,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       target.closest('[data-signature-overlay]') ||
       target.closest('[data-text-overlay]') ||
       target.closest('[data-form-field]') ||
+      target.closest('[data-pdf-link]') ||
+      target.closest('.textLayer') ||
       target.closest('button') ||
       target.closest('textarea') ||
       target.closest('input') ||
@@ -1809,7 +1813,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       />
 
       {/* Floating Toolbar for Selected/Marked Text */}
-      <TextSelectionToolbar />
+      {/* Android supplies a native selection/copy toolbar. Rendering a second
+          React toolbar on every selectionchange interferes with drag handles
+          and creates duplicate copy actions. Keep it for desktop only. */}
+      {!isNativeAndroid() && <TextSelectionToolbar />}
     </div>
   );
 };

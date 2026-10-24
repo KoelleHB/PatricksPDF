@@ -18,6 +18,7 @@ import {
 import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
 import { InteractiveFormField } from './InteractiveFormField';
+import { openPdfExternalLink } from '../utils/nativeBridge';
 
 interface PdfPageViewProps {
   pageNumber: number;
@@ -86,6 +87,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   const [isRendered, setIsRendered] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [links, setLinks] = useState<PdfLinkAnnotation[]>([]);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [textLayerVersion, setTextLayerVersion] = useState(0);
   const [renderedTextWidth, setRenderedTextWidth] = useState<number | null>(null);
   const lastScrolledSearchRef = useRef('');
@@ -153,11 +155,16 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     if (!isNearViewport || !arrayBuffer) return;
     let isCancelled = false;
 
-    extractPageLinks(arrayBuffer, pageNumber).then((extractedLinks) => {
-      if (!isCancelled) {
-        setLinks(extractedLinks);
-      }
-    });
+    extractPageLinks(arrayBuffer, pageNumber)
+      .then((extractedLinks) => {
+        if (!isCancelled) setLinks(extractedLinks);
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setLinks([]);
+          console.warn('Cannot read PDF annotations for page', pageNumber, error);
+        }
+      });
 
     return () => {
       isCancelled = true;
@@ -280,20 +287,45 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         aria-hidden="false"
       />
 
-      {/* Internal & External Link Annotations Layer */}
+      {/* Transparent clickable annotations sit ABOVE the selectable text.
+          Pointer/touch events must not bubble into the viewer's double-tap
+          zoom and native long-press text-selection handlers. */}
       {links.length > 0 && (
-        <div className="absolute inset-0 pointer-events-none overflow-visible z-10">
+        <div
+          className="absolute inset-0 z-[30] pointer-events-none"
+          aria-label="PDF-Verknüpfungen"
+        >
           {links.map((link) => (
             <a
               key={link.id}
-              href={link.url || '#'}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
+              data-pdf-link="true"
+              href={link.targetPage ? `#page=${link.targetPage}` : (link.url || '#')}
+              target={link.targetPage ? undefined : '_blank'}
+              rel={link.targetPage ? undefined : 'noopener noreferrer'}
+              onPointerDown={(event) => event.stopPropagation()}
+              onTouchStart={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                // Internal jumps always remain inside the same PDF editor.
                 if (link.targetPage) {
+                  event.preventDefault();
+                  event.stopPropagation();
                   onNavigateToPage(link.targetPage);
                 } else if (link.url) {
-                  window.open(link.url, '_blank', 'noopener,noreferrer');
+                  // A native Android WebView cannot reliably open a second
+                  // window with window.open; dispatch ACTION_VIEW instead.
+                  event.stopPropagation();
+                  if (window.NativePdfBridge) {
+                    event.preventDefault();
+                    try {
+                      openPdfExternalLink(link.url);
+                      setLinkError(null);
+                    } catch (error: any) {
+                      setLinkError(error?.message || 'Weblink konnte nicht geöffnet werden.');
+                    }
+                  }
+                  // On desktop, keep the anchor's native browser navigation.
+                } else {
+                  event.preventDefault();
                 }
               }}
               style={{
@@ -301,13 +333,21 @@ export const PdfPageView = memo<PdfPageViewProps>(({
                 top: `${link.yPercent}%`,
                 width: `${link.widthPercent}%`,
                 height: `${link.heightPercent}%`,
+                touchAction: 'manipulation',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
               }}
-              className="absolute pointer-events-auto cursor-pointer rounded-xs transition-colors bg-blue-500/0 hover:bg-blue-500/15 border border-transparent hover:border-blue-400/50"
+              className="absolute z-[1] pointer-events-auto cursor-pointer rounded-sm bg-transparent hover:bg-blue-500/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
               title={link.title}
-            >
-              <span className="sr-only">{link.title}</span>
-            </a>
+              aria-label={link.title}
+            />
           ))}
+        </div>
+      )}
+      {linkError && (
+        <div role="alert" className="absolute z-[40] top-2 left-2 right-2 bg-amber-50 border border-amber-300 rounded p-2 text-sm text-amber-900">
+          {linkError}
+          <button type="button" onClick={() => setLinkError(null)} className="ml-2 underline">Schließen</button>
         </div>
       )}
 

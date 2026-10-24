@@ -95,6 +95,40 @@ public class MainActivity extends BridgeActivity {
             return true;
         }
 
+        /**
+         * PDF hyperlinks open in the user's external browser. Android
+         * WebView's window.open() does not create a browser tab by default.
+         * Restrict URI schemes so an untrusted PDF cannot launch content:,
+         * file:, javascript:, intent: or app-private handlers.
+         */
+        @JavascriptInterface
+        public boolean openExternalUrl(final String value) {
+            try {
+                if (value == null) return false;
+                final Uri uri = Uri.parse(value);
+                final String scheme = uri.getScheme();
+                if (scheme == null ||
+                    !(scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("http")) ||
+                    uri.getHost() == null || uri.getHost().isEmpty()) {
+                    return false;
+                }
+                final Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                activity.runOnUiThread(() -> {
+                    try {
+                        activity.startActivity(intent);
+                    } catch (Exception error) {
+                        Log.e(TAG, "Failed to launch PDF web hyperlink", error);
+                        Toast.makeText(activity, "Weblink konnte nicht geöffnet werden", Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return true;
+            } catch (Exception error) {
+                Log.e(TAG, "Invalid PDF hyperlink", error);
+                return false;
+            }
+        }
+
         // File-backed transfer: each JS bridge message is at most 64 KiB of binary PDF.
         // Base64 is used only for individual bridge chunks, never for an entire document.
         private File transferFile;
