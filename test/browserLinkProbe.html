@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="de">
-<head><meta charset="utf-8"><title>Public PDF link integration smoke</title></head>
+<head><meta charset="utf-8"><title>Synthetic encrypted PDF link integration smoke</title></head>
 <body>
 <pre id="pdf-link-probe" data-status="running">RUNNING</pre>
 <script type="module">
@@ -9,7 +9,7 @@ import {extractPageLinks} from '/src/utils/pdfEngine.ts';
 const out=document.getElementById('pdf-link-probe');
 try {
   const response=await fetch('/test/fixtures/encrypted-pdf-links.pdf');
-  if (!response.ok) throw new Error('Public manual download unavailable');
+  if (!response.ok) throw new Error('Synthetic fixture unavailable');
   const bytes=await response.arrayBuffer();
   const doc=await loadPdfJsDoc(bytes);
   const annotations=await (await doc.getPage(1)).getAnnotations({intent:'display'});
@@ -33,9 +33,6 @@ try {
     result.targetIdx===1 && result.hasInternal && result.hasExternal
       ? 'pass':'fail';
   out.textContent=JSON.stringify(result);
-  out.dataset.status=
-    result.raw2>=50 && result.raw14>=5 &&
-    result.result2>=50 && result.result14>=5 ? 'pass':'fail';
 } catch(error) {
   out.dataset.status='error';
   out.textContent=String(error?.message??error);
