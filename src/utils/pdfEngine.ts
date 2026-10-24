@@ -1423,29 +1423,35 @@ export async function extractPageLinks(
         }
       }
 
-      // Check URLs: determine if it's an internal reference (e.g. #page=12, #12, file.pdf#page=12)
-      if (!targetPage && annot.url) {
-        const rawUrl = String(annot.url).trim();
-        const pageHashMatch = rawUrl.match(/(?:#|#page=|\.pdf#page=|\.pdf#)(\d+)$/i);
-        if (pageHashMatch) {
-          const p = parseInt(pageHashMatch[1], 10);
-          if (p >= 1 && p <= doc.numPages) {
-            targetPage = p;
-          }
-        } else if (rawUrl.startsWith('#')) {
-          targetPage = await resolveDestinationPage(doc, rawUrl.substring(1));
-        }
+      // Modern PDF.js exposes safe absolute links in .url and unresolved
+      // references in .unsafeUrl. Never treat a remote URL's #page=N as an
+      // internal jump in the currently opened PDF.
+      const rawUrl = typeof annot.url === 'string' ? annot.url.trim() : '';
+      const rawUnsafe = typeof annot.unsafeUrl === 'string' ? annot.unsafeUrl.trim() : '';
+      const candidate = rawUrl || rawUnsafe;
 
-        if (!targetPage) {
-          url = rawUrl;
-        }
-      } else if (!targetPage && !url && annot.unsafeUrl) {
-        const rawUnsafe = String(annot.unsafeUrl).trim();
-        const match = rawUnsafe.match(/(?:#|#page=|\.pdf#page=|\.pdf#)(\d+)$/i);
-        if (match) {
-          const p = parseInt(match[1], 10);
-          if (p >= 1 && p <= doc.numPages) {
-            targetPage = p;
+      if (!targetPage && candidate) {
+        if (candidate.startsWith('#')) {
+          const pageMatch = candidate.match(/^#(?:page=)?(\\d+)$/i);
+          if (pageMatch) {
+            const candidatePage = Number(pageMatch[1]);
+            if (candidatePage >= 1 && candidatePage <= doc.numPages) {
+              targetPage = candidatePage;
+            }
+          } else {
+            targetPage = await resolveDestinationPage(doc, candidate.slice(1));
+          }
+        } else {
+          // Permit clickable web links only. Do not open javascript:, data:,
+          // file: or content: URLs supplied by a potentially untrusted PDF.
+          try {
+            const parsed = new URL(candidate);
+            if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+                parsed.hostname) {
+              url = parsed.href;
+            }
+          } catch {
+            // Ignore unsupported or invalid URI annotations.
           }
         }
       }
