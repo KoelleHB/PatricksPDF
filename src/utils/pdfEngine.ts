@@ -36,6 +36,7 @@ export { loadPdfJsDoc, cancelCanvasRender, disposePdfJsResources } from './pdfDo
 import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { PdfInlineTextHighlighter } from './pdfInlineTextHighlighter';
 import { compensatePdfTextLayerFonts } from './pdfTextMetrics';
+import { extractRawPdfLinks } from './pdfRawLinks';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -1379,7 +1380,9 @@ export async function extractPageLinks(
     const viewport = page.getViewport({ scale: 1.0 });
     const annotations = await page.getAnnotations({ intent: 'display' });
 
-    if (!annotations || annotations.length === 0) return [];
+    if (!annotations || annotations.length === 0) {
+      return await extractRawPdfLinks(data, pageNumber);
+    }
 
     const links: PdfLinkAnnotation[] = [];
 
@@ -1478,10 +1481,16 @@ export async function extractPageLinks(
       }
     }
 
-    return links;
+    // Some PDF.js versions omit links in otherwise valid documents.
+    return links.length > 0 ? links : await extractRawPdfLinks(data, pageNumber);
   } catch (err) {
-    console.warn(`Failed to extract links for page ${pageNumber}:`, err);
-    return [];
+    console.warn(`PDF.js link extraction failed on page ${pageNumber}; trying raw annotations:`, err);
+    try {
+      return await extractRawPdfLinks(data, pageNumber);
+    } catch (rawError) {
+      console.warn(`Raw PDF link extraction also failed on page ${pageNumber}:`, rawError);
+      return [];
+    }
   }
 }
 
