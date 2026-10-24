@@ -62,21 +62,12 @@ jobs:
       - name: Browser smoke-test actual PDF link extraction
         run: |
           cp "$RUNNER_TEMP/fritz-manual.pdf" public/__public_fritz_manual_ci.pdf
+          npm install --no-save --package-lock=false --ignore-scripts puppeteer-core@24.26.1
           npm run dev -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/vite.log" 2>&1 &
           VITE_PID=$!
           trap 'kill "$VITE_PID" || true; rm -f public/__public_fritz_manual_ci.pdf' EXIT
           sleep 4
-          timeout 75s google-chrome --headless=new --no-sandbox --disable-dev-shm-usage \
-            --disable-gpu --virtual-time-budget=45000 --dump-dom \
-            'http://127.0.0.1:4173/test/browserLinkProbe.html' \
-            > "$RUNNER_TEMP/link-probe.html" 2> "$RUNNER_TEMP/chrome-probe.err" || true
-          echo "Browser link probe output:"
-          grep -o '<pre id="pdf-link-probe"[^>]*>[^<]*' "$RUNNER_TEMP/link-probe.html" || true
-          if ! grep -q 'id="pdf-link-probe" data-status="pass"' "$RUNNER_TEMP/link-probe.html"; then
-            echo "Browser PDF link extraction integration failed"
-            tail -15 "$RUNNER_TEMP/chrome-probe.err" || true
-            exit 1
-          fi
+          node test/browserLinkProbe.mjs
 
       - name: Build Web App
         run: npm run build
