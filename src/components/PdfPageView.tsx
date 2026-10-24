@@ -87,6 +87,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   const [isRendered, setIsRendered] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [links, setLinks] = useState<PdfLinkAnnotation[]>([]);
+  const [linkLoadStatus, setLinkLoadStatus] = useState<'idle'|'loading'|'found'|'empty'|'error'>('idle');
   const [linkError, setLinkError] = useState<string | null>(null);
   const [textLayerVersion, setTextLayerVersion] = useState(0);
   const [renderedTextWidth, setRenderedTextWidth] = useState<number | null>(null);
@@ -153,14 +154,19 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   useEffect(() => {
     if (!isNearViewport || !arrayBuffer) return;
     let isCancelled = false;
+    setLinkLoadStatus('loading');
 
     extractPageLinks(arrayBuffer, pageNumber)
       .then((extractedLinks) => {
-        if (!isCancelled) setLinks(extractedLinks);
+        if (!isCancelled) {
+          setLinks(extractedLinks);
+          setLinkLoadStatus(extractedLinks.length > 0 ? 'found' : 'empty');
+        }
       })
       .catch((error) => {
         if (!isCancelled) {
           setLinks([]);
+          setLinkLoadStatus('error');
           console.warn('Cannot read PDF annotations for page', pageNumber, error);
         }
       });
@@ -247,6 +253,8 @@ export const PdfPageView = memo<PdfPageViewProps>(({
       ref={containerRef}
       id={`pdf-page-${pageNumber}`}
       data-page-number={pageNumber}
+      data-pdf-link-status={linkLoadStatus}
+      data-pdf-link-count={links.length}
       style={{
         width: `${pageWidth}px`,
         height: `${pageHeight}px`,
