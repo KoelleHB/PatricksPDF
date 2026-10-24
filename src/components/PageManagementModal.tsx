@@ -21,7 +21,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { PdfDocumentState, PageSpec } from '../types';
-import { getPageInfoList, renderPageThumbnail } from '../utils/pdfEngine';
+import { getPageInfoList } from '../utils/pdfEngine';
+import { LazyPageThumbnail } from './LazyPageThumbnail';
 import { loadPdfJsDoc } from '../utils/pdfEngine';
 
 interface PageManagementModalProps {
@@ -94,26 +95,10 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
           setSelectedPageId(currentSpec.id);
         }
 
-        // Allow the page manager to become interactive immediately after metadata loads.
-        // Thumbnail rendering is progressive and must not hold the loading overlay open.
-        setIsLoadingPages(false);
+        // Preview tiles load themselves only when they approach the visible grid.
+        // Never render hundreds of pages before the user scrolls to them.
         setThumbnails({});
-        const order = specs.map((_, i) => i);
-        // Prioritize the currently selected page, then its neighbors.
-        const focus = Math.max(0, Math.min(specs.length - 1, currentPage - 1));
-        order.sort((a, b) => Math.abs(a - focus) - Math.abs(b - focus));
-        for (const i of order) {
-          if (isCancelled) break;
-          // Yield to browser input and paint between renders (important on Android).
-          await new Promise<void>(resolve => setTimeout(resolve, 0));
-          if (isCancelled) break;
-          try {
-            const thumbUrl = await renderPageThumbnail(pdfState.arrayBuffer!, i + 1, 180);
-            if (!isCancelled) setThumbnails(prev => ({ ...prev, [specs[i].id]: thumbUrl }));
-          } catch (err) {
-            console.warn(`Could not render thumbnail for page ${i + 1}:`, err);
-          }
-        }
+        setIsLoadingPages(false);
       } catch (err: any) {
         if (!isCancelled) {
           console.error('Failed to load page info for page manager:', err);
@@ -320,7 +305,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
       }
 
       const importedSpecs: PageSpec[] = [];
-      const newThumbs: Record<string, string> = {};
+
 
       for (let i = 1; i <= numImported; i++) {
         const page = await pdfJsDoc.getPage(i);
@@ -341,16 +326,9 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
           sourceFileName: file.name,
         });
 
-        // Render thumbnail
-        try {
-          const thumbUrl = await renderPageThumbnail(fileBuffer, i, 240);
-          newThumbs[id] = thumbUrl;
-        } catch {
-          // Fallback
-        }
+        // Imported-page previews are loaded lazily after the cards appear.
       }
 
-      setThumbnails((prev) => ({ ...prev, ...newThumbs }));
       setPages((prev) => [...prev, ...importedSpecs]);
       if (importedSpecs.length > 0) {
         setSelectedPageId(importedSpecs[0].id);
@@ -512,7 +490,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                 {pages.map((page, index) => {
                   const isCurrent = page.source === 'existing' && page.originalPageIndex === currentPage - 1;
                   const isSelected = selectedPageId === page.id;
-                  const thumb = thumbnails[page.id];
                   const rotationDeg = page.rotationDelta || 0;
                   const isDragTarget = dragOverIndex === index;
 
@@ -573,26 +550,13 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
 
                       {/* Visual Thumbnail Preview Area */}
                       <div className="relative aspect-[3/4] p-3 flex items-center justify-center bg-slate-100/50 overflow-hidden">
-                        {thumb ? (
-                          <div
-                            className="relative max-h-full max-w-full flex items-center justify-center transition-transform duration-200"
-                            style={{
-                              transform: `rotate(${rotationDeg}deg)`,
-                            }}
-                          >
-                            <img
-                              src={thumb}
-                              alt={`Thumbnail Page ${index + 1}`}
-                              className="max-h-[170px] max-w-[130px] sm:max-h-[190px] sm:max-w-[150px] object-contain rounded-sm shadow-xs border border-slate-200 bg-white"
-                              loading="lazy"
-                            />
-                          </div>
-                        ) : (
-                          <div className="h-full w-full rounded border border-dashed border-slate-300 flex flex-col items-center justify-center gap-1 text-slate-400 bg-white">
-                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                            <span className="text-[10px]">Rendering</span>
-                          </div>
-                        )}
+                        <LazyPageThumbnail
+                          page={page}
+                          originalPdfBuffer={pdfState.arrayBuffer!}
+                          placeholderUrl={thumbnails[page.id]}
+                          rotationDeg={rotationDeg}
+                          pageNumber={index + 1}
+                        />
 
                         {/* Interactive Overlay Click Prompt */}
                         {!isDirty && (

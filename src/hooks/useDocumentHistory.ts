@@ -286,6 +286,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     setSelectedSignatureId(targetEntry.snapshot.selectedSignatureId);
     setSelectedTextId(targetEntry.snapshot.selectedTextId);
     stateRef.current = { ...targetEntry.snapshot };
+    pageDocumentRef.current = targetEntry.snapshot.pageDocument;
 
     setHistoryIndex(targetIndex);
 

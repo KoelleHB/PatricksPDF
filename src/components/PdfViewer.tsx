@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   BookOpen,
   Check,
+  Search,
 } from 'lucide-react';
 import {
   SignatureItem,
@@ -24,15 +25,23 @@ import {
   FormFieldItem,
   FormValuesState,
   PdfOutlineItem,
+  PageInfo,
 } from '../types';
 import {
   extractPageReflowText,
   extractDocumentOutline,
+  getPageInfoList,
+  loadPdfJsDoc,
   ReflowPageData,
 } from '../utils/pdfEngine';
 import { PdfPageView } from './PdfPageView';
 import { TableOfContentsDrawer } from './TableOfContentsDrawer';
 import { TextSelectionToolbar } from './TextSelectionToolbar';
+import { PdfSearchPanel } from './PdfSearchPanel';
+import { isNativeAndroid } from '../utils/nativeBridge';
+import { computeFitWidthZoom } from '../utils/pdfZoom';
+import { pdfjsLib } from '../utils/pdfWorker';
+import type { PdfSearchHit } from '../utils/pdfSearch';
 
 interface PdfViewerProps {
   pdfState: PdfDocumentState;
@@ -112,10 +121,47 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     width: pdfState.pageWidth || 595,
     height: pdfState.pageHeight || 842,
   });
+  const [pageInfos, setPageInfos] = useState<PageInfo[]>([]);
+  const [focusedPageSize, setFocusedPageSize] = useState<{
+    document: ArrayBuffer; pageNumber: number; width: number;
+  } | null>(null);
+
+  // Resolve the focused page directly: do not wait for metadata for hundreds
+  // of other pages before fitting an individual landscape/portrait page.
+  useEffect(() => {
+    const data = pdfState.arrayBuffer;
+    if (!data) return;
+    let cancelled = false;
+    loadPdfJsDoc(data)
+      .then((doc) => doc.getPage(pdfState.currentPage))
+      .then((page) => {
+        if (!cancelled) {
+          setFocusedPageSize({
+            document: data,
+            pageNumber: pdfState.currentPage,
+            width: page.getViewport({ scale: 1 }).width,
+          });
+        }
+      })
+      .catch((err) => console.warn('Could not determine focused page width:', err));
+    return () => { cancelled = true; };
+  }, [pdfState.arrayBuffer, pdfState.currentPage]);
+
+  // Every page has its own dimensions and rotation. Load metadata independently
+  // from canvas rendering so mixed A4/landscape documents lay out correctly.
+  useEffect(() => {
+    let cancelled = false;
+    setPageInfos([]);
+    if (!pdfState.arrayBuffer) return;
+    getPageInfoList(pdfState.arrayBuffer).then((infos) => {
+      if (!cancelled) setPageInfos(infos);
+    }).catch((err) => console.warn('Page metadata unavailable:', err));
+    return () => { cancelled = true; };
+  }, [pdfState.arrayBuffer]);
 
   // Calculate fit-width zoom percentage based on current container or window width
   const calculateFitWidthZoom = useCallback(
-    (customWidth?: number) => {
+    (pageNumber: number = pdfState.currentPage, customWidth?: number) => {
       const container = containerRef.current;
       const clientWidth =
         customWidth || (container && container.clientWidth > 0 ? container.clientWidth : window.innerWidth);
@@ -123,15 +169,14 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       // Account for container padding (p-4 = 32px on mobile, p-8 = 64px on desktop) + comfortable breathing room
       const horizontalMargin = isMobile ? 32 : 72;
       const availableWidth = clientWidth - horizontalMargin;
-      const baseWidth = pdfState.pageWidth || renderedDimensions.width || 595;
+      const pageWidth = pageInfos[pageNumber - 1]?.width;
+      const focusedWidth = focusedPageSize?.document === pdfState.arrayBuffer &&
+        focusedPageSize.pageNumber === pageNumber ? focusedPageSize.width : undefined;
+      const baseWidth = pageWidth || focusedWidth || pdfState.pageWidth || renderedDimensions.width || 595;
 
-      if (availableWidth > 0 && baseWidth > 0) {
-        const calculated = Math.round((availableWidth / baseWidth) * 100);
-        return Math.min(500, Math.max(35, calculated));
-      }
-      return 100;
+      return computeFitWidthZoom(availableWidth, baseWidth);
     },
-    [pdfState.pageWidth, renderedDimensions.width]
+    [pdfState.currentPage, pdfState.arrayBuffer, pdfState.pageWidth, pageInfos, focusedPageSize, renderedDimensions.width]
   );
 
   // Always open in "fit width" mode by default
@@ -151,12 +196,57 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     return 100;
   });
 
+  // Reflow mode must be declared before search navigation callbacks.
+  const [isReflowMode, setIsReflowMode] = useState<boolean>(false);
+
   // Table of Contents state
   const [outline, setOutline] = useState<PdfOutlineItem[]>([]);
   const [isTocOpen, setIsTocOpen] = useState<boolean>(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [textDiagnosticsOn, setTextDiagnosticsOn] = useState(false);
+  const [fontCompensationOn, setFontCompensationOn] = useState(true);
+  const [textDiagnostics, setTextDiagnostics] = useState('');
+
+  const [activeSearchMatch, setActiveSearchMatch] = useState<{
+    pageNumber: number; query: string; ordinal: number;
+  } | null>(null);
+
+  const closeSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    setActiveSearchMatch(null);
+    setTextDiagnosticsOn(false);
+    setTextDiagnostics('');
+  }, []);
+
+  const handleSearchHit = useCallback((hit: PdfSearchHit, phrase: string) => {
+    setActiveSearchMatch({ pageNumber: hit.pageNumber, query: phrase, ordinal: hit.ordinal });
+    if (isReflowMode) {
+      setIsReflowMode(false);
+      // Restore the ordinary page DOM before positioning the search result.
+      onChangePage(hit.pageNumber);
+      requestAnimationFrame(() => scrollToPageRef.current?.(hit.pageNumber));
+    } else {
+      scrollToPageRef.current?.(hit.pageNumber);
+    }
+  }, [isReflowMode, onChangePage]);
+
+  const scrollToPageRef = useRef<((page: number) => void) | null>(null);
+
+  // Ctrl/Cmd+F searches the PDF text instead of the surrounding browser UI.
+  useEffect(() => {
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setIsSearchOpen(true);
+      } else if (event.key === 'Escape' && isSearchOpen) {
+        closeSearch();
+      }
+    };
+    window.addEventListener('keydown', handleSearchShortcut);
+    return () => window.removeEventListener('keydown', handleSearchShortcut);
+  }, [isSearchOpen, closeSearch]);
 
   // Reflow Text state and cache
-  const [isReflowMode, setIsReflowMode] = useState<boolean>(false);
   const [reflowData, setReflowData] = useState<ReflowPageData | null>(null);
   const [isLoadingReflow, setIsLoadingReflow] = useState<boolean>(false);
   const reflowCache = useRef<Map<number, ReflowPageData>>(new Map());
@@ -275,6 +365,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       return () => clearTimeout(timer);
     }
   }, [pdfState.name, pdfState.arrayBuffer, pdfState.pageWidth, pdfState.pageHeight, calculateFitWidthZoom]);
+
+  // When the reading focus moves to a page of different width, recompute
+  // automatically, preserving the reading line rather than jumping to page 1.
+  useEffect(() => {
+    if (!isFitWidthMode || isReflowMode) return;
+    const fitZoom = calculateFitWidthZoom(pdfState.currentPage);
+    if (fitZoom === zoomLevelRef.current) return;
+    const container = containerRef.current;
+    if (container) {
+      const readingY = Math.min(220, container.clientHeight * 0.35);
+      pendingZoomAnchorRef.current = captureZoomAnchor(container.clientWidth / 2, readingY);
+    }
+    setZoomLevel(fitZoom);
+  }, [isFitWidthMode, isReflowMode, pdfState.currentPage, calculateFitWidthZoom, captureZoomAnchor]);
 
   // Keep view fitted to width on screen resize or mobile rotation if fit-width mode is active
   useEffect(() => {
@@ -442,6 +546,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     [pdfState.numPages, onChangePage]
   );
 
+  scrollToPageRef.current = (page: number) => scrollToPage(page, 'auto');
+
   // Sync external page changes (e.g. Undo/Redo or page reordering)
   useEffect(() => {
     if (isScrollingProgrammaticallyRef.current) return;
@@ -457,29 +563,45 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
+    const visiblePages = new Map<number, Element>();
     const observer = new IntersectionObserver(
       (entries) => {
+        for (const entry of entries) {
+          const page = Number(entry.target.getAttribute('data-page-number'));
+          if (entry.isIntersecting) visiblePages.set(page, entry.target);
+          else visiblePages.delete(page);
+        }
         if (isScrollingProgrammaticallyRef.current || pinchRef.current?.active) return;
+
+        // Native Android selection handles may automatically scroll by a few
+        // pixels while the user extends a range. Do not promote a new current
+        // page in the middle of that gesture: this would re-render the reader
+        // toolbar and could re-fit the zoom while selecting text.
+        const nativeSelection = window.getSelection();
+        if (nativeSelection && !nativeSelection.isCollapsed) {
+          const anchorNode = nativeSelection.anchorNode;
+          const anchorElement = anchorNode instanceof Element
+            ? anchorNode
+            : anchorNode?.parentElement;
+          if (anchorElement?.closest('.textLayer')) return;
+        }
 
         let candidatePage = 0;
         let bestScore = -Infinity;
+        const rootRect = container.getBoundingClientRect();
+        const readingLine = rootRect.top + Math.min(220, rootRect.height * 0.35);
 
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const pNum = Number(entry.target.getAttribute('data-page-number'));
-          if (!pNum) continue;
-
-          const rect = entry.boundingClientRect;
-          const rootRect = entry.rootBounds || container.getBoundingClientRect();
-
-          // Check if page covers the primary reading line (top 15% - 40% of viewport)
-          const readingLine = rootRect.top + Math.min(220, rootRect.height * 0.35);
-          const containsReadingLine = rect.top <= readingLine && rect.bottom >= readingLine;
-
-          const score = (containsReadingLine ? 10 : 0) + entry.intersectionRatio;
+        // IntersectionObserver only reports *changed* entries. Keep the small
+        // visible set so a stale threshold event cannot steal reading focus.
+        for (const [page, element] of visiblePages) {
+          const rect = element.getBoundingClientRect();
+          const intersection = Math.max(0, Math.min(rect.bottom, rootRect.bottom) - Math.max(rect.top, rootRect.top));
+          if (intersection <= 0) continue;
+          const coversLine = rect.top <= readingLine && rect.bottom >= readingLine;
+          const score = (coversLine ? 100 : 0) + intersection / Math.max(1, rect.height);
           if (score > bestScore) {
             bestScore = score;
-            candidatePage = pNum;
+            candidatePage = page;
           }
         }
 
@@ -602,6 +724,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             !target.closest('[data-signature-overlay]') &&
             !target.closest('[data-text-overlay]') &&
             !target.closest('[data-form-field]') &&
+            // Double-tap belongs to native word selection on PDF text.
+            // Intercepting it for zoom was causing selection to jump.
+            !target.closest('.textLayer') &&
+            !target.closest('[data-pdf-link]') &&
             !target.closest('button') &&
             !target.closest('textarea') &&
             !target.closest('input') &&
@@ -1027,6 +1153,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       target.closest('[data-signature-overlay]') ||
       target.closest('[data-text-overlay]') ||
       target.closest('[data-form-field]') ||
+      target.closest('[data-pdf-link]') ||
+      target.closest('.textLayer') ||
       target.closest('button') ||
       target.closest('textarea') ||
       target.closest('input') ||
@@ -1090,11 +1218,55 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     }
   };
 
+  // Diagnostic readings are local-only: numbers and CSS metrics, never PDF
+  // text, filenames, page contents, URLs or automatic analytics. The toggle
+  // is opt-in and measurements are destroyed as soon as the search closes.
+  useEffect(() => {
+    if (!isSearchOpen || !textDiagnosticsOn) return;
+    const measure = () => {
+      const pageNo = activeSearchMatch?.pageNumber ?? pdfState.currentPage;
+      const root = containerRef.current;
+      const page = root?.querySelector(`#pdf-page-${pageNo}`) as HTMLElement | null;
+      const layer = page?.querySelector('.textLayer') as HTMLElement | null;
+      const canvas = page?.querySelector('canvas') as HTMLCanvasElement | null;
+      const hit = layer?.querySelector('.pdf-inline-search-selected') as HTMLElement | null;
+      const span = (hit?.closest('.textLayer > span') || layer?.querySelector(':scope > span')) as HTMLElement | null;
+      if (!page || !layer || !canvas || !span) {
+        setTextDiagnostics(`PDF.js ${pdfjsLib.version} | Seite ${pageNo} | ${zoomLevel}%\nTextlayer noch nicht sichtbar/geladen`);
+        return;
+      }
+      const rect = (el: Element) => el.getBoundingClientRect();
+      const p = rect(page), t = rect(layer), c = rect(canvas), r = rect(span);
+      const st = window.getComputedStyle(span), sl = window.getComputedStyle(layer);
+      const round = (v: number) => Number.isFinite(v) ? v.toFixed(2) : '—';
+      const raw = sl.getPropertyValue('--total-scale-factor').trim();
+      const min = sl.getPropertyValue('--min-font-size').trim();
+      const baseFont = st.getPropertyValue('--font-height').trim();
+      const targetFont = Number.parseFloat(baseFont) * Number.parseFloat(raw) *
+        Number.parseFloat(min);
+      const actualFont = Number.parseFloat(st.fontSize);
+      const metricFactor = st.getPropertyValue('--font-metric-correction').trim();
+      const mark = hit ? rect(hit) : null;
+      // Positions relative to the same page rectangle, for safe comparison.
+      setTextDiagnostics(
+        `PDF.js ${pdfjsLib.version} | Seite ${pageNo} | Zoom ${zoomLevel}%\n` +
+        `DPR ${round(window.devicePixelRatio)} | Skala ${raw || '—'} | minFont ${min || '—'}\n` +
+        `Canvas ${round(c.width)}×${round(c.height)} | Layer ${round(t.width)}×${round(t.height)}\n` +
+        `Textspan x=${round(r.x-p.x)} y=${round(r.y-p.y)} w=${round(r.width)}\n` +
+        `Font IST ${round(actualFont)}px / SOLL ${round(targetFont)}px | Faktor ${metricFactor || '1'} (${fontCompensationOn ? 'AN' : 'AUS'})\n` +
+        `Treffer x=${mark ? round(mark.x-p.x) : '—'} y=${mark ? round(mark.y-p.y) : '—'} w=${mark ? round(mark.width) : '—'}`
+      );
+    };
+    measure();
+    const interval = window.setInterval(measure, 650);
+    return () => window.clearInterval(interval);
+  }, [isSearchOpen, textDiagnosticsOn, fontCompensationOn, zoomLevel, activeSearchMatch?.pageNumber, activeSearchMatch?.ordinal, pdfState.currentPage]);
+
   const pageWidth = Math.round(renderedDimensions.width * (zoomLevel / 100));
   const pageHeight = Math.round(renderedDimensions.height * (zoomLevel / 100));
 
   return (
-    <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
+    <div className={`flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative ${textDiagnosticsOn ? 'pdf-text-diagnostics' : ''} ${fontCompensationOn ? '' : 'pdf-disable-font-compensation'}`}>
       {/* Real-time floating zoom pill badge during pinch gestures */}
       <div
         ref={zoomPillRef}
@@ -1234,6 +1406,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
             <span className="w-px h-3.5 bg-slate-300 mx-0.5" />
+
+            {/* Full-document search: also available via Ctrl/Cmd+F */}
+            <button
+              id="viewer-search-btn"
+              type="button"
+              onClick={() => isSearchOpen ? closeSearch() : setIsSearchOpen(true)}
+              className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[11px] font-medium hover:bg-white hover:text-blue-600 transition flex items-center gap-1 cursor-pointer ${isSearchOpen ? 'text-blue-600 bg-blue-50' : 'text-slate-700'}`}
+              title="Im gesamten PDF suchen (Strg+F)"
+              aria-label="PDF durchsuchen"
+              aria-expanded={isSearchOpen}
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Suchen</span>
+            </button>
 
             {/* Table of Contents Button */}
             <button
@@ -1420,6 +1606,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
           <span className="w-px h-3.5 bg-white/20" />
 
+          <button
+            onClick={() => isSearchOpen ? closeSearch() : setIsSearchOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-slate-300 hover:text-white hover:bg-white/15"
+            title="PDF durchsuchen (Strg+F)"
+            aria-label="PDF durchsuchen"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+
           {/* Table of Contents trigger in Reader mode */}
           <button
             onClick={() => setIsTocOpen(true)}
@@ -1450,9 +1645,23 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         </aside>
       )}
 
+      {isSearchOpen && pdfState.arrayBuffer && (
+        <PdfSearchPanel
+          arrayBuffer={pdfState.arrayBuffer}
+          onClose={closeSearch}
+          onNavigate={handleSearchHit}
+          diagnosticsEnabled={textDiagnosticsOn}
+          onToggleDiagnostics={() => setTextDiagnosticsOn((enabled) => !enabled)}
+          diagnosticsText={textDiagnostics}
+          fontCompensationOn={fontCompensationOn}
+          onToggleFontCompensation={() => setFontCompensationOn((value) => !value)}
+        />
+      )}
+
       {/* Main PDF Scrollable Workspace with Continuous Page Rolling */}
       <div
         ref={containerRef}
+        data-pdf-scroll-container="true"
         onClick={handleContainerClick}
         onMouseDown={handleMouseDown}
         className={`flex-1 min-h-0 overflow-y-auto overflow-x-auto relative touch-pan-x touch-pan-y overscroll-contain scroll-auto ${
@@ -1553,7 +1762,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             onDoubleClick={handlePageDoubleClick}
             className="w-fit min-w-full min-h-full flex flex-col items-center justify-start p-4 sm:p-8 pb-32 space-y-6"
           >
-            {Array.from({ length: pdfState.numPages }, (_, i) => i + 1).map((pageNum) => (
+            {Array.from({ length: pdfState.numPages }, (_, i) => i + 1).map((pageNum) => {
+              const pageInfo = pageInfos[pageNum - 1];
+              const pageScale = zoomLevel / 100;
+              const thisPageWidth = Math.round((pageInfo?.width || renderedDimensions.width) * pageScale);
+              const thisPageHeight = Math.round((pageInfo?.height || renderedDimensions.height) * pageScale);
+              return (
               <div
                 key={pageNum}
                 ref={(el) => {
@@ -1566,8 +1780,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   pageNumber={pageNum}
                   arrayBuffer={pdfState.arrayBuffer!}
                   zoomLevel={zoomLevel}
-                  pageWidth={pageWidth}
-                  pageHeight={pageHeight}
+                  pageWidth={thisPageWidth}
+                  pageHeight={thisPageHeight}
                   signatures={signatures}
                   selectedSignatureId={selectedSignatureId}
                   textOverlays={textOverlays}
@@ -1589,13 +1803,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   onResetForm={onResetForm}
                   onNavigateToPage={scrollToPage}
                   isCurrentPage={pageNum === pdfState.currentPage}
+                  searchHighlight={activeSearchMatch?.pageNumber === pageNum ? activeSearchMatch : undefined}
                 />
                 {/* Subtle page indicator between pages */}
                 <div className="mt-2 text-[10px] font-mono text-slate-400 select-none">
                   Page {pageNum} of {pdfState.numPages}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1610,7 +1826,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       />
 
       {/* Floating Toolbar for Selected/Marked Text */}
-      <TextSelectionToolbar />
+      {/* Android supplies a native selection/copy toolbar. Rendering a second
+          React toolbar on every selectionchange interferes with drag handles
+          and creates duplicate copy actions. Keep it for desktop only. */}
+      {!isNativeAndroid() && <TextSelectionToolbar />}
     </div>
   );
 };

@@ -3,6 +3,8 @@ name: Build Android APK
 on:
   push:
     branches: [main, master, feature/native-binary-resource-refactor]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -42,6 +44,9 @@ jobs:
 
       - name: TypeScript check
         run: npm run lint
+
+      - name: Run unit regression tests
+        run: npm test
 
       - name: Build Web App
         run: npm run build
