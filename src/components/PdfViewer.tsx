@@ -1247,6 +1247,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const actualFont = Number.parseFloat(st.fontSize);
       const metricFactor = st.getPropertyValue('--font-metric-correction').trim();
       const mark = hit ? rect(hit) : null;
+      const annotations = page.querySelectorAll('[data-pdf-link-id]');
       // Positions relative to the same page rectangle, for safe comparison.
       setTextDiagnostics(
         `PDF.js ${pdfjsLib.version} | Seite ${pageNo} | Zoom ${zoomLevel}%\n` +
@@ -1254,7 +1255,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         `Canvas ${round(c.width)}×${round(c.height)} | Layer ${round(t.width)}×${round(t.height)}\n` +
         `Textspan x=${round(r.x-p.x)} y=${round(r.y-p.y)} w=${round(r.width)}\n` +
         `Font IST ${round(actualFont)}px / SOLL ${round(targetFont)}px | Faktor ${metricFactor || '1'} (${fontCompensationOn ? 'AN' : 'AUS'})\n` +
-        `Treffer x=${mark ? round(mark.x-p.x) : '—'} y=${mark ? round(mark.y-p.y) : '—'} w=${mark ? round(mark.width) : '—'}`
+        `Treffer x=${mark ? round(mark.x-p.x) : '—'} y=${mark ? round(mark.y-p.y) : '—'} w=${mark ? round(mark.width) : '—'}\n` +
+        `PDF-Linkflächen auf dieser Seite: ${annotations.length}`
       );
     };
     measure();
