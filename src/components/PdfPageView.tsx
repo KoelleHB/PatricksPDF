@@ -19,6 +19,7 @@ import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
 import { InteractiveFormField } from './InteractiveFormField';
 import { openPdfExternalLink } from '../utils/nativeBridge';
+import { findPdfLinkAtPoint, isTapGesture } from '../utils/pdfLinkHitTest';
 
 interface PdfPageViewProps {
   pageNumber: number;
@@ -91,6 +92,75 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   const [textLayerVersion, setTextLayerVersion] = useState(0);
   const [renderedTextWidth, setRenderedTextWidth] = useState<number | null>(null);
   const lastScrolledSearchRef = useRef('');
+  const linkTouchStartRef = useRef<{
+    x: number; y: number; at: number; pointerId: number;
+  } | null>(null);
+  const lastLinkActivationRef = useRef<{ id: string; at: number } | null>(null);
+
+  const activatePdfLink = (link: PdfLinkAnnotation) => {
+    try {
+      if (link.targetPage) {
+        onNavigateToPage(link.targetPage);
+      } else if (link.url) {
+        openPdfExternalLink(link.url);
+      }
+      setLinkError(null);
+    } catch (error: any) {
+      setLinkError(error?.message || 'PDF-Link konnte nicht geöffnet werden.');
+    }
+  };
+
+  const identifyLinkAt = (clientX: number, clientY: number): PdfLinkAnnotation | undefined => {
+    const page = containerRef.current;
+    if (!page) return undefined;
+    const rect = page.getBoundingClientRect();
+    const localX = clientX - rect.left - page.clientLeft;
+    const localY = clientY - rect.top - page.clientTop;
+    return findPdfLinkAtPoint(links, localX, localY, page.clientWidth, page.clientHeight);
+  };
+
+  // Android's selectable PDF.js text can swallow a synthetic click event.
+  // Pointer-up is therefore the primary activation path for *short taps*,
+  // using the PDF's actual annotation rectangle rather than overlay z-index.
+  const onPagePointerDownCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0) {
+      linkTouchStartRef.current = null;
+      return;
+    }
+    linkTouchStartRef.current = {
+      x: event.clientX, y: event.clientY, at: Date.now(),
+      pointerId: event.pointerId,
+    };
+  };
+
+  const onPagePointerUpCapture = (event: React.PointerEvent<HTMLDivElement>) => {
+    const start = linkTouchStartRef.current;
+    linkTouchStartRef.current = null;
+    if (!start || start.pointerId !== event.pointerId ||
+        !isTapGesture(start, { x: event.clientX, y: event.clientY, at: Date.now() })) return;
+    const link = identifyLinkAt(event.clientX, event.clientY);
+    if (!link) return;
+    event.preventDefault();
+    event.stopPropagation();
+    lastLinkActivationRef.current = { id: link.id, at: Date.now() };
+    activatePdfLink(link);
+  };
+
+  // Mouse clicks, synthetic WebView clicks and keyboard focus are all
+  // supported. A click immediately following pointerup is never repeated.
+  const onPageClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    const anchor = (event.target as Element).closest<HTMLElement>('[data-pdf-link-id]');
+    const link = anchor
+      ? links.find((candidate) => candidate.id === anchor.dataset.pdfLinkId)
+      : identifyLinkAt(event.clientX, event.clientY);
+    if (!link) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const prior = lastLinkActivationRef.current;
+    if (prior && prior.id === link.id && Date.now() - prior.at < 700) return;
+    lastLinkActivationRef.current = { id: link.id, at: Date.now() };
+    activatePdfLink(link);
+  };
 
   // Search marks are now *inside* the PDF.js selectable text spans.
   // This avoids Android WebView's inaccurate Range.getClientRects() boxes
@@ -246,6 +316,10 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   return (
     <div
       ref={containerRef}
+      onPointerDownCapture={onPagePointerDownCapture}
+      onPointerUpCapture={onPagePointerUpCapture}
+      onPointerCancelCapture={() => { linkTouchStartRef.current = null; }}
+      onClickCapture={onPageClickCapture}
       id={`pdf-page-${pageNumber}`}
       data-page-number={pageNumber}
       style={{
@@ -287,57 +361,27 @@ export const PdfPageView = memo<PdfPageViewProps>(({
         aria-hidden="false"
       />
 
-      {/* Transparent clickable annotations sit ABOVE the selectable text.
-          Pointer/touch events must not bubble into the viewer's double-tap
-          zoom and native long-press text-selection handlers. */}
+      {/* Links are activated by hit-testing real PDF annotation rectangles
+          on pointerup/click CAPTURE at the page root. No pointer-active
+          transparent overlay may obstruct Android's native text selection.
+          Invisible anchors remain keyboard-focusable for accessibility. */}
       {links.length > 0 && (
-        <div
-          className="absolute inset-0 z-[30] pointer-events-none"
-          aria-label="PDF-Verknüpfungen"
-        >
+        <div className="absolute inset-0 z-[30] pointer-events-none" aria-label="PDF-Verknüpfungen">
           {links.map((link) => (
             <a
               key={link.id}
-              data-pdf-link="true"
+              data-pdf-link-id={link.id}
               href={link.targetPage ? `#page=${link.targetPage}` : (link.url || '#')}
               target={link.targetPage ? undefined : '_blank'}
               rel={link.targetPage ? undefined : 'noopener noreferrer'}
-              onPointerDown={(event) => event.stopPropagation()}
-              onTouchStart={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                // Internal jumps always remain inside the same PDF editor.
-                if (link.targetPage) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onNavigateToPage(link.targetPage);
-                } else if (link.url) {
-                  // A native Android WebView cannot reliably open a second
-                  // window with window.open; dispatch ACTION_VIEW instead.
-                  event.stopPropagation();
-                  if (window.NativePdfBridge) {
-                    event.preventDefault();
-                    try {
-                      openPdfExternalLink(link.url);
-                      setLinkError(null);
-                    } catch (error: any) {
-                      setLinkError(error?.message || 'Weblink konnte nicht geöffnet werden.');
-                    }
-                  }
-                  // On desktop, keep the anchor's native browser navigation.
-                } else {
-                  event.preventDefault();
-                }
-              }}
               style={{
                 left: `${link.xPercent}%`,
                 top: `${link.yPercent}%`,
                 width: `${link.widthPercent}%`,
                 height: `${link.heightPercent}%`,
-                touchAction: 'manipulation',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
+                pointerEvents: 'none',
               }}
-              className="absolute z-[1] pointer-events-auto cursor-pointer rounded-sm bg-transparent hover:bg-blue-500/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
+              className="absolute pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
               title={link.title}
               aria-label={link.title}
             />
