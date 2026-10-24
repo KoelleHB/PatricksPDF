@@ -37,6 +37,7 @@ import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { PdfInlineTextHighlighter } from './pdfInlineTextHighlighter';
 import { compensatePdfTextLayerFonts } from './pdfTextMetrics';
 import { extractRawPdfLinks } from './pdfRawLinks';
+import { pdfRectToViewport } from './pdfViewportRect';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -382,7 +383,7 @@ export async function extractPdfFormFields(
 
         // Convert PDF coordinates (origin bottom-left) to Viewport coordinates (origin top-left)
         // This automatically handles page rotation (0, 90, 180, 270), cropBox, and mediaBox offsets
-        const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle(rect);
+        const [vx1, vy1, vx2, vy2] = pdfRectToViewport(viewport, rect);
         const x = Math.min(vx1, vx2);
         const y = Math.min(vy1, vy2);
         const width = Math.abs(vx2 - vx1);
@@ -1379,14 +1380,6 @@ export async function extractPageLinks(
     const page = await doc.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1.0 });
     const annotations = await page.getAnnotations({ intent: 'display' });
-    console.info('PDF_LINK_STAGE', JSON.stringify({
-      pageNumber,
-      total: annotations?.length ?? -1,
-      linkSubtypes: annotations?.filter((a: any) => a.subtype === 'Link').length ?? -1,
-      withDest: annotations?.filter((a: any) => Boolean(a.dest)).length ?? -1,
-      withUrl: annotations?.filter((a: any) => Boolean(a.url)).length ?? -1,
-    }));
-
     if (!annotations || annotations.length === 0) {
       return await extractRawPdfLinks(data, pageNumber);
     }
@@ -1399,7 +1392,7 @@ export async function extractPageLinks(
       if (!annot.rect || annot.rect.length < 4) continue;
 
       // Convert PDF coordinate rect to viewport display coordinates
-      const vpRect = viewport.convertToViewportRectangle(annot.rect);
+      const vpRect = pdfRectToViewport(viewport, annot.rect);
       const minX = Math.min(vpRect[0], vpRect[2]);
       const minY = Math.min(vpRect[1], vpRect[3]);
       const width = Math.abs(vpRect[2] - vpRect[0]);
@@ -1489,7 +1482,6 @@ export async function extractPageLinks(
     }
 
     // Some PDF.js versions omit links in otherwise valid documents.
-    console.info('PDF_LINK_PARSED', JSON.stringify({pageNumber, links:links.length}));
     return links.length > 0 ? links : await extractRawPdfLinks(data, pageNumber);
   } catch (err) {
     console.warn(`PDF.js link extraction failed on page ${pageNumber}; trying raw annotations:`, err);
