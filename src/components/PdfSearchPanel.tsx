@@ -11,11 +11,14 @@ interface PdfSearchPanelProps {
   diagnosticsEnabled: boolean;
   onToggleDiagnostics: () => void;
   diagnosticsText: string;
+  fontCompensationOn: boolean;
+  onToggleFontCompensation: () => void;
 }
 
 export const PdfSearchPanel: React.FC<PdfSearchPanelProps> = ({
   arrayBuffer, onClose, onNavigate,
   diagnosticsEnabled, onToggleDiagnostics, diagnosticsText,
+  fontCompensationOn, onToggleFontCompensation,
 }) => {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<PdfSearchHit[]>([]);
@@ -195,6 +198,16 @@ export const PdfSearchPanel: React.FC<PdfSearchPanelProps> = ({
               className="font-semibold text-indigo-700 underline"
               title="Nur technische Zahlen kopieren – niemals Dokumenttexte"
             >Messwerte kopieren</button>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <span>Android-Schriftkorrektur: <strong>{fontCompensationOn ? 'aktiv' : 'deaktiviert'}</strong></span>
+            <button
+              type="button"
+              onClick={onToggleFontCompensation}
+              aria-pressed={fontCompensationOn}
+              className="rounded bg-indigo-100 text-indigo-800 font-semibold px-2 py-1"
+              title="Korrigierte mit ursprünglicher Textdarstellung vergleichen"
+            >{fontCompensationOn ? 'Zum Vergleich: AUS' : 'Korrektur AN'}</button>
           </div>
           <pre className="whitespace-pre-wrap break-words leading-4 font-mono">{diagnosticsText || 'Messung wird vorbereitet …'}</pre>
           <p className="mt-1 text-[10px] text-slate-500">Keine PDF-Texte, Dateinamen oder Inhalte werden übertragen oder protokolliert.</p>

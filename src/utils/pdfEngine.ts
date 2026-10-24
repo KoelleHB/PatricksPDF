@@ -35,6 +35,7 @@ export interface RenderPageResult {
 export { loadPdfJsDoc, cancelCanvasRender, disposePdfJsResources } from './pdfDocumentLifecycle';
 import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import { PdfInlineTextHighlighter } from './pdfInlineTextHighlighter';
+import { compensatePdfTextLayerFonts } from './pdfTextMetrics';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -266,6 +267,10 @@ export async function renderPdfTextLayer(
     session.builder = builder;
     await builder.render({ viewport, images: undefined as any });
     if (!isCurrent()) return null;
+
+    // Correct the actual enlarged WebView font metrics, not the PDF geometry.
+    const layer = host.querySelector<HTMLDivElement>('.textLayer');
+    if (layer) compensatePdfTextLayerFonts(layer, viewport.scale);
 
     return builder;
   } catch (err: any) {

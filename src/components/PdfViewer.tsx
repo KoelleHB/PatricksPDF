@@ -203,6 +203,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [isTocOpen, setIsTocOpen] = useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [textDiagnosticsOn, setTextDiagnosticsOn] = useState(false);
+  const [fontCompensationOn, setFontCompensationOn] = useState(true);
   const [textDiagnostics, setTextDiagnostics] = useState('');
 
   const [activeSearchMatch, setActiveSearchMatch] = useState<{
@@ -1224,26 +1225,31 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const raw = sl.getPropertyValue('--total-scale-factor').trim();
       const min = sl.getPropertyValue('--min-font-size').trim();
       const baseFont = st.getPropertyValue('--font-height').trim();
+      const targetFont = Number.parseFloat(baseFont) * Number.parseFloat(raw) *
+        Number.parseFloat(min);
+      const actualFont = Number.parseFloat(st.fontSize);
+      const metricFactor = st.getPropertyValue('--font-metric-correction').trim();
       const mark = hit ? rect(hit) : null;
       // Positions relative to the same page rectangle, for safe comparison.
       setTextDiagnostics(
         `PDF.js ${pdfjsLib.version} | Seite ${pageNo} | Zoom ${zoomLevel}%\n` +
         `DPR ${round(window.devicePixelRatio)} | Skala ${raw || '—'} | minFont ${min || '—'}\n` +
         `Canvas ${round(c.width)}×${round(c.height)} | Layer ${round(t.width)}×${round(t.height)}\n` +
-        `Textspan x=${round(r.x-p.x)} y=${round(r.y-p.y)} w=${round(r.width)} | Schrift ${st.fontSize} (${baseFont || '—'})\n` +
+        `Textspan x=${round(r.x-p.x)} y=${round(r.y-p.y)} w=${round(r.width)}\n` +
+        `Font IST ${round(actualFont)}px / SOLL ${round(targetFont)}px | Faktor ${metricFactor || '1'} (${fontCompensationOn ? 'AN' : 'AUS'})\n` +
         `Treffer x=${mark ? round(mark.x-p.x) : '—'} y=${mark ? round(mark.y-p.y) : '—'} w=${mark ? round(mark.width) : '—'}`
       );
     };
     measure();
     const interval = window.setInterval(measure, 650);
     return () => window.clearInterval(interval);
-  }, [isSearchOpen, textDiagnosticsOn, zoomLevel, activeSearchMatch?.pageNumber, activeSearchMatch?.ordinal, pdfState.currentPage]);
+  }, [isSearchOpen, textDiagnosticsOn, fontCompensationOn, zoomLevel, activeSearchMatch?.pageNumber, activeSearchMatch?.ordinal, pdfState.currentPage]);
 
   const pageWidth = Math.round(renderedDimensions.width * (zoomLevel / 100));
   const pageHeight = Math.round(renderedDimensions.height * (zoomLevel / 100));
 
   return (
-    <div className={`flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative ${textDiagnosticsOn ? 'pdf-text-diagnostics' : ''}`}>
+    <div className={`flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative ${textDiagnosticsOn ? 'pdf-text-diagnostics' : ''} ${fontCompensationOn ? '' : 'pdf-disable-font-compensation'}`}>
       {/* Real-time floating zoom pill badge during pinch gestures */}
       <div
         ref={zoomPillRef}
@@ -1630,6 +1636,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           diagnosticsEnabled={textDiagnosticsOn}
           onToggleDiagnostics={() => setTextDiagnosticsOn((enabled) => !enabled)}
           diagnosticsText={textDiagnostics}
+          fontCompensationOn={fontCompensationOn}
+          onToggleFontCompensation={() => setFontCompensationOn((value) => !value)}
         />
       )}
 

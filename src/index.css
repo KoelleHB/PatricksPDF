@@ -45,7 +45,9 @@ html, body, #root {
   z-index: 1; --font-height: 0;
   font-size: calc(var(--text-scale-factor) * var(--font-height));
   --scale-x: 1; --rotate: 0deg;
-  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  --font-metric-correction: 1;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+    scale(calc(var(--min-font-size-inv) * var(--font-metric-correction)));
 }
 .textLayer .markedContent { display: contents; }
 .textLayer span[role="img"] { user-select: none; cursor: default; }
@@ -75,4 +77,9 @@ html, body, #root {
 .pdf-text-diagnostics .textLayer > span:not(.markedContent) {
   outline: 1px solid rgba(0, 190, 210, 0.6);
   background: rgba(0, 180, 255, 0.07);
+}
+
+/* Local diagnostic A/B switch; restoring default behavior requires no reload. */
+.pdf-disable-font-compensation .textLayer span[role="presentation"] {
+  --font-metric-correction: 1 !important;
 }
