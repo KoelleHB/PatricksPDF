@@ -573,6 +573,19 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         }
         if (isScrollingProgrammaticallyRef.current || pinchRef.current?.active) return;
 
+        // Native Android selection handles may automatically scroll by a few
+        // pixels while the user extends a range. Do not promote a new current
+        // page in the middle of that gesture: this would re-render the reader
+        // toolbar and could re-fit the zoom while selecting text.
+        const nativeSelection = window.getSelection();
+        if (nativeSelection && !nativeSelection.isCollapsed) {
+          const anchorNode = nativeSelection.anchorNode;
+          const anchorElement = anchorNode instanceof Element
+            ? anchorNode
+            : anchorNode?.parentElement;
+          if (anchorElement?.closest('.textLayer')) return;
+        }
+
         let candidatePage = 0;
         let bestScore = -Infinity;
         const rootRect = container.getBoundingClientRect();
