@@ -48,6 +48,17 @@ jobs:
       - name: Run unit regression tests
         run: npm test
 
+      # Validation only; fixture is public, retrieved transiently,
+      # and deleted when the GitHub runner is discarded.
+      - name: Verify public FRITZ!Box manual links (PDF.js and raw PDF)
+        run: |
+          curl --fail --location --retry 3 --silent --show-error \
+            'https://gzhls.at/blob/ldb/4/8/9/a/c64fb80cfa9dad3267f3619a3e1fa0bdfa50.pdf' \
+            --output "$RUNNER_TEMP/fritz-manual.pdf"
+          test "$(stat -c%s "$RUNNER_TEMP/fritz-manual.pdf")" -gt 1000000
+          PUBLIC_MANUAL_PATH="$RUNNER_TEMP/fritz-manual.pdf" \
+            node --import tsx --test test/publicFritzLinks.test.ts
+
       - name: Build Web App
         run: npm run build
 
