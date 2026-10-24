@@ -30,6 +30,17 @@ test('public FRITZ!Box 5690 manual exposes original GoTo / URI annotations', asy
       }
       const links = annotations.filter(a => a.subtype === 'Link');
       const withDest = links.filter(a=> Boolean(a.dest)).length;
+      if (pageNum === 2 && links[0]?.dest) {
+        const first = links[0].dest;
+        const ref = Array.isArray(first) ? first[0] : undefined;
+        const targetIdx = ref && typeof ref === 'object' ? await pdf.getPageIndex(ref) : -1;
+        console.log('PUBLIC_LINK_FIRST_DEST', JSON.stringify({
+          destType:typeof first, isArray:Array.isArray(first),
+          ref, targetIdx,
+          cached:ref && typeof pdf.cachedPageNumber === 'function'
+            ? pdf.cachedPageNumber(ref) : null,
+        }));
+      }
       const withUrl = links.filter(a=> Boolean(a.url)).length;
       let rawError: string | undefined;
       const rawLinks=await extractRawPdfLinks(raw,pageNum).catch((error: Error) => {
