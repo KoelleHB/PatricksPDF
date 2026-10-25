@@ -347,7 +347,7 @@ public class MainActivity extends BridgeActivity {
                             intent.addCategory(Intent.CATEGORY_OPENABLE);
                             intent.setType("application/pdf");
                             intent.putExtra(Intent.EXTRA_TITLE, safeName);
-                            activity.startActivityForResult(intent, REQUEST_CODE_SAVE_PDF_AS);
+                            launchSaveAsPicker(activity, intent);
                         } catch (Exception e) {
                             Log.e(TAG, "Failed launching ACTION_CREATE_DOCUMENT", e);
                             if (staged.exists()) staged.delete();
@@ -593,7 +593,13 @@ public class MainActivity extends BridgeActivity {
         handleIncomingIntent(intent);
     }
 
+    @SuppressWarnings("deprecation")
+    private static void launchSaveAsPicker(MainActivity activity, Intent intent) {
+        activity.startActivityForResult(intent, REQUEST_CODE_SAVE_PDF_AS);
+    }
+
     @Override
+    @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CODE_SAVE_PDF_AS) {

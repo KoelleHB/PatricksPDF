@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#2563EB"/>
+  <!-- Document paper -->
+  <path d="M140 110 H310 L372 172 V402 H140 Z" fill="#FFFFFF"/>
+  <path d="M310 110 V172 H372 Z" fill="#CBD5E1"/>
+  <!-- Document Lines -->
+  <line x1="180" y1="210" x2="330" y2="210" stroke="#94A3B8" stroke-width="12" stroke-linecap="round"/>
+  <line x1="180" y1="250" x2="330" y2="250" stroke="#94A3B8" stroke-width="12" stroke-linecap="round"/>
+  <line x1="180" y1="290" x2="260" y2="290" stroke="#94A3B8" stroke-width="12" stroke-linecap="round"/>
+  <!-- Signature stroke -->
+  <path d="M175 345 C200 325 215 365 240 330 C265 300 275 355 300 335 C320 320 335 340 345 330" stroke="#1E40AF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Sign badge indicator -->
+  <circle cx="360" cy="380" r="45" fill="#10B981"/>
+  <path d="M344 380 L355 391 L377 369" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
