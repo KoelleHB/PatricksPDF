@@ -10,7 +10,7 @@ import { PageManagementModal } from './components/PageManagementModal';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { RecentDocumentsModal } from './components/RecentDocumentsModal';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec, RecentDocumentRecord } from './types';
-import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, clearThumbnailCache, disposePdfJsResources, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
+import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, buildStagedPageExportSnapshot, type StagedPageExportSnapshot, clearThumbnailCache, disposePdfJsResources, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
 import { getRecentDocuments, getRecentDocumentBlob, saveRecentDocument, removeRecentDocument, clearRecentDocuments } from './utils/recentDocuments';
 import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
@@ -151,6 +151,7 @@ export default function App() {
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [exportSelectedPages, setExportSelectedPages] = useState<number[] | null>(null);
+  const [exportOverrideSnapshot, setExportOverrideSnapshot] = useState<StagedPageExportSnapshot | null>(null);
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
   const [isReaderMode, setIsReaderMode] = useState(false);
 
@@ -1178,20 +1179,21 @@ export default function App() {
       {pdfState && (
         <SaveModal
           isOpen={isSaveModalOpen}
-          pdfState={pdfState}
-          signatures={signatures}
-          textOverlays={textOverlays}
+          pdfState={exportOverrideSnapshot?.pdfState || pdfState}
+          signatures={exportOverrideSnapshot?.signatures || signatures}
+          textOverlays={exportOverrideSnapshot?.textOverlays || textOverlays}
           formValues={formValues}
           hasFormFields={formFields.length > 0}
           isFormModified={isFormModified}
-          hasPageModifications={hasPageModifications}
+          hasPageModifications={exportOverrideSnapshot ? true : hasPageModifications}
           initialSelectedPages={exportSelectedPages}
           onClose={() => {
             setIsSaveModalOpen(false);
             setExportSelectedPages(null);
+            setExportOverrideSnapshot(null);
           }}
           onSaveSuccess={(info) => {
-            if (!info?.isSubsetExport) {
+            if (!info?.isSubsetExport && !exportOverrideSnapshot) {
               markCurrentStateSaved();
             }
             getRecentDocuments().then(setRecentDocs).catch(() => {});
@@ -1219,7 +1221,18 @@ export default function App() {
           onClose={() => setIsPageManagerOpen(false)}
           onApplyChanges={handleApplyPageModifications}
           onJumpToPage={(pageNum) => handleChangePage(pageNum)}
-          onExportSelectedPages={(selectedPageNumbers) => {
+          onExportSelectedPages={async (selectedPageNumbers, stagedPages) => {
+            if (stagedPages && stagedPages.length > 0) {
+              const snapshot = await buildStagedPageExportSnapshot(
+                pdfState,
+                signatures,
+                textOverlays,
+                stagedPages
+              );
+              setExportOverrideSnapshot(snapshot);
+            } else {
+              setExportOverrideSnapshot(null);
+            }
             setExportSelectedPages(selectedPageNumbers);
             setIsSaveModalOpen(true);
           }}

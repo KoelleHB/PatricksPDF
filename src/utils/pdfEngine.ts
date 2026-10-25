@@ -689,7 +689,12 @@ export function calculatePdfTextPlacement(
 
 export {
   embedSignaturesIntoPdf,
-   type ExportPdfOptions,
+  isolateSelectedPagesInSourceDoc,
+  rebuildAcroFormForCopiedPages,
+  applyPageModifications,
+  buildStagedPageExportSnapshot,
+  type ExportPdfOptions,
+  type StagedPageExportSnapshot,
 } from './pdfExportEngine';
 
 /**
@@ -717,104 +722,6 @@ export async function getPageInfoList(data: ArrayBuffer): Promise<PageInfo[]> {
 }
 
 export { clearThumbnailCache, renderPageThumbnail } from './pdfThumbnails';
-/**
- * Executes arbitrary page management operations: reordering, deletion, blank page insertions,
- * external PDF page imports, and 90° step rotations.
- */
-export async function applyPageModifications(
-  originalPdfBytes: ArrayBuffer,
-  pages: PageSpec[]
-): Promise<Uint8Array> {
-  if (!pages || pages.length === 0) {
-    throw new Error('A PDF document must have at least one page.');
-  }
-
-  // Load target document and clone document for safe page cloning/duplication
-  const copy = originalPdfBytes.slice(0);
-  const pdfDoc = await PDFDocument.load(copy, {
-    ignoreEncryption: false,
-    updateMetadata: false,
-    throwOnInvalidObject: false,
-    capNumbers: true,
-  });
-
-  let cloneDoc: PDFDocument | null = null;
-  const originalPages = pdfDoc.getPages();
-  const usedOriginalIndices = new Set<number>();
-
-  // Remove existing pages from primary doc page tree
-  while (pdfDoc.getPageCount() > 0) {
-    pdfDoc.removePage(0);
-  }
-
-  // Cache for any imported external PDF documents
-  const externalDocCache = new Map<ArrayBuffer, PDFDocument>();
-
-  for (let i = 0; i < pages.length; i++) {
-    const spec = pages[i];
-    const targetAngle = ((spec.rotationAngle % 360) + 360) % 360;
-
-    if (spec.source === 'existing') {
-      const origIdx = spec.originalPageIndex;
-      if (origIdx >= 0 && origIdx < originalPages.length) {
-        if (!usedOriginalIndices.has(origIdx)) {
-          // First use of this original page: insert directly into new position
-          const page = originalPages[origIdx];
-          page.setRotation(degrees(targetAngle));
-          pdfDoc.insertPage(i, page);
-          usedOriginalIndices.add(origIdx);
-        } else {
-          // Page was duplicated: copy from cloneDoc
-          if (!cloneDoc) {
-            cloneDoc = await PDFDocument.load(originalPdfBytes.slice(0), {
-              ignoreEncryption: true,
-              throwOnInvalidObject: false,
-              capNumbers: true,
-            });
-          }
-          const [copied] = await pdfDoc.copyPages(cloneDoc, [origIdx]);
-          copied.setRotation(degrees(targetAngle));
-          pdfDoc.insertPage(i, copied);
-        }
-      }
-    } else if (spec.source === 'blank') {
-      const w = spec.width || 595.28;
-      const h = spec.height || 841.89;
-      const page = pdfDoc.insertPage(i, [w, h]);
-      if (targetAngle !== 0) {
-        page.setRotation(degrees(targetAngle));
-      }
-    } else if (spec.source === 'imported' && spec.sourceBuffer) {
-      let extDoc = externalDocCache.get(spec.sourceBuffer);
-      if (!extDoc) {
-        extDoc = await PDFDocument.load(spec.sourceBuffer.slice(0), {
-          ignoreEncryption: true,
-          throwOnInvalidObject: false,
-          capNumbers: true,
-        });
-        externalDocCache.set(spec.sourceBuffer, extDoc);
-      }
-      const pIdx = spec.sourceDocPageIndex ?? 0;
-      if (pIdx >= 0 && pIdx < extDoc.getPageCount()) {
-        const [copied] = await pdfDoc.copyPages(extDoc, [pIdx]);
-        copied.setRotation(degrees(targetAngle));
-        pdfDoc.insertPage(i, copied);
-      }
-    }
-  }
-
-  // Update modification date
-  try {
-    pdfDoc.setModificationDate(new Date());
-  } catch {
-    // Ignore date update error
-  }
-
-  // Save with standard cross-reference table for universal PDF reader compatibility
-  return pdfDoc.save({
-    useObjectStreams: false,
-  });
-}
 
 export interface ReflowParagraph {
   text: string;

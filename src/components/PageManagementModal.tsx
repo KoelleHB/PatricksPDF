@@ -29,7 +29,10 @@ interface PageManagementModalProps {
   onClose: () => void;
   onApplyChanges: (newPages: PageSpec[]) => Promise<void>;
   onJumpToPage: (pageNumber: number) => void;
-  onExportSelectedPages?: (selectedPageNumbers: number[]) => void;
+  onExportSelectedPages?: (
+    selectedPageNumbers: number[],
+    stagedPages?: PageSpec[]
+  ) => Promise<void> | void;
 }
 
 export const PageManagementModal: React.FC<PageManagementModalProps> = ({
@@ -255,22 +258,19 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
       return;
     }
 
-    // If user also made structural changes (rotations, imports, blank pages, reordering),
-    // apply them first so the exported subset reflects the exact current Page Management state!
-    if (isDirty) {
-      setIsApplying(true);
-      try {
-        await onApplyChanges(pages);
-      } catch (err: any) {
-        setErrorMessage(err?.message || 'Seitenänderungen konnten vor dem Export nicht angewendet werden.');
-        setIsApplying(false);
-        return;
-      }
+    // Never mutate the active working document when starting a subset export.
+    // Instead, pass staged page specifications to the export dialog as an isolated snapshot.
+    setErrorMessage(null);
+    setIsApplying(true);
+    try {
+      await onExportSelectedPages(selectedIndices, isDirty ? pages : undefined);
+    } catch (err: any) {
+      setErrorMessage(
+        err?.message || 'Teil-Export konnte nicht vorbereitet werden.'
+      );
+    } finally {
       setIsApplying(false);
     }
-
-    onClose();
-    onExportSelectedPages(selectedIndices);
   };
 
   // Rotate a single page in 90° steps

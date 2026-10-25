@@ -111,38 +111,165 @@ export async function savePdfDocument(
   return { success: true, method: 'download' };
 }
 
+export interface SavePdfAsOptions {
+  timeoutMs?: number;
+  requestId?: string;
+}
+
+const DEFAULT_SAVE_AS_TIMEOUT_MS = 120_000;
+let activeSaveAsRequestId: string | null = null;
+
 /**
  * Opens the system file/folder picker to let the user choose where to save the PDF.
- * On Android: launches Storage Access Framework (Intent.ACTION_CREATE_DOCUMENT) via 'save_as'.
+ * On Android: launches Storage Access Framework (Intent.ACTION_CREATE_DOCUMENT) via 'save_as'
+ * with strict requestId correlation, timeout, Activity lifecycle recovery, and finally cleanup.
  * On Web: delegates to savePdfDocument (which uses showSaveFilePicker when available).
  */
 export async function savePdfDocumentAs(
   fileName: string,
-  pdfData: Blob | ArrayBuffer | Uint8Array
+  pdfData: Blob | ArrayBuffer | Uint8Array,
+  options: SavePdfAsOptions = {}
 ): Promise<{ success: boolean; method: 'native-android-picker' | 'file-picker' | 'download' }> {
   const safeName = fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`;
 
-  if (isNativeAndroid() && (window.NativePdfBridge as any)?.beginPdfTransfer) {
+  const bridge = typeof window !== 'undefined' ? (window.NativePdfBridge as any) : null;
+  if (isNativeAndroid() && bridge?.beginPdfTransfer) {
+    if (activeSaveAsRequestId !== null) {
+      throw new Error('Ein Speichervorgang über den Dateidialog ist bereits aktiv.');
+    }
+
+    const requestId =
+      options.requestId ||
+      `save_as_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const timeoutMs =
+      typeof options.timeoutMs === 'number' && options.timeoutMs > 0
+        ? options.timeoutMs
+        : DEFAULT_SAVE_AS_TIMEOUT_MS;
+
+    activeSaveAsRequestId = requestId;
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let lifecycleProbeHandle: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    let removeLifecycleListeners: (() => void) | null = null;
+    let callbackFn: ((completed: boolean, callbackRequestId?: string) => void) | null = null;
+
     try {
-      const completionPromise = new Promise<boolean>((resolve) => {
-        (window as any).onNativeSaveAsCompleted = (completed: boolean) => {
-          delete (window as any).onNativeSaveAsCompleted;
-          resolve(Boolean(completed));
+      if (typeof bridge.beginSaveAsRequest === 'function') {
+        const started = bridge.beginSaveAsRequest(requestId);
+        if (started === false) {
+          throw new Error('Speicherort-Anfrage auf Android konnte nicht initialisiert werden.');
+        }
+      }
+
+      const completionPromise = new Promise<boolean>((resolve, reject) => {
+        const settleResolve = (val: boolean) => {
+          if (settled) return;
+          settled = true;
+          resolve(val);
+        };
+        const settleReject = (err: Error) => {
+          if (settled) return;
+          settled = true;
+          reject(err);
+        };
+
+        callbackFn = (completed: boolean, callbackRequestId?: string) => {
+          // Ignore stale callbacks belonging to a different requestId
+          if (callbackRequestId && callbackRequestId !== requestId) {
+            return;
+          }
+          settleResolve(Boolean(completed));
+        };
+        (window as any).onNativeSaveAsCompleted = callbackFn;
+
+        timeoutHandle = setTimeout(() => {
+          settleReject(
+            new Error('Zeitüberschreitung bei der Speicherort-Auswahl auf Android.')
+          );
+        }, timeoutMs);
+
+        const checkNativeLifecycleStatus = () => {
+          if (settled || typeof bridge.getSaveAsStatus !== 'function') return;
+          if (lifecycleProbeHandle) clearTimeout(lifecycleProbeHandle);
+          lifecycleProbeHandle = setTimeout(() => {
+            if (settled) return;
+            try {
+              const status = bridge.getSaveAsStatus(requestId);
+              if (status === 'success') {
+                settleResolve(true);
+              } else if (status === 'cancelled') {
+                settleResolve(false);
+              } else if (status === 'unknown') {
+                settleReject(
+                  new Error(
+                    'Der Android-Speicherdialog wurde durch eine Unterbrechung oder Neuerstellung der Activity beendet.'
+                  )
+                );
+              }
+            } catch {
+              // Ignore probe errors; timeout remains active
+            }
+          }, 800);
+        };
+
+        const onWindowFocus = () => checkNativeLifecycleStatus();
+        const onVisibilityChange = () => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+            checkNativeLifecycleStatus();
+          }
+        };
+
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+          window.addEventListener('focus', onWindowFocus);
+        }
+        if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+          document.addEventListener('visibilitychange', onVisibilityChange);
+        }
+
+        removeLifecycleListeners = () => {
+          if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+            window.removeEventListener('focus', onWindowFocus);
+          }
+          if (
+            typeof document !== 'undefined' &&
+            typeof document.removeEventListener === 'function'
+          ) {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+          }
         };
       });
 
       const launched = await nativeFileAction('save_as', safeName, pdfData);
       if (!launched) {
-        delete (window as any).onNativeSaveAsCompleted;
+        settled = true;
         throw new Error('Speicherort-Auswahl auf Android konnte nicht geöffnet werden.');
       }
 
       const saved = await completionPromise;
       return { success: saved, method: 'native-android-picker' };
     } catch (err) {
-      delete (window as any).onNativeSaveAsCompleted;
       console.error('Native Android save_as failed:', err);
       throw err;
+    } finally {
+      settled = true;
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (lifecycleProbeHandle) clearTimeout(lifecycleProbeHandle);
+      removeLifecycleListeners?.();
+      if (
+        typeof window !== 'undefined' &&
+        (window as any).onNativeSaveAsCompleted === callbackFn
+      ) {
+        delete (window as any).onNativeSaveAsCompleted;
+      }
+      try {
+        bridge?.cancelSaveAsRequest?.(requestId);
+      } catch {
+        // Ignore cleanup bridge errors
+      }
+      if (activeSaveAsRequestId === requestId) {
+        activeSaveAsRequestId = null;
+      }
     }
   }
 

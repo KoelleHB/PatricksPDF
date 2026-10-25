@@ -47,16 +47,55 @@ import java.util.ArrayList;
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "PatricksPDF_Native";
     private static final int REQUEST_CODE_SAVE_PDF_AS = 4102;
+    private static final String STATE_PENDING_SAVE_AS_PATH = "state_pending_save_as_path";
+    private static final String STATE_PENDING_SAVE_AS_REQ_ID = "state_pending_save_as_req_id";
     private volatile String pendingPdfJson = null;
     private volatile File incomingPdfFile = null;
     private volatile String incomingPdfToken = null;
     private volatile File pendingSaveAsSourceFile = null;
+    private volatile String pendingSaveAsRequestId = null;
+    private volatile String lastCompletedSaveAsRequestId = null;
+    private volatile Boolean lastCompletedSaveAsResult = null;
 
     public static class NativePdfBridgeInterface {
         private final MainActivity activity;
 
         public NativePdfBridgeInterface(MainActivity activity) {
             this.activity = activity;
+        }
+
+        @JavascriptInterface
+        public synchronized boolean beginSaveAsRequest(String requestId) {
+            if (requestId == null || requestId.trim().isEmpty()) return false;
+            if (activity.pendingSaveAsSourceFile != null && activity.pendingSaveAsSourceFile.exists()) {
+                return false;
+            }
+            activity.pendingSaveAsRequestId = requestId.trim();
+            return true;
+        }
+
+        @JavascriptInterface
+        public synchronized void cancelSaveAsRequest(String requestId) {
+            if (requestId != null && requestId.equals(activity.pendingSaveAsRequestId)) {
+                File oldFile = activity.pendingSaveAsSourceFile;
+                activity.pendingSaveAsSourceFile = null;
+                activity.pendingSaveAsRequestId = null;
+                if (oldFile != null && oldFile.exists()) {
+                    oldFile.delete();
+                }
+            }
+        }
+
+        @JavascriptInterface
+        public synchronized String getSaveAsStatus(String requestId) {
+            if (requestId == null || requestId.isEmpty()) return "unknown";
+            if (requestId.equals(activity.lastCompletedSaveAsRequestId) && activity.lastCompletedSaveAsResult != null) {
+                return activity.lastCompletedSaveAsResult ? "success" : "cancelled";
+            }
+            if (requestId.equals(activity.pendingSaveAsRequestId)) {
+                return "pending";
+            }
+            return "unknown";
         }
 
         @JavascriptInterface
@@ -336,6 +375,7 @@ public class MainActivity extends BridgeActivity {
                     try (OutputStream out = new FileOutputStream(staged)) {
                         copyPdf(source, out);
                     }
+                    final String reqId = activity.pendingSaveAsRequestId;
                     File oldPending = activity.pendingSaveAsSourceFile;
                     activity.pendingSaveAsSourceFile = staged;
                     if (oldPending != null && oldPending.exists()) {
@@ -351,8 +391,10 @@ public class MainActivity extends BridgeActivity {
                         } catch (Exception e) {
                             Log.e(TAG, "Failed launching ACTION_CREATE_DOCUMENT", e);
                             if (staged.exists()) staged.delete();
+                            activity.pendingSaveAsSourceFile = null;
+                            activity.pendingSaveAsRequestId = null;
                             Toast.makeText(activity, "Speicherort-Dialog konnte nicht geöffnet werden", Toast.LENGTH_SHORT).show();
-                            activity.notifySaveAsCompleted(false);
+                            activity.notifySaveAsCompleted(false, reqId);
                         }
                     });
                     return true;
@@ -579,12 +621,37 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        if (savedInstanceState != null) {
+            String savedPath = savedInstanceState.getString(STATE_PENDING_SAVE_AS_PATH);
+            String savedReqId = savedInstanceState.getString(STATE_PENDING_SAVE_AS_REQ_ID);
+            if (savedPath != null && !savedPath.isEmpty()) {
+                File restored = new File(savedPath);
+                if (restored.exists()) {
+                    pendingSaveAsSourceFile = restored;
+                    pendingSaveAsRequestId = savedReqId;
+                }
+            }
+        }
+
         // Expose NativePdfBridge to JavaScript
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().addJavascriptInterface(new NativePdfBridgeInterface(this), "NativePdfBridge");
         }
 
         handleIncomingIntent(getIntent());
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        File staged = pendingSaveAsSourceFile;
+        String reqId = pendingSaveAsRequestId;
+        if (staged != null && staged.exists()) {
+            outState.putString(STATE_PENDING_SAVE_AS_PATH, staged.getAbsolutePath());
+        }
+        if (reqId != null) {
+            outState.putString(STATE_PENDING_SAVE_AS_REQ_ID, reqId);
+        }
     }
 
     @Override
@@ -599,10 +666,15 @@ public class MainActivity extends BridgeActivity {
         activity.startActivityForResult(intent, REQUEST_CODE_SAVE_PDF_AS);
     }
 
-    private void notifySaveAsCompleted(final boolean success) {
+    private void notifySaveAsCompleted(final boolean success, final String requestId) {
+        if (requestId != null) {
+            lastCompletedSaveAsRequestId = requestId;
+            lastCompletedSaveAsResult = success;
+        }
+        final String jsReqArg = requestId != null ? JSONObject.quote(requestId) : "undefined";
         if (getBridge() != null && getBridge().getWebView() != null) {
             runOnUiThread(() -> getBridge().getWebView().evaluateJavascript(
-                "window.onNativeSaveAsCompleted && window.onNativeSaveAsCompleted(" + (success ? "true" : "false") + ");",
+                "window.onNativeSaveAsCompleted && window.onNativeSaveAsCompleted(" + (success ? "true" : "false") + ", " + jsReqArg + ");",
                 null
             ));
         }
@@ -614,9 +686,11 @@ public class MainActivity extends BridgeActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CODE_SAVE_PDF_AS) {
             final File staged = pendingSaveAsSourceFile;
+            final String reqId = pendingSaveAsRequestId;
             pendingSaveAsSourceFile = null;
+            pendingSaveAsRequestId = null;
             if (staged == null || !staged.exists()) {
-                notifySaveAsCompleted(false);
+                notifySaveAsCompleted(false, reqId);
                 return;
             }
 
@@ -633,18 +707,18 @@ public class MainActivity extends BridgeActivity {
                         }
                         out.flush();
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, "PDF am gewählten Speicherort gespeichert", Toast.LENGTH_LONG).show());
-                        notifySaveAsCompleted(true);
+                        notifySaveAsCompleted(true, reqId);
                     } catch (Exception e) {
                         Log.e(TAG, "Failed writing PDF to chosen URI", e);
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, "Fehler beim Speichern am gewählten Ort", Toast.LENGTH_SHORT).show());
-                        notifySaveAsCompleted(false);
+                        notifySaveAsCompleted(false, reqId);
                     } finally {
                         staged.delete();
                     }
                 }, "pdf-save-as-writer").start();
             } else {
                 staged.delete();
-                notifySaveAsCompleted(false);
+                notifySaveAsCompleted(false, reqId);
             }
         }
     }
