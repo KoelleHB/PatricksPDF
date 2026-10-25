@@ -33,6 +33,11 @@ export interface RenderPageResult {
 
 // Kept as compatibility exports for consumers of the original PDF engine.
 export { loadPdfJsDoc, cancelCanvasRender, disposePdfJsResources } from './pdfDocumentLifecycle';
+import { TextLayerBuilder } from 'pdfjs-dist/web/pdf_viewer.mjs';
+import { PdfInlineTextHighlighter } from './pdfInlineTextHighlighter';
+import { compensatePdfTextLayerFonts } from './pdfTextMetrics';
+import { extractRawPdfLinks } from './pdfRawLinks';
+import { pdfRectToViewport } from './pdfViewportRect';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -182,49 +187,98 @@ export async function renderPdfPageToCanvas(
 }
 
 /**
- * Renders the selectable text layer for a PDF page into a target container div.
- * Enables user text marking, cursor selection, dragging, and standard clipboard copying.
+ * The PDF.js canvas and selectable text must use the same viewport.
+ * Rapid zooming used to allow an older asynchronous getTextContent() call
+ * to paint its spans after a newer render, producing offset/duplicated
+ * invisible selectable text and mismatched search rectangles.
  */
+interface TextLayerSession {
+  builder: { cancel(): void } | null;
+  highlighter: PdfInlineTextHighlighter;
+}
+
+const textLayerSessions = new WeakMap<HTMLDivElement, TextLayerSession>();
+
+export function cancelPdfTextLayer(host: HTMLDivElement): void {
+  const session = textLayerSessions.get(host);
+  if (session) {
+    textLayerSessions.delete(host);
+    try { session.builder?.cancel(); } catch { /* already settled */ }
+  }
+  host.replaceChildren();
+}
+
+/**
+ * Use Mozilla's complete TextLayerBuilder rather than instantiating the
+ * lower-level TextLayer directly. It contains Chromium/Android selection
+ * fixes and streams the PDF text with marked content and original Unicode.
+ *
+ * The React host is a plain positioned wrapper; the official .textLayer
+ * is owned by the builder and placed into it only after rendering finishes.
+ */
+/**
+ * Update search highlights in the active text layer without re-rendering it.
+ * The returned element belongs to the genuine selectable PDF.js text spans.
+ */
+export function highlightPdfTextMatch(
+  host: HTMLDivElement,
+  phrase: string,
+  ordinal: number,
+): HTMLElement | null {
+  return textLayerSessions.get(host)?.highlighter.setSearch(phrase, ordinal) ?? null;
+}
+
 export async function renderPdfTextLayer(
   data: ArrayBuffer,
   pageNumber: number,
-  container: HTMLDivElement,
-  targetWidth: number
-): Promise<any> {
-  if (!container || !data) return null;
+  host: HTMLDivElement,
+  targetWidth: number,
+): Promise<TextLayerBuilder | null> {
+  if (!host || !data) return null;
+
+  cancelPdfTextLayer(host);
+  const session: TextLayerSession = {
+    builder: null,
+    highlighter: new PdfInlineTextHighlighter(),
+  };
+  textLayerSessions.set(host, session);
+  const isCurrent = () => textLayerSessions.get(host) === session;
 
   try {
     const pdfDoc = await loadPdfJsDoc(data);
+    if (!isCurrent()) return null;
     const page = await pdfDoc.getPage(pageNumber);
+    if (!isCurrent()) return null;
 
-    const baseViewport = page.getViewport({ scale: 1.0 });
-    const scale = targetWidth / baseViewport.width;
-    const viewport = page.getViewport({ scale });
+    const baseViewport = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: targetWidth / baseViewport.width });
 
-    // Reset container contents and inject precise PDF.js scale factor custom properties
-    container.innerHTML = '';
-    container.style.width = `${Math.round(viewport.width)}px`;
-    container.style.height = `${Math.round(viewport.height)}px`;
-    container.style.setProperty('--scale-factor', `${scale}`);
-    container.style.setProperty('--scale-round-x', '1px');
-    container.style.setProperty('--scale-round-y', '1px');
-    container.setAttribute('data-main-rotation', `${viewport.rotation || 0}`);
+    // CSS variables live on the host and are inherited by the builder's div.
+    // The viewport (not devicePixelRatio) defines the CSS display dimensions.
+    host.style.setProperty('--total-scale-factor', String(viewport.scale));
+    host.style.setProperty('--scale-round-x', '1px');
+    host.style.setProperty('--scale-round-y', '1px');
 
-    const textContent = await page.getTextContent();
+    const builder = new TextLayerBuilder({
+      pdfPage: page,
+      highlighter: session.highlighter,
+      onAppend: (layer: HTMLDivElement) => {
+        if (isCurrent()) host.append(layer);
+      },
+    } as any);
+    session.builder = builder;
+    await builder.render({ viewport, images: undefined as any });
+    if (!isCurrent()) return null;
 
-    const TextLayerClass = (pdfjsLib as any).TextLayer;
-    if (TextLayerClass) {
-      const textLayer = new TextLayerClass({
-        textContentSource: textContent,
-        container,
-        viewport,
-      });
-      await textLayer.render();
-      return textLayer;
-    }
+    // Correct the actual enlarged WebView font metrics, not the PDF geometry.
+    const layer = host.querySelector<HTMLDivElement>('.textLayer');
+    if (layer) compensatePdfTextLayerFonts(layer, viewport.scale);
+
+    return builder;
   } catch (err: any) {
-    if (err?.name !== 'RenderingCancelledException') {
-      console.warn(`[TextLayer] Render warning for page ${pageNumber}:`, err);
+    if (isCurrent() && err?.name !== 'AbortException' &&
+        err?.name !== 'RenderingCancelledException') {
+      console.warn(`[TextLayer] Unable to render page ${pageNumber}:`, err);
     }
     return null;
   }
@@ -329,7 +383,7 @@ export async function extractPdfFormFields(
 
         // Convert PDF coordinates (origin bottom-left) to Viewport coordinates (origin top-left)
         // This automatically handles page rotation (0, 90, 180, 270), cropBox, and mediaBox offsets
-        const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle(rect);
+        const [vx1, vy1, vx2, vy2] = pdfRectToViewport(viewport, rect);
         const x = Math.min(vx1, vx2);
         const y = Math.min(vy1, vy2);
         const width = Math.abs(vx2 - vx1);
@@ -1326,8 +1380,9 @@ export async function extractPageLinks(
     const page = await doc.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1.0 });
     const annotations = await page.getAnnotations({ intent: 'display' });
-
-    if (!annotations || annotations.length === 0) return [];
+    if (!annotations || annotations.length === 0) {
+      return await extractRawPdfLinks(data, pageNumber);
+    }
 
     const links: PdfLinkAnnotation[] = [];
 
@@ -1337,7 +1392,7 @@ export async function extractPageLinks(
       if (!annot.rect || annot.rect.length < 4) continue;
 
       // Convert PDF coordinate rect to viewport display coordinates
-      const vpRect = viewport.convertToViewportRectangle(annot.rect);
+      const vpRect = pdfRectToViewport(viewport, annot.rect);
       const minX = Math.min(vpRect[0], vpRect[2]);
       const minY = Math.min(vpRect[1], vpRect[3]);
       const width = Math.abs(vpRect[2] - vpRect[0]);
@@ -1371,29 +1426,35 @@ export async function extractPageLinks(
         }
       }
 
-      // Check URLs: determine if it's an internal reference (e.g. #page=12, #12, file.pdf#page=12)
-      if (!targetPage && annot.url) {
-        const rawUrl = String(annot.url).trim();
-        const pageHashMatch = rawUrl.match(/(?:#|#page=|\.pdf#page=|\.pdf#)(\d+)$/i);
-        if (pageHashMatch) {
-          const p = parseInt(pageHashMatch[1], 10);
-          if (p >= 1 && p <= doc.numPages) {
-            targetPage = p;
-          }
-        } else if (rawUrl.startsWith('#')) {
-          targetPage = await resolveDestinationPage(doc, rawUrl.substring(1));
-        }
+      // Modern PDF.js exposes safe absolute links in .url and unresolved
+      // references in .unsafeUrl. Never treat a remote URL's #page=N as an
+      // internal jump in the currently opened PDF.
+      const rawUrl = typeof annot.url === 'string' ? annot.url.trim() : '';
+      const rawUnsafe = typeof annot.unsafeUrl === 'string' ? annot.unsafeUrl.trim() : '';
+      const candidate = rawUrl || rawUnsafe;
 
-        if (!targetPage) {
-          url = rawUrl;
-        }
-      } else if (!targetPage && !url && annot.unsafeUrl) {
-        const rawUnsafe = String(annot.unsafeUrl).trim();
-        const match = rawUnsafe.match(/(?:#|#page=|\.pdf#page=|\.pdf#)(\d+)$/i);
-        if (match) {
-          const p = parseInt(match[1], 10);
-          if (p >= 1 && p <= doc.numPages) {
-            targetPage = p;
+      if (!targetPage && candidate) {
+        if (candidate.startsWith('#')) {
+          const pageMatch = candidate.match(/^#(?:page=)?(\\d+)$/i);
+          if (pageMatch) {
+            const candidatePage = Number(pageMatch[1]);
+            if (candidatePage >= 1 && candidatePage <= doc.numPages) {
+              targetPage = candidatePage;
+            }
+          } else {
+            targetPage = await resolveDestinationPage(doc, candidate.slice(1));
+          }
+        } else {
+          // Permit clickable web links only. Do not open javascript:, data:,
+          // file: or content: URLs supplied by a potentially untrusted PDF.
+          try {
+            const parsed = new URL(candidate);
+            if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+                parsed.hostname) {
+              url = parsed.href;
+            }
+          } catch {
+            // Ignore unsupported or invalid URI annotations.
           }
         }
       }
@@ -1420,10 +1481,16 @@ export async function extractPageLinks(
       }
     }
 
-    return links;
+    // Some PDF.js versions omit links in otherwise valid documents.
+    return links.length > 0 ? links : await extractRawPdfLinks(data, pageNumber);
   } catch (err) {
-    console.warn(`Failed to extract links for page ${pageNumber}:`, err);
-    return [];
+    console.warn(`PDF.js link extraction failed on page ${pageNumber}; trying raw annotations:`, err);
+    try {
+      return await extractRawPdfLinks(data, pageNumber);
+    } catch (rawError) {
+      console.warn(`Raw PDF link extraction also failed on page ${pageNumber}:`, rawError);
+      return [];
+    }
   }
 }
 

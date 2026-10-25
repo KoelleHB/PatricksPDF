@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Synthetic encrypted PDF link integration smoke</title></head>
+<body>
+<pre id="pdf-link-probe" data-status="running">RUNNING</pre>
+<script type="module">
+import {loadPdfJsDoc} from '/src/utils/pdfDocumentLifecycle.ts';
+import {extractPageLinks} from '/src/utils/pdfEngine.ts';
+const out=document.getElementById('pdf-link-probe');
+try {
+  const response=await fetch('/test/fixtures/encrypted-pdf-links.pdf');
+  if (!response.ok) throw new Error('Synthetic fixture unavailable');
+  const bytes=await response.arrayBuffer();
+  const doc=await loadPdfJsDoc(bytes);
+  const annotations=await (await doc.getPage(1)).getAnnotations({intent:'display'});
+  const processed=await extractPageLinks(bytes,1);
+  const first=annotations.find(a=>a.dest)?.dest;
+  const ref=Array.isArray(first)?first[0]:null;
+  const targetIdx=ref&&typeof ref==='object'?await doc.getPageIndex(ref):-1;
+  const result={
+    pages:doc.numPages,
+    rawAnnotations:annotations.filter(a=>a.subtype==='Link').length,
+    processedLinks:processed.length,
+    rawDest:annotations.filter(a=>Boolean(a.dest)).length,
+    rawUrl:annotations.filter(a=>Boolean(a.url)).length,
+    targetIdx,
+    hasInternal:processed.some(link=>link.targetPage===2),
+    hasExternal:processed.some(link=>link.url==='https://example.org/docs'),
+  };
+  out.dataset.status=result.pages===2 &&
+    result.rawAnnotations===2 && result.processedLinks===2 &&
+    result.rawDest===1 && result.rawUrl===1 &&
+    result.targetIdx===1 && result.hasInternal && result.hasExternal
+      ? 'pass':'fail';
+  out.textContent=JSON.stringify(result);
+} catch(error) {
+  out.dataset.status='error';
+  out.textContent=String(error?.message??error);
+}
+</script>
+</body>
+</html>

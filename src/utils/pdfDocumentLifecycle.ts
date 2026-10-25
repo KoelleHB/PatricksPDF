@@ -76,6 +76,8 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     cMapPacked: true,
     // Configure standard 14 PDF fonts data fallback
     standardFontDataUrl: '/pdfjs/standard_fonts/',
+    wasmUrl: '/pdfjs/wasm/',
+    iccUrl: '/pdfjs/iccs/',
     // Tolerantly continue parsing despite minor syntax anomalies or object stream variations
     stopAtErrors: false,
     // Enable dynamic XFA forms commonly produced by Adobe Acrobat & LiveCycle
@@ -85,7 +87,6 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     // Unlimited image dimensions in object streams
     maxImageSize: -1,
     // Support function evaluation for blend modes and shading patterns
-    isEvalSupported: true,
     password: password || undefined,
   });
 
@@ -108,11 +109,12 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
       cMapUrl: '/pdfjs/cmaps/',
       cMapPacked: true,
       standardFontDataUrl: '/pdfjs/standard_fonts/',
+      wasmUrl: '/pdfjs/wasm/',
+      iccUrl: '/pdfjs/iccs/',
       stopAtErrors: false,
       enableXfa: true,
       useSystemFonts: true,
       maxImageSize: -1,
-      isEvalSupported: true,
       disableStream: true,
       disableAutoFetch: true,
       disableRange: true,

@@ -5,7 +5,6 @@ import { PdfViewer } from './components/PdfViewer';
 import { SignatureModal } from './components/SignatureModal';
 import { AddTextModal } from './components/AddTextModal';
 import { SaveModal } from './components/SaveModal';
-import { GeneralSetupGuideModal } from './components/GeneralSetupGuideModal';
 import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { PageManagementModal } from './components/PageManagementModal';
 import { MobileBottomBar } from './components/MobileBottomBar';
@@ -91,9 +90,9 @@ export default function App() {
   }, [formValues]);
 
   // Overall check: has user modified anything that has not been saved yet?
-  const hasUnsavedChanges = Boolean(
-    pdfState && (signatures.length > 0 || textOverlays.length > 0 || isFormModified || hasPageModifications) && !isSaved
-  );
+  // Do not infer safety from remaining overlays: edits such as removing an
+  // existing signature or resetting a field still require an explicit save.
+  const hasUnsavedChanges = Boolean(pdfState && !isSaved);
 
   // Browser beforeunload event listener (triggers browser's native leave confirmation)
   useEffect(() => {
@@ -133,7 +132,6 @@ export default function App() {
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  const [isSetupGuideModalOpen, setIsSetupGuideModalOpen] = useState(false);
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
   const [isReaderMode, setIsReaderMode] = useState(false);
 
@@ -709,6 +707,12 @@ export default function App() {
   const generateCurrentCompositePdf = async (): Promise<Uint8Array | null> => {
     if (!pdfState || !pdfState.arrayBuffer) return null;
     try {
+      // Directly transfer the final document when it contains no pending
+      // signatures, text, or form fields. Avoid a costly full re-serialization.
+      if (signatures.length === 0 && textOverlays.length === 0 &&
+          !isFormModified && formFields.length === 0) {
+        return new Uint8Array(pdfState.arrayBuffer);
+      }
       return await embedSignaturesIntoPdf(
         pdfState.arrayBuffer,
         signatures,
@@ -718,7 +722,8 @@ export default function App() {
       );
     } catch (err) {
       console.error('Error generating composite PDF for print/share:', err);
-      return new Uint8Array(pdfState.arrayBuffer);
+      // Never share or print the original after edited output has failed.
+      throw err;
     }
   };
 
@@ -731,6 +736,8 @@ export default function App() {
       if (bytes) {
         await printPdfDocument(pdfState.name, bytes);
       }
+    } catch (err: any) {
+      setPdfErrorMessage(`Drucken fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`);
     } finally {
       setIsQuickProcessing(false);
     }
@@ -745,6 +752,8 @@ export default function App() {
       if (bytes) {
         await sharePdfDocument(pdfState.name, bytes);
       }
+    } catch (err: any) {
+      setPdfErrorMessage(`Teilen fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`);
     } finally {
       setIsQuickProcessing(false);
     }
@@ -858,7 +867,6 @@ export default function App() {
           hasUnsavedChanges={hasUnsavedChanges}
           hasPageModifications={hasPageModifications}
           recentCount={recentDocs.length}
-          onOpenSetupGuide={() => setIsSetupGuideModalOpen(true)}
           onOpenSave={() => setIsSaveModalOpen(true)}
           onOpenPageManager={() => setIsPageManagerOpen(true)}
           onOpenRecent={() => setIsRecentModalOpen(true)}
@@ -1035,11 +1043,13 @@ export default function App() {
           textOverlays={textOverlays}
           formValues={formValues}
           hasFormFields={formFields.length > 0}
+          isFormModified={isFormModified}
           hasPageModifications={hasPageModifications}
           onClose={() => setIsSaveModalOpen(false)}
           onSaveSuccess={() => {
             setIsSaved(true);
-            setHasPageModifications(false);
+            // Document still contains structural changes relative to its original.
+            // Saving an export does not replace the active editing buffer.
             getRecentDocuments().then(setRecentDocs).catch(() => {});
           }}
         />
@@ -1054,11 +1064,6 @@ export default function App() {
         onSelectDoc={handleSelectRecentDoc}
         onRemoveDoc={handleRemoveRecentDoc}
         onClearAll={handleClearAllRecentDocs}
-      />
-
-      <GeneralSetupGuideModal
-        isOpen={isSetupGuideModalOpen}
-        onClose={() => setIsSetupGuideModalOpen(false)}
       />
 
       {/* Page Management Modal: Add, Delete, Reorder, and Rotate */}

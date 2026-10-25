@@ -12,10 +12,14 @@ import {
   cancelCanvasRender,
   extractPageLinks,
   renderPdfTextLayer,
+  cancelPdfTextLayer,
+  highlightPdfTextMatch,
 } from '../utils/pdfEngine';
 import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
 import { InteractiveFormField } from './InteractiveFormField';
+import { openPdfExternalLink, isNativeAndroid } from '../utils/nativeBridge';
+import { selectionTouchesPdfTextLayer } from '../utils/pdfSelection';
 
 interface PdfPageViewProps {
   pageNumber: number;
@@ -44,6 +48,7 @@ interface PdfPageViewProps {
   onResetForm?: () => void;
   onNavigateToPage: (page: number) => void;
   isCurrentPage?: boolean;
+  searchHighlight?: { query: string; ordinal: number };
 }
 
 export const PdfPageView = memo<PdfPageViewProps>(({
@@ -73,6 +78,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   onResetForm,
   onNavigateToPage,
   isCurrentPage = false,
+  searchHighlight,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -82,6 +88,38 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   const [isRendered, setIsRendered] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [links, setLinks] = useState<PdfLinkAnnotation[]>([]);
+  const [linkLoadStatus, setLinkLoadStatus] = useState<'idle'|'loading'|'found'|'empty'|'error'>('idle');
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [textLayerVersion, setTextLayerVersion] = useState(0);
+  const [renderedTextWidth, setRenderedTextWidth] = useState<number | null>(null);
+  const lastScrolledSearchRef = useRef('');
+  // Search marks are now *inside* the PDF.js selectable text spans.
+  // This avoids Android WebView's inaccurate Range.getClientRects() boxes
+  // that caused the orange overlay to sit several words to the right.
+  useEffect(() => {
+    const layer = textLayerRef.current;
+    const host = containerRef.current;
+    if (!layer || !host || !isNearViewport || renderedTextWidth !== pageWidth) return;
+
+    const phrase = searchHighlight?.query || '';
+    const selectedOrdinal = searchHighlight?.ordinal ?? -1;
+    const selected = highlightPdfTextMatch(layer, phrase, selectedOrdinal);
+
+    const searchKey = `${phrase}:${pageNumber}:${selectedOrdinal}`;
+    if (selected && lastScrolledSearchRef.current !== searchKey) {
+      lastScrolledSearchRef.current = searchKey;
+      const scrollRoot = host.closest('[data-pdf-scroll-container]');
+      if (scrollRoot) {
+        const rect = selected.getBoundingClientRect();
+        const view = scrollRoot.getBoundingClientRect();
+        scrollRoot.scrollTop += rect.top - view.top -
+          Math.min(160, scrollRoot.clientHeight * 0.28);
+      }
+    }
+  }, [
+    isNearViewport, textLayerVersion, renderedTextWidth, pageWidth,
+    searchHighlight?.query, searchHighlight?.ordinal, pageNumber,
+  ]);
 
   // Filter items specific to this page
   const pageSignatures = signatures.filter((s) => s.pageNumber === pageNumber);
@@ -96,8 +134,16 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry.isIntersecting) {
-          setIsNearViewport(true);
+        // Keep the original text DOM mounted for the duration of an Android
+        // range selection, even if dragging a handle scrolls the page offscreen.
+        // Destroying/rebuilding its spans makes selection handles jump.
+        if (!entry.isIntersecting && isNativeAndroid() &&
+            selectionTouchesPdfTextLayer(window.getSelection(), el)) return;
+        // Outside selection, retain the existing memory-saving virtualization.
+        setIsNearViewport(entry.isIntersecting);
+        if (!entry.isIntersecting) {
+          setIsRendered(false);
+          setIsLoading(false);
         }
       },
       {
@@ -114,12 +160,22 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   useEffect(() => {
     if (!isNearViewport || !arrayBuffer) return;
     let isCancelled = false;
+    setLinkLoadStatus('loading');
 
-    extractPageLinks(arrayBuffer, pageNumber).then((extractedLinks) => {
-      if (!isCancelled) {
-        setLinks(extractedLinks);
-      }
-    });
+    extractPageLinks(arrayBuffer, pageNumber)
+      .then((extractedLinks) => {
+        if (!isCancelled) {
+          setLinks(extractedLinks);
+          setLinkLoadStatus(extractedLinks.length > 0 ? 'found' : 'empty');
+        }
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          setLinks([]);
+          setLinkLoadStatus('error');
+          console.warn('Cannot read PDF annotations for page', pageNumber, error);
+        }
+      });
 
     return () => {
       isCancelled = true;
@@ -163,31 +219,38 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     return () => {
       isCancelled = true;
       clearTimeout(timer);
-      if (canvas && !isRendered) {
+      if (canvas) {
         cancelCanvasRender(canvas);
       }
     };
   }, [isNearViewport, arrayBuffer, pageNumber, zoomLevel]);
 
-  // Render selectable text layer (debounced on zoom/width changes)
+  // Only the latest text-layer render is allowed to publish selectable spans.
+  // Unmounting an offscreen page or changing zoom invalidates the previous work.
   useEffect(() => {
-    if (!isNearViewport || !arrayBuffer || !textLayerRef.current) return;
-
-    let isCancelled = false;
     const textLayerEl = textLayerRef.current;
+    if (!textLayerEl || !isNearViewport || !arrayBuffer) {
+      setRenderedTextWidth(null);
+      return;
+    }
 
-    const delay = isRendered ? 180 : 0;
+    let cancelled = false;
+    setRenderedTextWidth(null);
+    cancelPdfTextLayer(textLayerEl);
     const timer = setTimeout(() => {
-      renderPdfTextLayer(arrayBuffer, pageNumber, textLayerEl, pageWidth).catch((err) => {
-        if (!isCancelled) {
-          console.warn(`Failed to render text layer for page ${pageNumber}:`, err);
-        }
-      });
-    }, delay);
+      void renderPdfTextLayer(arrayBuffer, pageNumber, textLayerEl, pageWidth)
+        .then((layer) => {
+          if (!cancelled && layer) {
+            setRenderedTextWidth(pageWidth);
+            setTextLayerVersion((version) => version + 1);
+          }
+        });
+    }, isRendered ? 140 : 0);
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
       clearTimeout(timer);
+      cancelPdfTextLayer(textLayerEl);
     };
   }, [isNearViewport, arrayBuffer, pageNumber, pageWidth]);
 
@@ -196,6 +259,8 @@ export const PdfPageView = memo<PdfPageViewProps>(({
       ref={containerRef}
       id={`pdf-page-${pageNumber}`}
       data-page-number={pageNumber}
+      data-pdf-link-status={linkLoadStatus}
+      data-pdf-link-count={links.length}
       style={{
         width: `${pageWidth}px`,
         height: `${pageHeight}px`,
@@ -206,6 +271,9 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           : 'border-slate-300 shadow-sm'
       }`}
     >
+      {/* Keep a correctly sized shell for every page, but mount heavy content only nearby. */}
+      {isNearViewport ? (
+        <>
       {/* Loading placeholder spinner ONLY on initial render before page is first painted */}
       {!isRendered && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 text-slate-400 gap-2 z-5">
@@ -224,11 +292,10 @@ export const PdfPageView = memo<PdfPageViewProps>(({
       {/* Selectable & Markable Text Layer for text copying, marking, and selection */}
       <div
         ref={textLayerRef}
-        className="textLayer select-text"
+        className="pdf-text-layer-host absolute inset-0 select-text"
         style={{
           width: `${pageWidth}px`,
           height: `${pageHeight}px`,
-          '--scale-factor': zoomLevel / 100,
         } as React.CSSProperties}
         aria-hidden="false"
       />
@@ -239,14 +306,22 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           {links.map((link) => (
             <a
               key={link.id}
-              href={link.url || '#'}
+              data-pdf-link-id={link.id}
+              href={link.targetPage ? `#page=${link.targetPage}` : (link.url || '#')}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (link.targetPage) {
                   onNavigateToPage(link.targetPage);
                 } else if (link.url) {
-                  window.open(link.url, '_blank', 'noopener,noreferrer');
+                  try {
+                    // Android opens links using the native ACTION_VIEW bridge.
+                    // Browsers retain normal tab behavior through nativeBridge.
+                    openPdfExternalLink(link.url);
+                    setLinkError(null);
+                  } catch (error: any) {
+                    setLinkError(error?.message || 'Weblink konnte nicht geöffnet werden.');
+                  }
                 }
               }}
               style={{
@@ -255,12 +330,19 @@ export const PdfPageView = memo<PdfPageViewProps>(({
                 width: `${link.widthPercent}%`,
                 height: `${link.heightPercent}%`,
               }}
-              className="absolute pointer-events-auto cursor-pointer rounded-xs transition-colors bg-blue-500/0 hover:bg-blue-500/15 border border-transparent hover:border-blue-400/50"
+              className="absolute pointer-events-auto cursor-pointer rounded-xs transition-colors bg-blue-500/0 hover:bg-blue-500/15 border border-transparent hover:border-blue-400/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
               title={link.title}
             >
               <span className="sr-only">{link.title}</span>
             </a>
           ))}
+        </div>
+      )}
+
+      {linkError && (
+        <div role="alert" className="absolute z-[40] top-2 left-2 right-2 bg-amber-50 border border-amber-300 rounded p-2 text-sm text-amber-900">
+          {linkError}
+          <button type="button" onClick={() => setLinkError(null)} className="ml-2 underline">Schließen</button>
         </div>
       )}
 
@@ -336,6 +418,10 @@ export const PdfPageView = memo<PdfPageViewProps>(({
           />
         ))}
       </div>
+        </>
+      ) : (
+        <div className="absolute inset-0 bg-white" aria-hidden="true" />
+      )}
     </div>
   );
 });

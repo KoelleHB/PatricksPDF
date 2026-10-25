@@ -13,6 +13,28 @@ export function isNativeAndroid(): boolean {
 }
 
 /**
+ * Open a PDF's external URL in Android's default browser (ACTION_VIEW), not
+ * a WebView popup. Desktop retains the anchor's normal target="_blank".
+ * Never permit javascript:, file:, content: or data: URLs from annotations.
+ */
+export function openPdfExternalLink(rawUrl: string): void {
+  const url = new URL(rawUrl);
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Dieser PDF-Link verwendet ein nicht unterstütztes Protokoll.');
+  }
+  if (!url.hostname) throw new Error('Ungültige Webadresse im PDF.');
+  if (!isNativeAndroid()) {
+    window.open(url.href, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  const native = window.NativePdfBridge as any;
+  if (typeof native.openExternalUrl !== 'function' ||
+      native.openExternalUrl(url.href) !== true) {
+    throw new Error('Der Weblink konnte nicht im Android-Browser geöffnet werden.');
+  }
+}
+
+/**
  * Returns true if native share is supported (Android bridge or Web Share API with files).
  */
 export function canSharePdf(): boolean {

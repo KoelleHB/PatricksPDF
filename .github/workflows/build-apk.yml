@@ -3,6 +3,8 @@ name: Build Android APK
 on:
   push:
     branches: [main, master, feature/native-binary-resource-refactor]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -42,6 +44,20 @@ jobs:
 
       - name: TypeScript check
         run: npm run lint
+
+      - name: Run unit regression tests
+        run: npm test
+
+      # Synthetic, passwordless-openable AES-128 PDF fixture committed in
+      # test/fixtures. No public network fixture or user PDF is required.
+      - name: Browser smoke-test encrypted PDF links
+        run: |
+          npm install --no-save --package-lock=false --ignore-scripts puppeteer-core@24.26.1
+          npm run dev -- --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/vite.log" 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" || true' EXIT
+          sleep 4
+          node test/browserLinkProbe.mjs
 
       - name: Build Web App
         run: npm run build

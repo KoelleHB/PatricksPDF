@@ -4,7 +4,6 @@ import {
   Download,
   Wifi,
   WifiOff,
-  HelpCircle,
   FolderOpen,
   X,
   History,
@@ -19,7 +18,6 @@ interface HeaderProps {
   hasUnsavedChanges?: boolean;
   hasPageModifications?: boolean;
   recentCount?: number;
-  onOpenSetupGuide: () => void;
   onOpenSave?: () => void;
   onOpenExport?: () => void;
   onOpenPageManager?: () => void;
@@ -37,7 +35,6 @@ export const Header: React.FC<HeaderProps> = ({
   hasUnsavedChanges = false,
   hasPageModifications = false,
   recentCount = 0,
-  onOpenSetupGuide,
   onOpenSave,
   onOpenExport,
   onOpenPageManager,
@@ -175,18 +172,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden lg:inline">Teilen</span>
             </button>
           )}
-
-          {/* Setup Architecture & Install guide button: [?] on small screen, [? Guide] on desktop */}
-          <button
-            id="setup-guide-btn"
-            onClick={onOpenSetupGuide}
-            className="flex items-center justify-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
-            title="Help, Architecture & Install Instructions"
-            aria-label="Help and Setup Guide"
-          >
-            <HelpCircle className="w-4 h-4 text-blue-600 shrink-0" />
-            <span className="hidden sm:inline font-medium">Guide</span>
-          </button>
 
           {/* Hidden file input for opening documents */}
           {onFileSelect && (
