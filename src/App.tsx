@@ -11,12 +11,14 @@ import { MobileBottomBar } from './components/MobileBottomBar';
 import { RecentDocumentsModal } from './components/RecentDocumentsModal';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec, RecentDocumentRecord } from './types';
 import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, clearThumbnailCache, disposePdfJsResources, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
-import { getRecentDocuments, saveRecentDocument, removeRecentDocument, clearRecentDocuments } from './utils/recentDocuments';
+import { getRecentDocuments, getRecentDocumentBlob, saveRecentDocument, removeRecentDocument, clearRecentDocuments } from './utils/recentDocuments';
 import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
 import { usePwaShareTarget } from './hooks/usePwaShareTarget';
 import { AlertCircle, X, Loader2, Share2, FileQuestion, HelpCircle } from 'lucide-react';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
+import { AppError, createAppError } from './utils/appError';
+import { ErrorDiagnosticsModal } from './components/ErrorDiagnosticsModal';
 
 export default function App() {
   const [pdfState, setPdfState] = useState<PdfDocumentState | null>(null);
@@ -25,6 +27,7 @@ export default function App() {
     typeof window !== 'undefined' && window.location.search.includes('shared=true')
   );
   const [pdfErrorMessage, setPdfErrorMessage] = useState<string | null>(null);
+  const [activeAppError, setActiveAppError] = useState<AppError | null>(null);
   const [shareIssueNotice, setShareIssueNotice] = useState<{
     title: string;
     message: string;
@@ -39,7 +42,7 @@ export default function App() {
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
   const initialFormValuesRef = useRef<FormValuesState>({});
 
-  // Unified Document History Manager (Signatures, Text Overlays, and Form Values)
+  // Unified Document History Manager (Signatures, Text Overlays, Form Values, and deterministic Saved State)
   const {
     signatures,
     textOverlays,
@@ -62,13 +65,14 @@ export default function App() {
     historyNotice,
     resetHistory,
     getPageDocument,
+    isSaved,
+    markCurrentStateSaved,
   } = useDocumentHistory();
 
-  // Save / unsaved changes tracking
-  const [isSaved, setIsSaved] = useState(true);
+  // Structural page modification indicator
   const [hasPageModifications, setHasPageModifications] = useState(false);
   const markUnsaved = useCallback(() => {
-    setIsSaved(false);
+    // Saved status is deterministically derived from state signatures in useDocumentHistory
   }, []);
 
   // Password-protected PDF support
@@ -132,6 +136,7 @@ export default function App() {
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [exportSelectedPages, setExportSelectedPages] = useState<number[] | null>(null);
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
   const [isReaderMode, setIsReaderMode] = useState(false);
 
@@ -139,6 +144,7 @@ export default function App() {
   const handleFileSelect = async (file: File, password?: string) => {
     setIsLoadingPdf(true);
     setPdfErrorMessage(null);
+    setActiveAppError(null);
     setIsPasswordIncorrect(false);
 
     try {
@@ -196,7 +202,6 @@ export default function App() {
       setIsPasswordModalOpen(false);
       setPasswordPendingDoc(null);
       setHasPageModifications(false);
-      setIsSaved(true);
 
       // Asynchronously generate page 1 thumbnail and save to local document history
       generatePageThumbnail(arrayBuffer, 1, 160, password)
@@ -224,8 +229,13 @@ export default function App() {
         setIsPasswordModalOpen(true);
       } else {
         const errorDetail = err?.message || 'Unable to parse PDF structure.';
-        setPdfErrorMessage(
-          `Could not open "${file.name}": ${errorDetail}. Please ensure the file is an uncorrupted PDF.`
+        const msg = `Could not open "${file.name}": ${errorDetail}. Please ensure the file is an uncorrupted PDF.`;
+        setPdfErrorMessage(msg);
+        setActiveAppError(
+          createAppError('PDF_LOAD_FAILED', 'PDF konnte nicht geöffnet werden', msg, err, {
+            fileName: file.name,
+            fileSize: file.size,
+          })
         );
       }
     } finally {
@@ -652,7 +662,6 @@ export default function App() {
     setFormFields([]);
     initialFormValuesRef.current = {};
     setHasPageModifications(false);
-    setIsSaved(true);
     setIsReaderMode(false);
   };
 
@@ -676,9 +685,21 @@ export default function App() {
     }
   };
 
-  // Recent Documents Actions
-  const handleSelectRecentDoc = (record: RecentDocumentRecord) => {
-    const file = new File([record.pdfBuffer], record.name, {
+  // Recent Documents Actions (load binary blob on demand from IndexedDB v2)
+  const handleSelectRecentDoc = async (record: RecentDocumentRecord) => {
+    const buffer = record.pdfBuffer || (await getRecentDocumentBlob(record.id));
+    if (!buffer) {
+      const msg = `Das Dokument „${record.name}“ konnte nicht aus dem lokalen Speicher geladen werden.`;
+      setPdfErrorMessage(msg);
+      setActiveAppError(
+        createAppError('RECENT_DOC_LOAD_FAILED', 'Verlaufsdokument nicht verfügbar', msg, undefined, {
+          docId: record.id,
+          name: record.name,
+        })
+      );
+      return;
+    }
+    const file = new File([buffer], record.name, {
       type: 'application/pdf',
     });
     handleRequestFileSelect(file);
@@ -696,11 +717,15 @@ export default function App() {
   };
 
   const handlePrintRecentDoc = async (record: RecentDocumentRecord) => {
-    await printPdfDocument(record.name, record.pdfBuffer);
+    const buffer = record.pdfBuffer || (await getRecentDocumentBlob(record.id));
+    if (!buffer) return;
+    await printPdfDocument(record.name, buffer);
   };
 
   const handleShareRecentDoc = async (record: RecentDocumentRecord) => {
-    await sharePdfDocument(record.name, record.pdfBuffer);
+    const buffer = record.pdfBuffer || (await getRecentDocumentBlob(record.id));
+    if (!buffer) return;
+    await sharePdfDocument(record.name, buffer);
   };
 
   // Helper to compile current modified document (signatures, text overlays, form values)
@@ -737,7 +762,13 @@ export default function App() {
         await printPdfDocument(pdfState.name, bytes);
       }
     } catch (err: any) {
-      setPdfErrorMessage(`Drucken fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`);
+      const msg = `Drucken fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`;
+      setPdfErrorMessage(msg);
+      setActiveAppError(
+        createAppError('PDF_EXPORT_FAILED', 'Drucken fehlgeschlagen', msg, err, {
+          document: pdfState.name,
+        })
+      );
     } finally {
       setIsQuickProcessing(false);
     }
@@ -753,7 +784,13 @@ export default function App() {
         await sharePdfDocument(pdfState.name, bytes);
       }
     } catch (err: any) {
-      setPdfErrorMessage(`Teilen fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`);
+      const msg = `Teilen fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`;
+      setPdfErrorMessage(msg);
+      setActiveAppError(
+        createAppError('PDF_EXPORT_FAILED', 'Teilen fehlgeschlagen', msg, err, {
+          document: pdfState.name,
+        })
+      );
     } finally {
       setIsQuickProcessing(false);
     }
@@ -884,12 +921,26 @@ export default function App() {
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             <span>{pdfErrorMessage}</span>
           </div>
-          <button
-            onClick={() => setPdfErrorMessage(null)}
-            className="p-1 rounded text-red-500 hover:text-red-800 hover:bg-red-100 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {activeAppError && (
+              <button
+                type="button"
+                onClick={() => setShowDiagnosticsModal(true)}
+                className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 text-red-900 text-xs font-semibold transition"
+              >
+                Diagnose
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setPdfErrorMessage(null);
+                setActiveAppError(null);
+              }}
+              className="p-1 rounded text-red-500 hover:text-red-800 hover:bg-red-100 transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -1045,11 +1096,13 @@ export default function App() {
           hasFormFields={formFields.length > 0}
           isFormModified={isFormModified}
           hasPageModifications={hasPageModifications}
-          onClose={() => setIsSaveModalOpen(false)}
+          initialSelectedPages={exportSelectedPages}
+          onClose={() => {
+            setIsSaveModalOpen(false);
+            setExportSelectedPages(null);
+          }}
           onSaveSuccess={() => {
-            setIsSaved(true);
-            // Document still contains structural changes relative to its original.
-            // Saving an export does not replace the active editing buffer.
+            markCurrentStateSaved();
             getRecentDocuments().then(setRecentDocs).catch(() => {});
           }}
         />
@@ -1066,7 +1119,7 @@ export default function App() {
         onClearAll={handleClearAllRecentDocs}
       />
 
-      {/* Page Management Modal: Add, Delete, Reorder, and Rotate */}
+      {/* Page Management Modal: Add, Delete, Reorder, Rotate, Multi-Select, and Export Selected */}
       {pdfState && (
         <PageManagementModal
           isOpen={isPageManagerOpen}
@@ -1075,6 +1128,10 @@ export default function App() {
           onClose={() => setIsPageManagerOpen(false)}
           onApplyChanges={handleApplyPageModifications}
           onJumpToPage={(pageNum) => handleChangePage(pageNum)}
+          onExportSelectedPages={(selectedPageNumbers) => {
+            setExportSelectedPages(selectedPageNumbers);
+            setIsSaveModalOpen(true);
+          }}
         />
       )}
 
@@ -1132,52 +1189,23 @@ export default function App() {
         }}
       />
 
-      {/* Technical Diagnostics Modal */}
-      {showDiagnosticsModal && shareIssueNotice && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 flex flex-col gap-4 max-h-[85vh] overflow-hidden">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-slate-700" />
-                <h3 className="font-semibold text-slate-900 text-sm">Android Share Technical Diagnostic</h3>
-              </div>
-              <button
-                onClick={() => setShowDiagnosticsModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="text-xs text-slate-600 space-y-2">
-              <p>
-                When sharing from Android, native PDF readers receive direct operating system streams (<code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800">ACTION_VIEW</code> / <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800">content://</code> URIs).
-              </p>
-              <p>
-                PWAs running in Chrome rely on the Web Share Target API which packages the intent into an HTTP POST request. Below is the exact data captured by the Service Worker:
-              </p>
-            </div>
-            <div className="bg-slate-900 text-slate-200 font-mono text-[11px] p-3 rounded-xl overflow-auto flex-1 max-h-56">
-              <pre>{JSON.stringify(shareIssueNotice.details, null, 2)}</pre>
-            </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => setShowDiagnosticsModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  setShowDiagnosticsModal(false);
-                  manualFileInputRef.current?.click();
-                }}
-                className="px-4 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition"
-              >
-                Choose PDF Manually
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Unified Technical Error Diagnostics Modal */}
+      {showDiagnosticsModal && (activeAppError || shareIssueNotice) && (
+        <ErrorDiagnosticsModal
+          error={
+            activeAppError ||
+            createAppError(
+              'ANDROID_SHARE_FAILED',
+              shareIssueNotice?.title || 'Android Share Technical Diagnostic',
+              shareIssueNotice?.message || 'PDF konnte nicht über das Share-Target geladen werden.',
+              shareIssueNotice?.details,
+              shareIssueNotice?.attemptedFile
+                ? { attemptedFile: shareIssueNotice.attemptedFile }
+                : undefined
+            )
+          }
+          onClose={() => setShowDiagnosticsModal(false)}
+        />
       )}
     </div>
   );

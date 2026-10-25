@@ -13,7 +13,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { RecentDocumentRecord } from '../types';
-import { formatRelativeTime, formatFileSize } from '../utils/recentDocuments';
+import { formatRelativeTime, formatFileSize, getRecentDocumentBlob } from '../utils/recentDocuments';
 import { sharePdfDocument, printPdfDocument } from '../utils/nativeBridge';
 
 interface RecentDocumentsModalProps {
@@ -48,7 +48,9 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
   const handleShare = async (doc: RecentDocumentRecord, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await sharePdfDocument(doc.name, doc.pdfBuffer);
+      const buffer = doc.pdfBuffer || (await getRecentDocumentBlob(doc.id));
+      if (!buffer) return;
+      const res = await sharePdfDocument(doc.name, buffer);
       if (res.success) {
         showFeedback(`"${doc.name}" bereitgestellt.`);
       }
@@ -60,7 +62,9 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
   const handlePrint = async (doc: RecentDocumentRecord, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await printPdfDocument(doc.name, doc.pdfBuffer);
+      const buffer = doc.pdfBuffer || (await getRecentDocumentBlob(doc.id));
+      if (!buffer) return;
+      const res = await printPdfDocument(doc.name, buffer);
       if (res.success) {
         showFeedback(`Druckauftrag gestartet: ${doc.name}`);
       }

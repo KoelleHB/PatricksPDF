@@ -3,15 +3,17 @@ import {
   Upload,
   PenTool,
   Sliders,
-  Check,
   X,
   RefreshCw,
-  Crop,
   Layers,
   Sparkles,
   ArrowRight,
-  Eye,
   FileImage,
+  Bookmark,
+  Trash2,
+  Edit3,
+  Check,
+  PlusCircle,
 } from 'lucide-react';
 import { TransparencyOptions, SignatureItem } from '../types';
 import {
@@ -20,6 +22,13 @@ import {
   ProcessedImageResult,
 } from '../utils/imageProcessor';
 import { HandwrittenSignaturePad } from './HandwrittenSignaturePad';
+import {
+  SavedSignatureTemplate,
+  getSavedSignatures,
+  saveSignatureTemplate,
+  renameSignatureTemplate,
+  deleteSignatureTemplate,
+} from '../utils/signatureLibrary';
 
 interface SignatureModalProps {
   isOpen: boolean;
@@ -34,12 +43,19 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   onClose,
   onAddSignature,
 }) => {
-  const [activeTab, setActiveTab] = useState<'upload' | 'draw'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'draw' | 'library'>('upload');
   const [rawImageSrc, setRawImageSrc] = useState<string>('');
-  const [signatureName, setSignatureName] = useState<string>('Signature');
+  const [signatureName, setSignatureName] = useState<string>('Unterschrift');
+  const [saveToLibraryOnInsert, setSaveToLibraryOnInsert] = useState<boolean>(true);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processedResult, setProcessedResult] = useState<ProcessedImageResult | null>(null);
   const [isDetectedTransparent, setIsDetectedTransparent] = useState<boolean>(false);
+
+  // Saved templates library state
+  const [savedTemplates, setSavedTemplates] = useState<SavedSignatureTemplate[]>([]);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState<string>('');
+  const [libraryFeedback, setLibraryFeedback] = useState<string | null>(null);
 
   // Transparency adjustment options
   const [options, setOptions] = useState<TransparencyOptions>({
@@ -53,6 +69,19 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   // Drawn signature state
   const [drawnResult, setDrawnResult] = useState<ProcessedImageResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load saved signature templates when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    let mounted = true;
+    getSavedSignatures().then((items) => {
+      if (!mounted) return;
+      setSavedTemplates(items);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [isOpen]);
 
   // Process image whenever rawImageSrc or options change
   useEffect(() => {
@@ -82,6 +111,11 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
 
   if (!isOpen) return null;
 
+  const showLibraryToast = (msg: string) => {
+    setLibraryFeedback(msg);
+    setTimeout(() => setLibraryFeedback(null), 2200);
+  };
+
   // Handle file selection from phone camera or gallery
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -92,14 +126,12 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       if (typeof event.target?.result === 'string') {
         const dataUrl = event.target.result;
         setRawImageSrc(dataUrl);
-        setSignatureName(file.name.replace(/\.[^/.]+$/, ''));
+        setSignatureName(file.name.replace(/\.[^/.]+$/, '') || 'Unterschrift');
         setActiveTab('upload');
 
-        // Check if uploaded file is already a transparent PNG / image
         const hasTrans = await detectImageHasTransparency(dataUrl);
         setIsDetectedTransparent(hasTrans);
 
-        // If it's already transparent, default mode to 'as-is' so it inserts cleanly!
         setOptions((prev) => ({
           ...prev,
           mode: hasTrans ? 'as-is' : 'remove-white',
@@ -109,23 +141,105 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const activeResult = activeTab === 'draw' ? drawnResult : processedResult;
+  const activeResult = activeTab === 'draw' ? drawnResult : activeTab === 'upload' ? processedResult : null;
 
-  const handleApply = () => {
+  const handleSaveCurrentToLibraryOnly = async () => {
+    if (!activeResult) return;
+    const label =
+      signatureName.trim() ||
+      (activeTab === 'draw' ? `Unterschrift ${savedTemplates.length + 1}` : 'Signatur-Vorlage');
+    try {
+      const bytesBuffer = activeResult.pngBytes.buffer.slice(
+        activeResult.pngBytes.byteOffset,
+        activeResult.pngBytes.byteOffset + activeResult.pngBytes.byteLength
+      ) as ArrayBuffer;
+      await saveSignatureTemplate({
+        label,
+        transparentDataUrl: activeResult.transparentDataUrl,
+        pngBytes: bytesBuffer,
+        aspectRatio: activeResult.aspectRatio,
+      });
+      const updated = await getSavedSignatures();
+      setSavedTemplates(updated);
+      showLibraryToast(`Vorlage „${label}“ gespeichert.`);
+    } catch (err) {
+      console.warn('Could not save signature template:', err);
+    }
+  };
+
+  const handleApply = async () => {
     if (!activeResult) return;
 
+    const finalLabel =
+      signatureName.trim() || (activeTab === 'draw' ? 'Handschriftliche Signatur' : 'Unterschrift');
+
+    if (saveToLibraryOnInsert) {
+      try {
+        const bytesBuffer = activeResult.pngBytes.buffer.slice(
+          activeResult.pngBytes.byteOffset,
+          activeResult.pngBytes.byteOffset + activeResult.pngBytes.byteLength
+        ) as ArrayBuffer;
+        await saveSignatureTemplate({
+          label: finalLabel,
+          transparentDataUrl: activeResult.transparentDataUrl,
+          pngBytes: bytesBuffer,
+          aspectRatio: activeResult.aspectRatio,
+        });
+      } catch (err) {
+        console.warn('Failed to persist signature to library:', err);
+      }
+    }
+
     onAddSignature({
-      name: signatureName || (activeTab === 'draw' ? 'Handwritten Signature' : 'Signature'),
+      name: finalLabel,
       transparentDataUrl: activeResult.transparentDataUrl,
       pngBytes: activeResult.pngBytes,
       originalDataUrl: activeTab === 'draw' ? activeResult.transparentDataUrl : rawImageSrc,
-      widthPercent: 28, // Default comfortable signature width
+      widthPercent: 28,
       aspectRatio: activeResult.aspectRatio,
       opacity: 1.0,
       rotation: 0,
     });
 
     onClose();
+  };
+
+  const handleInsertSavedTemplate = (tpl: SavedSignatureTemplate) => {
+    onAddSignature({
+      name: tpl.label,
+      transparentDataUrl: tpl.transparentDataUrl,
+      pngBytes: new Uint8Array(tpl.pngBytes.slice(0)),
+      originalDataUrl: tpl.transparentDataUrl,
+      widthPercent: 28,
+      aspectRatio: tpl.aspectRatio,
+      opacity: 1.0,
+      rotation: 0,
+    });
+    onClose();
+  };
+
+  const handleStartRename = (tpl: SavedSignatureTemplate, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingTemplateId(tpl.id);
+    setEditingLabel(tpl.label);
+  };
+
+  const handleConfirmRename = async (id: string, e?: React.MouseEvent | React.FormEvent) => {
+    e?.stopPropagation();
+    if (editingLabel.trim()) {
+      await renameSignatureTemplate(id, editingLabel.trim());
+      const updated = await getSavedSignatures();
+      setSavedTemplates(updated);
+    }
+    setEditingTemplateId(null);
+  };
+
+  const handleDeleteTemplate = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await deleteSignatureTemplate(id);
+    const updated = await getSavedSignatures();
+    setSavedTemplates(updated);
+    showLibraryToast('Vorlage entfernt.');
   };
 
   return (
@@ -142,7 +256,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 Add Signature
               </h2>
               <p className="text-xs text-slate-500">
-                Upload transparent PNG signatures directly as-is, or remove paper backgrounds from photos
+                Gespeicherte Vorlagen nutzen, Bild/Foto freistellen oder direkt unterschreiben
               </p>
             </div>
           </div>
@@ -155,10 +269,11 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
         </div>
 
         {/* Source Switcher Tabs */}
-        <div className="flex border-b border-slate-200 bg-white px-4 pt-2 gap-2 text-xs sm:text-sm font-medium">
+        <div className="flex border-b border-slate-200 bg-white px-4 pt-2 gap-1 sm:gap-2 text-xs sm:text-sm font-medium overflow-x-auto">
           <button
+            type="button"
             onClick={() => setActiveTab('upload')}
-            className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 ${
+            className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 shrink-0 ${
               activeTab === 'upload'
                 ? 'border-blue-600 text-blue-600 font-semibold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -168,8 +283,9 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             <span>Upload Image / Photo</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('draw')}
-            className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 ${
+            className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 shrink-0 ${
               activeTab === 'draw'
                 ? 'border-blue-600 text-blue-600 font-semibold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -178,10 +294,189 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             <PenTool className="w-3.5 h-3.5" />
             <span>Draw with Finger</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('library')}
+            className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 shrink-0 ${
+              activeTab === 'library'
+                ? 'border-blue-600 text-blue-600 font-semibold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Bookmark className="w-3.5 h-3.5" />
+            <span>Vorlagen-Bibliothek</span>
+            {savedTemplates.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
+                {savedTemplates.length}
+              </span>
+            )}
+          </button>
         </div>
+
+        {libraryFeedback && (
+          <div className="bg-emerald-50 border-b border-emerald-200 px-4 py-2 text-xs font-semibold text-emerald-800 flex items-center justify-between">
+            <span>{libraryFeedback}</span>
+            <Check className="w-3.5 h-3.5 text-emerald-600" />
+          </div>
+        )}
 
         {/* Modal Body */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+          {/* Quick-Pick Bar when on Upload/Draw and saved templates exist */}
+          {activeTab !== 'library' && savedTemplates.length > 0 && (
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Bookmark className="w-3.5 h-3.5 text-blue-600" />
+                  Gespeicherte Unterschriften (Direkt einfügen)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('library')}
+                  className="text-blue-600 hover:underline font-medium text-[11px]"
+                >
+                  Alle verwalten ({savedTemplates.length})
+                </button>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {savedTemplates.slice(0, 4).map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => handleInsertSavedTemplate(tpl)}
+                    className="group flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-blue-500 hover:bg-blue-50/30 transition shrink-0 text-left shadow-2xs"
+                    title={`„${tpl.label}“ auf Seite ${currentPage} platzieren`}
+                  >
+                    <img
+                      src={tpl.transparentDataUrl}
+                      alt={tpl.label}
+                      className="h-7 w-14 object-contain"
+                    />
+                    <span className="text-xs font-medium text-slate-700 group-hover:text-blue-700 truncate max-w-[110px]">
+                      {tpl.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tab 3: Saved Signature Templates Library */}
+          {activeTab === 'library' && (
+            <div className="space-y-3">
+              {savedTemplates.length === 0 ? (
+                <div className="py-10 px-4 text-center rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                  <Bookmark className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-sm font-semibold text-slate-700">
+                    Noch keine gespeicherten Unterschriften
+                  </p>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Lade ein Bild hoch oder zeichne deine Unterschrift und aktiviere „In Bibliothek speichern“, um wiederverwendbare Vorlagen (z. B. „Paraphe“, „Vollständige Unterschrift“, „Firmenstempel“) anzulegen.
+                  </p>
+                  <div className="pt-2 flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('draw')}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition"
+                    >
+                      Jetzt zeichnen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('upload')}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-100 transition"
+                    >
+                      Bild auswählen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {savedTemplates.map((tpl) => (
+                    <div
+                      key={tpl.id}
+                      onClick={() => handleInsertSavedTemplate(tpl)}
+                      className="group rounded-xl border border-slate-200 hover:border-blue-500 bg-white p-3 flex flex-col justify-between gap-2.5 shadow-2xs hover:shadow-md transition cursor-pointer"
+                    >
+                      <div
+                        className="h-24 rounded-lg border border-slate-100 p-2 flex items-center justify-center overflow-hidden"
+                        style={{
+                          backgroundImage: `
+                            linear-gradient(45deg, #f1f5f9 25%, transparent 25%), 
+                            linear-gradient(-45deg, #f1f5f9 25%, transparent 25%), 
+                            linear-gradient(45deg, transparent 75%, #f1f5f9 75%), 
+                            linear-gradient(-45deg, transparent 75%, #f1f5f9 75%)
+                          `,
+                          backgroundSize: '14px 14px',
+                          backgroundPosition: '0 0, 0 7px, 7px -7px, -7px 0px',
+                          backgroundColor: '#f8fafc',
+                        }}
+                      >
+                        <img
+                          src={tpl.transparentDataUrl}
+                          alt={tpl.label}
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                        {editingTemplateId === tpl.id ? (
+                          <form
+                            onSubmit={(e) => handleConfirmRename(tpl.id, e)}
+                            className="flex items-center gap-1 flex-1"
+                          >
+                            <input
+                              type="text"
+                              value={editingLabel}
+                              onChange={(e) => setEditingLabel(e.target.value)}
+                              className="w-full px-2 py-1 text-xs rounded border border-blue-400 focus:outline-hidden"
+                              autoFocus
+                            />
+                            <button
+                              type="submit"
+                              className="p-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                              title="Speichern"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          </form>
+                        ) : (
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-slate-800 truncate" title={tpl.label}>
+                              {tpl.label}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              Klicken zum Einfügen auf Seite {currentPage}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => handleStartRename(tpl, e)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                            title="Bezeichnung ändern"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteTemplate(tpl.id, e)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                            title="Vorlage löschen"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Tab 1: Upload File */}
           {activeTab === 'upload' && (
             <div
@@ -214,7 +509,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             <div className="space-y-3">
               <HandwrittenSignaturePad onSignatureChange={setDrawnResult} />
 
-              {/* Live Preview of the Drawn Signature */}
               {drawnResult && (
                 <div className="space-y-2 pt-2 border-t border-slate-100">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
@@ -266,7 +560,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
           {/* Before & After Interactive Preview for upload tab */}
           {activeTab === 'upload' && rawImageSrc && (
             <div className="space-y-3 pt-2 border-t border-slate-100">
-              {/* Mode Toggle: Insert As-Is vs Remove White Paper Background */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
@@ -316,15 +609,16 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
 
               {/* Preview Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Original Source */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
                     <span>Source Image</span>
-                    <span className={`px-1.5 py-0.2 rounded text-[10px] ${
-                      isDetectedTransparent
-                        ? 'bg-emerald-100 text-emerald-800 font-medium'
-                        : 'bg-slate-100 text-slate-600'
-                    }`}>
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[10px] ${
+                        isDetectedTransparent
+                          ? 'bg-emerald-100 text-emerald-800 font-medium'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
                       {isDetectedTransparent ? 'Transparent PNG' : 'Original Photo'}
                     </span>
                   </div>
@@ -350,7 +644,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                   </div>
                 </div>
 
-                {/* Processed / As-Is Result */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
                     <span className="text-emerald-700 font-bold">
@@ -360,7 +653,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                       {options.mode === 'as-is' ? 'Preserved' : 'Transparent'}
                     </span>
                   </div>
-                  {/* Checkerboard Pattern for transparent background visualization */}
                   <div
                     className="h-32 rounded-xl border border-emerald-300 p-2 flex items-center justify-center overflow-hidden shadow-inner relative"
                     style={{
@@ -388,9 +680,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 </div>
               </div>
 
-              {/* Mode-Specific Controls */}
               {options.mode === 'as-is' ? (
-                /* As-Is Mode Configuration */
                 <div className="bg-blue-50/60 border border-blue-200/80 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-blue-900">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
@@ -404,16 +694,13 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                     <input
                       type="checkbox"
                       checked={options.autoCrop}
-                      onChange={(e) =>
-                        setOptions({ ...options, autoCrop: e.target.checked })
-                      }
+                      onChange={(e) => setOptions({ ...options, autoCrop: e.target.checked })}
                       className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                     />
                     <span>Trim outer empty margins</span>
                   </label>
                 </div>
               ) : (
-                /* White Removal Fine-Tuning Controls */
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
                     <span className="flex items-center gap-1.5">
@@ -421,6 +708,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                       White Removal Sensitivity & Ink Tuning
                     </span>
                     <button
+                      type="button"
                       onClick={() =>
                         setOptions({
                           mode: 'remove-white',
@@ -437,7 +725,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    {/* Threshold Slider */}
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-600 mb-1">
                         <span>White Removal Threshold</span>
@@ -448,9 +735,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                         min={180}
                         max={254}
                         value={options.threshold}
-                        onChange={(e) =>
-                          setOptions({ ...options, threshold: Number(e.target.value) })
-                        }
+                        onChange={(e) => setOptions({ ...options, threshold: Number(e.target.value) })}
                         className="w-full accent-blue-600 cursor-pointer"
                       />
                       <p className="text-[10px] text-slate-400 mt-0.5">
@@ -458,7 +743,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                       </p>
                     </div>
 
-                    {/* Feather Slider */}
                     <div>
                       <div className="flex justify-between text-[11px] text-slate-600 mb-1">
                         <span>Edge Softness / Feather</span>
@@ -469,9 +753,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                         min={0}
                         max={16}
                         value={options.feather}
-                        onChange={(e) =>
-                          setOptions({ ...options, feather: Number(e.target.value) })
-                        }
+                        onChange={(e) => setOptions({ ...options, feather: Number(e.target.value) })}
                         className="w-full accent-blue-600 cursor-pointer"
                       />
                       <p className="text-[10px] text-slate-400 mt-0.5">
@@ -480,7 +762,6 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Ink Mode and Auto-Crop */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-xs">
                     <div className="flex items-center gap-1.5">
                       <span className="text-slate-600 text-[11px] font-medium">Ink Enhancement:</span>
@@ -513,9 +794,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                       <input
                         type="checkbox"
                         checked={options.autoCrop}
-                        onChange={(e) =>
-                          setOptions({ ...options, autoCrop: e.target.checked })
-                        }
+                        onChange={(e) => setOptions({ ...options, autoCrop: e.target.checked })}
                         className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                       <span>Trim empty white margins</span>
@@ -525,26 +804,68 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
               )}
             </div>
           )}
+
+          {/* Save to Library controls when a signature is ready on Upload or Draw tab */}
+          {activeTab !== 'library' && activeResult && (
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <label className="text-xs font-semibold text-slate-700 shrink-0">
+                  Bezeichnung:
+                </label>
+                <input
+                  type="text"
+                  value={signatureName}
+                  onChange={(e) => setSignatureName(e.target.value)}
+                  placeholder="z. B. Unterschrift, Paraphe, Stempel"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={saveToLibraryOnInsert}
+                    onChange={(e) => setSaveToLibraryOnInsert(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <span>In Bibliothek speichern</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSaveCurrentToLibraryOnly}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition"
+                  title="Direkt als Vorlage in der Bibliothek ablegen"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Nur merken</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
         <div className="px-4 sm:px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-200 text-xs sm:text-sm font-medium transition"
           >
             Cancel
           </button>
 
-          <button
-            id="apply-signature-to-pdf-btn"
-            disabled={!activeResult || (activeTab === 'upload' && isProcessing)}
-            onClick={handleApply}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-md transition"
-          >
-            <span>Place on Page {currentPage}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          {activeTab !== 'library' && (
+            <button
+              id="apply-signature-to-pdf-btn"
+              type="button"
+              disabled={!activeResult || (activeTab === 'upload' && isProcessing)}
+              onClick={handleApply}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-md transition"
+            >
+              <span>Place on Page {currentPage}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>

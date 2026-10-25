@@ -8,11 +8,12 @@ Privater PDF-Editor und -Reader als **Web-App/PWA** sowie **Android-App (Capacit
 
 - **Lesen:** PDF.js-Canvas, fortlaufende Seitendarstellung, Zoom/Fit Width je Seite, Lesemodus/Reflow, Inhaltsverzeichnis, interne und externe PDF-Links.
 - **Suchen und kopieren:** lokale Volltextsuche mit Fundstellenkontext, Vor/Zurück, Navigation und positionsgenauer Markierung; native Android-Textauswahl. Die Suche ist auf **1.000 Treffer** begrenzt.
-- **Bearbeiten:** Unterschriften, freie Textfelder, vorhandene PDF-Formularfelder (AcroForms); optionales Flattening beim Export.
-- **Seitenverwaltung:** Seiten neu ordnen, drehen, löschen, duplizieren, leere Seiten hinzufügen und Seiten aus anderen PDFs importieren.
-- **Versionierung im Dokument:** Undo/Redo für Bearbeitungsschritte einschließlich struktureller Seitenänderungen; maximal 50 Historieneinträge.
-- **Ausgabe:** PDF speichern, teilen und drucken – im Browser über unterstützte Web-APIs, unter Android über eine native Bridge.
-- **Zuletzt geöffnet:** lokale Liste mit PDF-Daten und Vorschaubildern über IndexedDB (maximal 15 Dokumente bzw. 50 MiB für diesen Cache).
+- **Bearbeiten & Unterschriftenbibliothek:** Unterschriften (inklusive lokal in IndexedDB gespeicherter Vorlagen-Bibliothek mit frei vergebbarer Bezeichnung), freie Textfelder (lokal eingebettete Schriften Helvetica und Caveat ohne externe Google-Fonts-Abhängigkeit) sowie vorhandene PDF-Formularfelder (AcroForms) mit abgesichertem Flattening.
+- **Seitenverwaltung & Mehrfachauswahl:** Seiten einzeln oder per Mehrfachauswahl (Checkbox / Shift+Klick / Alle / Umkehren) drehen, duplizieren, löschen, neu ordnen, leere Seiten hinzufügen, Seiten aus anderen PDFs importieren sowie markierte Seiten direkt als neues PDF exportieren.
+- **Speichererfreundliche Versionierung & Speicherstatus:** Undo/Redo arbeitet mit kompakten Änderungsoperationen und deduplizierten Dokument-Revisionen (max. 50 Einträge); der „Gespeichert“-Status wird deterministisch aus der Zustands-Signatur abgeleitet.
+- **Ausgabe & Exporteinstellungen:** Vollständiges PDF oder ausgewählte Seiten/Seitenbereiche speichern, teilen und drucken – inklusive dauerhaft gespeicherter Dateinamens-Vorlagen (Suffix, Datum, Originalname) und Formular-Flattening-Vorgabe. Unter Android stehen sowohl das schnelle Speichern in `Downloads` als auch ein System-Ordnerdialog (`ACTION_CREATE_DOCUMENT`) zur Verfügung.
+- **Zuletzt geöffnet:** lokale Historie über IndexedDB v2 mit getrennten Stores für leichte Metadaten (`recent_docs_meta`) und abrufbasierte PDF-Binärdaten (`recent_docs_blobs`) sowie kollisionssicherem SHA-256-Inhalts-Fingerprint (maximal 15 Dokumente bzw. 50 MiB).
+- **Einheitliche Fehlerdiagnose:** Strukturiertes `AppError`-Fehlermodell mit technischer Diagnose-Ansicht und Kopierfunktion (`ErrorDiagnosticsModal`).
 
 ## Wichtige Grenzen
 
@@ -25,12 +26,13 @@ Privater PDF-Editor und -Reader als **Web-App/PWA** sowie **Android-App (Capacit
 
 | Teil | Technik | Relevante Dateien |
 | --- | --- | --- |
-| UI und State | React 19, TypeScript, Vite 6, Tailwind CSS 4 | `src/App.tsx`, `src/components/`, `src/hooks/useDocumentHistory.ts` |
+| UI, State & Fehlerdiagnose | React 19, TypeScript, Vite 6, Tailwind CSS 4 | `src/App.tsx`, `src/components/`, `src/hooks/useDocumentHistory.ts`, `src/utils/appError.ts` |
 | Anzeige, Text und Links | `pdfjs-dist` **6.4.299**, eigener Worker, Mozilla `TextLayerBuilder` | `src/utils/pdfWorker.ts`, `src/utils/pdfEngine.ts`, `src/utils/pdfDocumentLifecycle.ts` |
-| Modifikationen und Export | `pdf-lib` **1.17.1**, `@pdf-lib/fontkit` | `src/utils/pdfEngine.ts`, `src/components/SaveModal.tsx` |
+| Modifikationen, Teil-Export & Vorlagen | `pdf-lib` **1.17.1**, `@pdf-lib/fontkit`, `localStorage` | `src/utils/pdfEngine.ts`, `src/components/SaveModal.tsx`, `src/utils/exportSettings.ts` |
+| Unterschriftenbibliothek | IndexedDB (`PatricksPDFSignaturesDB`) | `src/utils/signatureLibrary.ts`, `src/components/SignatureModal.tsx` |
 | PWA / Share Target | `vite-plugin-pwa`, Service Worker | `vite.config.ts`, `src/hooks/usePwaShareTarget.ts` |
-| Native Android-App | Capacitor 8, Java/Gradle, `NativePdfBridge` | `android/`, `src/utils/nativeBridge.ts`, `src/utils/androidPdfTransfer.ts` |
-| Lokaler Verlauf | IndexedDB | `src/utils/recentDocuments.ts` |
+| Native Android-App | Capacitor 8, Java/Gradle, `NativePdfBridge` (`save`, `save_as`, `share`, `print`) | `android/`, `src/utils/nativeBridge.ts`, `src/utils/androidPdfTransfer.ts` |
+| Lokaler Verlauf | IndexedDB v2 (`recent_docs_meta` & `recent_docs_blobs`), SHA-256-Fingerprint | `src/utils/recentDocuments.ts` |
 
 Technische Zusammenhänge: [Architektur](docs/ARCHITECTURE.md). Rendering und Fehlerhistorie: [PDF-Rendering](docs/PDF-RENDERING.md).
 

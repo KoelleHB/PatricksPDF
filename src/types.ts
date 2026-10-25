@@ -154,7 +154,8 @@ export interface RecentDocumentRecord {
   numPages: number;
   lastOpened: number;
   thumbnailDataUrl?: string;
-  pdfBuffer: ArrayBuffer;
+  /** Optional: in IndexedDB v2, binary PDF data is stored in recent_docs_blobs and loaded on demand */
+  pdfBuffer?: ArrayBuffer;
   signatureCount?: number;
   textCount?: number;
 }

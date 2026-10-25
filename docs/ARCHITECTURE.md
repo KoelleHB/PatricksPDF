@@ -63,17 +63,15 @@ Bei Änderungen an Cache/Unloading mit großen Dokumenten unbedingt prüfen, das
 
 ## 4. Bearbeitungszustand und Undo/Redo
 
-In `App.tsx` liegen der aktuelle `PdfDocumentState` (PDF-Datei, `arrayBuffer`, Seitenzahl, aktuelle Seite und Basisabmessungen), Formularmetadaten und „gespeichert/ungespeichert“-Flags.
+In `App.tsx` liegen der aktuelle `PdfDocumentState` (PDF-Datei, `arrayBuffer`, Seitenzahl, aktuelle Seite und Basisabmessungen) und die Formularmetadaten.
 
-`useDocumentHistory.ts` hält **Dokument-Snapshots**. Ein Eintrag enthält:
+`useDocumentHistory.ts` verwaltet eine kompakte Historie (maximal **50 Einträge**):
 
-- `pageDocument`: Bytes, Anzahl/aktuelle Seite, Seitengröße, Formfelder;
-- Signaturen, Textoverlays und Formularwerte;
-- aktuell gewählte Signatur/Textobjekt und Aktionsname/Seite.
+- Binäre Dokumentrevisionen (`PageDocumentSnapshot`) werden dedupliziert in einer Revisions-Map (`docRevisionId`) abgelegt, sodass `ArrayBuffer`-Instanzen bei reinen Overlay- oder Formularänderungen nicht kopiert werden; nicht mehr referenzierte Revisionen werden automatisch bereinigt.
+- Jeder Historieneintrag speichert den `docRevisionId`-Verweis, die Änderungsart (`HistoryDeltaOperation`), Overlay-/Formularzustände sowie eine deterministische Zustands-Signatur (`stateSignature`).
+- Schreibvorgänge in Formularfelder werden debounced und vor Undo-/Speicher-Operationen geflusht. **Undo und Redo stellen jeweils die referenzierte `PageDocumentSnapshot`-Revision wieder her.**
 
-Historie maximal **50 Einträge**. Schreibvorgänge in Formularfelder werden teilweise debounced und vor entsprechenden Undo-Operationen geflusht. **Undo und Redo müssen beide `pageDocumentRef` wiederherstellen** – reine Overlay-Rücknahme würde Seitenänderungen nicht korrekt zurücksetzen.
-
-Der UI-Speicherzustand ist **nicht** identisch mit einem erfolgreichen Share-/Print-Aufruf. `isSaved` wird erst nach erfolgreicher Speicherausgabe gesetzt; beim Teilen oder Drucken darf es nicht stillschweigend passieren. Das aktive Bearbeitungs-`arrayBuffer` wird durch den Speichervorgang nicht automatisch ersetzt.
+Der `isSaved`-Status wird deterministisch aus dem Vergleich der aktuellen Zustands-Signatur (`computeDocumentStateSignature`) mit der zuletzt gespeicherten bzw. initialen Signatur abgeleitet. Macht der Nutzer alle Änderungen seit dem Öffnen oder letzten Speichern per Undo rückgängig, wird das Dokument automatisch wieder als gespeichert erkannt. Teilen und Drucken verändern die gespeicherte Signatur nicht.
 
 ## 5. PDF-Anzeige und Zoom
 
@@ -83,35 +81,37 @@ Der UI-Speicherzustand ist **nicht** identisch mit einem erfolgreichen Share-/Pr
 - Die Suche (`MAX_RESULTS = 1000`) liest vorhandene PDF-Textinhalte lokal. Das Inline-Highlight ist Teil des vorhandenen PDF.js-Textlayers und vermeidet getrennt positionierte HTML-Rechtecke.
 - Acrobat-Annotationen: PDF.js liefert Anzeige-Koordinaten und Link-/Formfeld-Metadaten; `pdfRectToViewport` verwendet die PDF.js-6-API `convertToViewportPoint()`.
 
-## 6. PDF-Änderung und Export
+## 6. PDF-Änderung, Teil-Export und Exporteinstellungen
 
 Zwei Fälle sind bewusst zu unterscheiden:
 
-1. **Unveränderte Inhaltsbytes:** Bei noch vorhandenen Original-/aktuellen PDF-Bytes und ohne zusätzliche Overlay-/Formularänderungen verwendet `SaveModal` dieselben Bytes statt das gesamte Dokument erneut über `pdf-lib` zu serialisieren.
-2. **Inhaltliche Änderungen:** `embedSignaturesIntoPdf` lädt eine defensive Bytekopie mit `pdf-lib`, trägt Signaturen, Schrift/Text und Formulardaten ein und serialisiert. Die Formular-„Flatten“-Option kann die interaktiven Formularfelder in Seiteninhalt überführen.
+1. **Unveränderte Inhaltsbytes (Gesamtdokument):** Bei noch vorhandenen aktuellen PDF-Bytes ohne zusätzliche Overlay-/Formularänderungen, ohne Flattening und ohne Seitenbereichs-Filter verwendet `SaveModal` dieselben Bytes statt das Dokument erneut über `pdf-lib` zu serialisieren.
+2. **Inhaltliche Änderungen oder Teil-Export (`selectedPages`):** `embedSignaturesIntoPdf` lädt eine defensive Bytekopie mit `pdf-lib`, validiert und aktualisiert AcroForm-Felder, bettet Signaturen und Textoverlays (lokale Schrift `Caveat-Regular.ttf` bzw. Helvetica) ein und entfernt bei einem Teil-Export nicht ausgewählte Seiten. Der initiale Export und der Retry-Pfad in `SaveModal` nutzen dieselbe idempotente Generatorfunktion (`compileExportPdf`).
 
-**Strukturelle Seitenoperationen** sind über `applyPageModifications` bereits in das aktive `pdfState.arrayBuffer` eingerechnet. Das ist ein anderer Ablauf als das Hinzufügen von UI-Overlays.
+Bevorzugte Exporteinstellungen (Dateinamens-Vorlage mit Suffix, Datum oder Originalname sowie Formular-Flattening-Standard) werden über `src/utils/exportSettings.ts` in `localStorage` (`patrickspdf_export_settings_v1`) gespeichert.
+
+**Strukturelle Seitenoperationen** (inklusive Mehrfachauswahl und Sammelaktionen in `PageManagementModal`) werden über `applyPageModifications` in das aktive `pdfState.arrayBuffer` eingerechnet. Zusätzlich erlaubt die Seitenverwaltung den direkten Export markierter Seiten als neues PDF.
 
 **Sicherheitsgrenze:** `pdf-lib` ist kein verlässlicher Entschlüsseler/Bearbeiter für verschlüsselte PDFs. `embedSignaturesIntoPdf` lehnt `EncryptedPDFError` ab, statt `ignoreEncryption` als vermeintliche Entschlüsselung zu verwenden. Anzeige und Links über PDF.js sind separat davon möglich.
 
 ## 7. Android und PWA: getrennte Integration
 
 **Web/PWA**
-- `vite.config.ts`: PWA-Manifest, Share Target, Service Worker, Offline-Assets und Dateihandler.
-- `src/hooks/usePwaShareTarget.ts`: Annahme aus Web Share Target über browserseitige Zwischenspeicherung (IndexedDB / Cache Storage) mit Fehlerdiagnose, falls nur Metadaten statt PDF-Bytes eintreffen.
+- `vite.config.ts`: PWA-Manifest, Share Target, Service Worker, Offline-Assets und Dateihandler. Keine externen Google-Fonts-Aufrufe in `index.html`.
+- `src/hooks/usePwaShareTarget.ts`: Annahme aus Web Share Target über browserseitige Zwischenspeicherung (IndexedDB / Cache Storage) mit einheitlicher Diagnose (`ErrorDiagnosticsModal`).
 - Speichern/Teilen/Drucken über unterstützte Browser-APIs und Fallbacks.
 
 **Native Android-App**
 - `isNativeAndroid()` erkennt die von der App bereitgestellte `window.NativePdfBridge`.
-- Android unterstützt Save/Share/Print via `MainActivity.java`. `androidPdfTransfer.ts` verwendet für PDF-Dateien bevorzugt einen binären Transfer und bei Bedarf begrenzte Chunks, **keinen einzigen riesigen Base64-String**.
-- Speichern nutzt Android `MediaStore.Downloads`; Teilen `ACTION_SEND` + `FileProvider`; Drucken `PrintManager`; externe HTTP(S)-PDF-Links `ACTION_VIEW`. Diese Aktionen verlassen teilweise die App in eine bewusste System-UI.
+- Android unterstützt Save (`save` in `MediaStore.Downloads`), Save As (`save_as` über `Intent.ACTION_CREATE_DOCUMENT` zur freien Ordner-/Speicherortwahl), Share (`ACTION_SEND` + `FileProvider`) und Print (`PrintManager`) via `MainActivity.java`. `androidPdfTransfer.ts` verwendet für PDF-Dateien bevorzugt einen binären Loopback-Transfer und bei Bedarf begrenzte Chunks, **keinen einzigen riesigen Base64-String**.
 
 Beide Varianten sind nicht gleichzusetzen: Ein Share-Intent aus Chrome kann funktionieren, während Drive/Filemanager lediglich einen Link oder Titel liefern. Das ist kein Beweis für verlorene Daten im PDF-Renderer.
 
 ## 8. Sicherheit und lokale Persistenz
 
 - Dokumentverarbeitung ist grundsätzlich browser-/app-lokal, **nicht** automatisch ein serverseitiger PDF-Upload.
-- Über IndexedDB können Originalkopien im Geräteprofil verbleiben: `PatricksPDFRecentDB`, Store `recent_docs`, bis 15 Dokumente bzw. 50 MiB. Zusätzlich existiert temporäre lokale PWA-Share-Target-Speicherung.
+- Über IndexedDB (`PatricksPDFRecentDB`, Version 2) werden im Geräteprofil Metadaten (`recent_docs_meta`) und PDF-Binärdaten (`recent_docs_blobs`) getrennt gespeichert (bis 15 Dokumente bzw. 50 MiB, identifiziert per SHA-256-Fingerprint `computePdfFingerprint`). Die Binärdaten werden erst beim Öffnen, Teilen oder Drucken bedarfsgesteuert geladen.
+- Wiederverwendbare Unterschriften-Vorlagen werden lokal in IndexedDB (`PatricksPDFSignaturesDB`, Store `signatures`) mit Bezeichnung gespeichert.
 - PDF-Link-Ziele sind auf `http:` / `https:` beschränkt. Keine Ausführung von `javascript:`- oder `file:`-Links aus Annotationen.
 - Keine geheimen PDF-Beispiele oder Keystores in Tests, öffentliche CI-Logs oder Repository aufnehmen.
 - Keine pauschale Sicherheitszusage: native Android-JavaScript-Bridges, PDF-Parsing und externe URL-Öffnung müssen bei künftigen Änderungen weiter geprüft werden.

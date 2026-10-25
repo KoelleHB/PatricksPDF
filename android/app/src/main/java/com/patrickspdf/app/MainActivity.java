@@ -46,9 +46,11 @@ import java.util.ArrayList;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "PatricksPDF_Native";
+    private static final int REQUEST_CODE_SAVE_PDF_AS = 4102;
     private volatile String pendingPdfJson = null;
     private volatile File incomingPdfFile = null;
     private volatile String incomingPdfToken = null;
+    private volatile File pendingSaveAsSourceFile = null;
 
     public static class NativePdfBridgeInterface {
         private final MainActivity activity;
@@ -327,6 +329,33 @@ public class MainActivity extends BridgeActivity {
                     activity.runOnUiThread(() -> Toast.makeText(activity, "PDF gespeichert: " + safeName, Toast.LENGTH_LONG).show());
                     return true;
                 }
+                if ("save_as".equals(action)) {
+                    File dir = new File(activity.getCacheDir(), "save_as_pdfs");
+                    if (!dir.exists() && !dir.mkdirs()) return false;
+                    File staged = new File(dir, UUID.randomUUID() + "_" + safeName);
+                    try (OutputStream out = new FileOutputStream(staged)) {
+                        copyPdf(source, out);
+                    }
+                    File oldPending = activity.pendingSaveAsSourceFile;
+                    activity.pendingSaveAsSourceFile = staged;
+                    if (oldPending != null && oldPending.exists()) {
+                        oldPending.delete();
+                    }
+                    activity.runOnUiThread(() -> {
+                        try {
+                            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                            intent.addCategory(Intent.CATEGORY_OPENABLE);
+                            intent.setType("application/pdf");
+                            intent.putExtra(Intent.EXTRA_TITLE, safeName);
+                            activity.startActivityForResult(intent, REQUEST_CODE_SAVE_PDF_AS);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed launching ACTION_CREATE_DOCUMENT", e);
+                            if (staged.exists()) staged.delete();
+                            Toast.makeText(activity, "Speicherort-Dialog konnte nicht geöffnet werden", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    return true;
+                }
                 if ("share".equals(action)) {
                     File dir = new File(activity.getCacheDir(), "shared_pdfs");
                     if (!dir.exists() && !dir.mkdirs()) return false;
@@ -562,6 +591,40 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleIncomingIntent(intent);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CODE_SAVE_PDF_AS) {
+            final File staged = pendingSaveAsSourceFile;
+            pendingSaveAsSourceFile = null;
+            if (staged == null || !staged.exists()) return;
+
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                final Uri destUri = data.getData();
+                new Thread(() -> {
+                    try (InputStream in = new FileInputStream(staged);
+                         OutputStream out = getContentResolver().openOutputStream(destUri, "wt")) {
+                        if (out == null) throw new java.io.IOException("Could not open destination output stream");
+                        byte[] buf = new byte[65536];
+                        int n;
+                        while ((n = in.read(buf)) != -1) {
+                            out.write(buf, 0, n);
+                        }
+                        out.flush();
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "PDF am gewählten Speicherort gespeichert", Toast.LENGTH_LONG).show());
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed writing PDF to chosen URI", e);
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, "Fehler beim Speichern am gewählten Ort", Toast.LENGTH_SHORT).show());
+                    } finally {
+                        staged.delete();
+                    }
+                }, "pdf-save-as-writer").start();
+            } else {
+                staged.delete();
+            }
+        }
     }
 
     private void handleIncomingIntent(Intent intent) {

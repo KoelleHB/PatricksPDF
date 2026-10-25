@@ -7,23 +7,20 @@ import {
   RotateCcw,
   Trash2,
   Copy,
-  Plus,
   ArrowLeft,
   ArrowRight,
   FilePlus2,
-  FileUp,
-  LayoutGrid,
   Check,
   AlertCircle,
   Loader2,
   GripVertical,
-  Rotate3D,
-  Sparkles,
+  CheckSquare,
+  Square,
+  FileDown,
 } from 'lucide-react';
 import { PdfDocumentState, PageSpec } from '../types';
-import { getPageInfoList } from '../utils/pdfEngine';
+import { getPageInfoList, loadPdfJsDoc } from '../utils/pdfEngine';
 import { LazyPageThumbnail } from './LazyPageThumbnail';
-import { loadPdfJsDoc } from '../utils/pdfEngine';
 
 interface PageManagementModalProps {
   isOpen: boolean;
@@ -32,6 +29,7 @@ interface PageManagementModalProps {
   onClose: () => void;
   onApplyChanges: (newPages: PageSpec[]) => Promise<void>;
   onJumpToPage: (pageNumber: number) => void;
+  onExportSelectedPages?: (selectedPageNumbers: number[]) => void;
 }
 
 export const PageManagementModal: React.FC<PageManagementModalProps> = ({
@@ -41,6 +39,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
   onClose,
   onApplyChanges,
   onJumpToPage,
+  onExportSelectedPages,
 }) => {
   const [pages, setPages] = useState<PageSpec[]>([]);
   const [initialPages, setInitialPages] = useState<PageSpec[]>([]);
@@ -48,6 +47,8 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
   const [isLoadingPages, setIsLoadingPages] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
+  const lastSelectedIndexRef = useRef<number | null>(null);
   const [draggedPageIndex, setDraggedPageIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -88,15 +89,14 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
 
         setPages(specs);
         setInitialPages(specs);
+        setSelectedPageIds(new Set());
+        lastSelectedIndexRef.current = null;
 
-        // Select the active page from the viewer initially
         const currentSpec = specs[currentPage - 1];
         if (currentSpec) {
           setSelectedPageId(currentSpec.id);
         }
 
-        // Preview tiles load themselves only when they approach the visible grid.
-        // Never render hundreds of pages before the user scrolls to them.
         setThumbnails({});
         setIsLoadingPages(false);
       } catch (err: any) {
@@ -132,6 +132,146 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
     }
     return false;
   }, [pages, initialPages]);
+
+  // Multi-select helpers
+  const togglePageSelection = (pageId: string, index: number, shiftKey: boolean, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedPageIds((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastSelectedIndexRef.current !== null) {
+        const start = Math.min(lastSelectedIndexRef.current, index);
+        const end = Math.max(lastSelectedIndexRef.current, index);
+        for (let i = start; i <= end; i++) {
+          if (pages[i]) next.add(pages[i].id);
+        }
+      } else {
+        if (next.has(pageId)) {
+          next.delete(pageId);
+        } else {
+          next.add(pageId);
+        }
+      }
+      return next;
+    });
+    lastSelectedIndexRef.current = index;
+    setSelectedPageId(pageId);
+  };
+
+  const handleSelectAll = () => {
+    setSelectedPageIds(new Set(pages.map((p) => p.id)));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedPageIds(new Set());
+    lastSelectedIndexRef.current = null;
+  };
+
+  const handleInvertSelection = () => {
+    setSelectedPageIds((prev) => {
+      const next = new Set<string>();
+      for (const p of pages) {
+        if (!prev.has(p.id)) next.add(p.id);
+      }
+      return next;
+    });
+  };
+
+  // Batch Actions on selected pages
+  const handleBatchRotate = (stepDegrees: number) => {
+    if (selectedPageIds.size === 0) return;
+    setPages((prev) =>
+      prev.map((p) => {
+        if (!selectedPageIds.has(p.id)) return p;
+        const newAngle = ((p.rotationAngle + stepDegrees) % 360 + 360) % 360;
+        const newDelta = ((p.rotationDelta + stepDegrees) % 360 + 360) % 360;
+        return {
+          ...p,
+          rotationAngle: newAngle,
+          rotationDelta: newDelta,
+        };
+      })
+    );
+  };
+
+  const handleBatchDuplicate = () => {
+    if (selectedPageIds.size === 0) return;
+    const newIdSet = new Set<string>();
+    const thumbUpdates: Record<string, string> = {};
+
+    setPages((prev) => {
+      const next: PageSpec[] = [];
+      for (const p of prev) {
+        next.push(p);
+        if (selectedPageIds.has(p.id)) {
+          const dupId = `page-dup-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          newIdSet.add(dupId);
+          if (thumbnails[p.id]) {
+            thumbUpdates[dupId] = thumbnails[p.id];
+          }
+          next.push({
+            ...p,
+            id: dupId,
+          });
+        }
+      }
+      return next;
+    });
+
+    if (Object.keys(thumbUpdates).length > 0) {
+      setThumbnails((prev) => ({ ...prev, ...thumbUpdates }));
+    }
+    setSelectedPageIds(newIdSet);
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedPageIds.size === 0) return;
+    if (selectedPageIds.size >= pages.length) {
+      setErrorMessage('Mindestens eine Seite muss im Dokument verbleiben. Es können nicht alle Seiten gelöscht werden.');
+      return;
+    }
+    setErrorMessage(null);
+    setPages((prev) => prev.filter((p) => !selectedPageIds.has(p.id)));
+    setSelectedPageIds(new Set());
+    lastSelectedIndexRef.current = null;
+  };
+
+  const handleBatchExportSelected = async () => {
+    if (!onExportSelectedPages) return;
+    // Determine 1-based page indices to export
+    let selectedIndices: number[] = [];
+    if (selectedPageIds.size > 0) {
+      pages.forEach((p, idx) => {
+        if (selectedPageIds.has(p.id)) {
+          selectedIndices.push(idx + 1);
+        }
+      });
+    } else if (selectedPageId) {
+      const idx = pages.findIndex((p) => p.id === selectedPageId);
+      if (idx !== -1) selectedIndices = [idx + 1];
+    }
+
+    if (selectedIndices.length === 0) {
+      setErrorMessage('Bitte wähle mindestens eine Seite für den Teil-Export aus.');
+      return;
+    }
+
+    // If user also made structural changes (rotations, imports, blank pages, reordering),
+    // apply them first so the exported subset reflects the exact current Page Management state!
+    if (isDirty) {
+      setIsApplying(true);
+      try {
+        await onApplyChanges(pages);
+      } catch (err: any) {
+        setErrorMessage(err?.message || 'Seitenänderungen konnten vor dem Export nicht angewendet werden.');
+        setIsApplying(false);
+        return;
+      }
+      setIsApplying(false);
+    }
+
+    onClose();
+    onExportSelectedPages(selectedIndices);
+  };
 
   // Rotate a single page in 90° steps
   const handleRotatePage = (id: string, stepDegrees: number) => {
@@ -188,7 +328,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
       id: newId,
     };
 
-    // Copy cached thumbnail
     if (thumbnails[target.id]) {
       setThumbnails((prev) => ({ ...prev, [newId]: thumbnails[target.id] }));
     }
@@ -210,6 +349,12 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
 
     setErrorMessage(null);
     setPages((prev) => prev.filter((p) => p.id !== id));
+    setSelectedPageIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     if (selectedPageId === id) {
       setSelectedPageId(null);
     }
@@ -217,7 +362,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
 
   // Add a blank page
   const handleAddBlankPageConfirm = () => {
-    let width = 595.28; // Default A4 portrait
+    let width = 595.28;
     let height = 841.89;
 
     if (blankPageSize === 'match') {
@@ -231,7 +376,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
       height = 841.89;
     }
 
-    // Apply orientation
     if (blankOrientation === 'landscape' && width < height) {
       const tmp = width;
       width = height;
@@ -254,7 +398,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
       aspectRatio: width / height,
     };
 
-    // Generate a simple white blank thumbnail
     const blankCanvas = document.createElement('canvas');
     blankCanvas.width = 240;
     blankCanvas.height = Math.round(240 / (width / height));
@@ -262,7 +405,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
     if (ctx) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, blankCanvas.width, blankCanvas.height);
-      // subtle page border
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 2;
       ctx.strokeRect(1, 1, blankCanvas.width - 2, blankCanvas.height - 2);
@@ -278,7 +420,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
           return updated;
         }
       }
-      // Otherwise append at the end
       updated.push(blankSpec);
       return updated;
     });
@@ -306,7 +447,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
 
       const importedSpecs: PageSpec[] = [];
 
-
       for (let i = 1; i <= numImported; i++) {
         const page = await pdfJsDoc.getPage(i);
         const viewport = page.getViewport({ scale: 1.0 });
@@ -325,8 +465,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
           sourceDocPageIndex: i - 1,
           sourceFileName: file.name,
         });
-
-        // Imported-page previews are loaded lazily after the cards appear.
       }
 
       setPages((prev) => [...prev, ...importedSpecs]);
@@ -405,11 +543,16 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
   // Reset to initial document pages
   const handleReset = () => {
     setPages([...initialPages]);
+    setSelectedPageIds(new Set());
     setErrorMessage(null);
   };
 
-  // Jump to page when clicking a page card (if not dirty)
-  const handleCardClick = (pageNumber: number, id: string) => {
+  // Card click handler: supports Shift-click range selection or multi-select mode if any page is already checked
+  const handleCardClick = (pageNumber: number, id: string, index: number, e: React.MouseEvent) => {
+    if (e.shiftKey || selectedPageIds.size > 0) {
+      togglePageSelection(id, index, e.shiftKey, e);
+      return;
+    }
     setSelectedPageId(id);
     if (!isDirty) {
       onJumpToPage(pageNumber);
@@ -418,6 +561,8 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
   };
 
   if (!isOpen) return null;
+
+  const hasMultiSelection = selectedPageIds.size > 0;
 
   return (
     <AnimatePresence>
@@ -451,6 +596,104 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
             onImportFile={handleImportPdfFile}
             onClose={onClose}
           />
+
+          {/* Multi-Select & Batch Action Bar */}
+          {pages.length > 0 && (
+            <div className="shrink-0 px-4 sm:px-6 py-2 bg-slate-100/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={selectedPageIds.size === pages.length ? handleDeselectAll : handleSelectAll}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition cursor-pointer"
+                >
+                  {selectedPageIds.size === pages.length ? (
+                    <>
+                      <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Auswahl aufheben</span>
+                    </>
+                  ) : (
+                    <>
+                      <Square className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Alle auswählen</span>
+                    </>
+                  )}
+                </button>
+
+                {pages.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleInvertSelection}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 font-medium transition cursor-pointer"
+                  >
+                    Umkehren
+                  </button>
+                )}
+
+                <span className="text-slate-600 font-medium ml-1">
+                  {hasMultiSelection
+                    ? `${selectedPageIds.size} von ${pages.length} markiert`
+                    : 'Tipp: Checkbox oder Shift+Klick für Mehrfachauswahl'}
+                </span>
+              </div>
+
+              {hasMultiSelection && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => handleBatchRotate(-90)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-blue-50 hover:border-blue-300 text-slate-700 font-medium transition cursor-pointer"
+                    title="Markierte Seiten 90° gegen den Uhrzeigersinn drehen"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
+                    <span className="hidden sm:inline">-90°</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBatchRotate(90)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-blue-50 hover:border-blue-300 text-slate-700 font-medium transition cursor-pointer"
+                    title="Markierte Seiten 90° im Uhrzeigersinn drehen"
+                  >
+                    <RotateCw className="w-3.5 h-3.5 text-blue-600" />
+                    <span className="hidden sm:inline">+90°</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchDuplicate}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-blue-50 hover:border-blue-300 text-slate-700 font-medium transition cursor-pointer"
+                    title="Markierte Seiten duplizieren"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-blue-600" />
+                    <span className="hidden sm:inline">Duplizieren</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchDelete}
+                    disabled={selectedPageIds.size >= pages.length}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-red-200 hover:bg-red-50 text-red-600 disabled:opacity-40 font-medium transition cursor-pointer"
+                    title={
+                      selectedPageIds.size >= pages.length
+                        ? 'Mindestens 1 Seite muss übrig bleiben'
+                        : 'Markierte Seiten löschen'
+                    }
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Löschen</span>
+                  </button>
+                  {onExportSelectedPages && (
+                    <button
+                      type="button"
+                      onClick={handleBatchExportSelected}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs transition cursor-pointer"
+                      title="Markierte Seiten direkt als neues PDF exportieren"
+                    >
+                      <FileDown className="w-3.5 h-3.5" />
+                      <span>Auswahl als PDF exportieren ({selectedPageIds.size})</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Error Banner */}
           {errorMessage && (
@@ -489,7 +732,8 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4.5">
                 {pages.map((page, index) => {
                   const isCurrent = page.source === 'existing' && page.originalPageIndex === currentPage - 1;
-                  const isSelected = selectedPageId === page.id;
+                  const isChecked = selectedPageIds.has(page.id);
+                  const isSelected = isChecked || selectedPageId === page.id;
                   const rotationDeg = page.rotationDelta || 0;
                   const isDragTarget = dragOverIndex === index;
 
@@ -501,16 +745,33 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                       onDragOver={(e) => handleDragOver(e, index)}
                       onDrop={(e) => handleDrop(e, index)}
                       onDragEnd={handleDragEnd}
-                      onClick={() => handleCardClick(index + 1, page.id)}
+                      onClick={(e) => handleCardClick(index + 1, page.id, index, e)}
                       className={`group relative flex flex-col bg-white rounded-xl border transition-all duration-150 shadow-xs hover:shadow-md cursor-pointer select-none overflow-hidden ${
-                        isSelected
-                          ? 'border-blue-600 ring-2 ring-blue-500/20 shadow-md'
+                        isChecked
+                          ? 'border-blue-600 ring-2 ring-blue-500/30 bg-blue-50/10 shadow-md'
+                          : isSelected
+                          ? 'border-blue-500 ring-2 ring-blue-500/15 shadow-md'
                           : 'border-slate-200 hover:border-slate-300'
                       } ${isDragTarget ? 'scale-102 border-blue-500 bg-blue-50/30' : ''}`}
                     >
                       {/* Top Header of Card */}
                       <div className="flex items-center justify-between px-2.5 py-1.5 bg-slate-50 border-b border-slate-100 text-xs">
                         <div className="flex items-center gap-1.5 min-w-0">
+                          {/* Multi-select checkbox */}
+                          <button
+                            type="button"
+                            onClick={(e) => togglePageSelection(page.id, index, e.shiftKey, e)}
+                            className="p-0.5 rounded text-slate-400 hover:text-blue-600 transition"
+                            title="Seite für Sammelaktion markieren (Shift+Klick für Bereich)"
+                            aria-label={`Seite ${index + 1} auswählen`}
+                          >
+                            {isChecked ? (
+                              <CheckSquare className="w-4 h-4 text-blue-600" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+
                           {/* Drag handle */}
                           <div
                             className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 p-0.5"
@@ -536,12 +797,18 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                             </span>
                           )}
                           {page.source === 'imported' && (
-                            <span className="text-[10px] font-medium px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700" title={page.sourceFileName}>
+                            <span
+                              className="text-[10px] font-medium px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700"
+                              title={page.sourceFileName}
+                            >
                               Imported
                             </span>
                           )}
                           {page.rotationAngle !== 0 && (
-                            <span className="text-[10px] font-mono font-bold px-1 py-0.2 rounded-md bg-amber-100 text-amber-800" title={`Rotated to ${page.rotationAngle}°`}>
+                            <span
+                              className="text-[10px] font-mono font-bold px-1 py-0.2 rounded-md bg-amber-100 text-amber-800"
+                              title={`Rotated to ${page.rotationAngle}°`}
+                            >
                               {page.rotationAngle}°
                             </span>
                           )}
@@ -558,8 +825,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                           pageNumber={index + 1}
                         />
 
-                        {/* Interactive Overlay Click Prompt */}
-                        {!isDirty && (
+                        {!isDirty && !hasMultiSelection && (
                           <div className="absolute inset-0 bg-blue-600/0 hover:bg-blue-600/10 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
                             <span className="px-2 py-1 rounded-md bg-slate-900/80 text-white text-[11px] font-medium shadow-xs">
                               Click to view
@@ -573,7 +839,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                         className="p-1.5 bg-white border-t border-slate-100 grid grid-cols-5 gap-1 items-center justify-items-center"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {/* Move Left / Earlier */}
                         <button
                           onClick={() => handleMovePage(index, 'left')}
                           disabled={index === 0}
@@ -584,7 +849,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                           <ArrowLeft className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Rotate 90° Counter-Clockwise */}
                         <button
                           onClick={() => handleRotatePage(page.id, -90)}
                           className="p-1 rounded text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition cursor-pointer"
@@ -594,7 +858,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                           <RotateCcw className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Rotate 90° Clockwise */}
                         <button
                           onClick={() => handleRotatePage(page.id, 90)}
                           className="p-1 rounded text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition cursor-pointer"
@@ -604,7 +867,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                           <RotateCw className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Duplicate Page */}
                         <button
                           onClick={() => handleDuplicatePage(index)}
                           className="p-1 rounded text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition cursor-pointer"
@@ -614,12 +876,15 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                           <Copy className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Delete Page */}
                         <button
                           onClick={() => handleDeletePage(page.id)}
                           disabled={pages.length <= 1}
                           className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-20 disabled:hover:bg-transparent transition cursor-pointer"
-                          title={pages.length <= 1 ? 'Cannot delete the only page in the document' : 'Delete this page'}
+                          title={
+                            pages.length <= 1
+                              ? 'Cannot delete the only page in the document'
+                              : 'Delete this page'
+                          }
                           aria-label="Delete page"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -671,7 +936,19 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {onExportSelectedPages && hasMultiSelection && (
+                <button
+                  type="button"
+                  onClick={handleBatchExportSelected}
+                  disabled={isApplying}
+                  className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold shadow-xs transition cursor-pointer"
+                >
+                  <FileDown className="w-4 h-4 shrink-0" />
+                  <span>Auswahl als PDF exportieren ({selectedPageIds.size})</span>
+                </button>
+              )}
+
               <button
                 id="btn-cancel-page-manager"
                 onClick={onClose}
@@ -726,7 +1003,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                 </button>
               </div>
 
-              {/* Page Size Option */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Page Dimensions
@@ -753,7 +1029,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                 </div>
               </div>
 
-              {/* Orientation */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Orientation
@@ -779,7 +1054,6 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                 </div>
               </div>
 
-              {/* Insertion Position */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Insert Position

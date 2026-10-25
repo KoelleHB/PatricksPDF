@@ -35,7 +35,7 @@ export async function toBase64String(data: Blob | ArrayBuffer | Uint8Array): Pro
  * are base64 encoded. No full-document base64 strings or byte[] copies.
  */
 export async function nativeFileAction(
-  action: 'save' | 'share' | 'print',
+  action: 'save' | 'save_as' | 'share' | 'print',
   name: string,
   data: Blob | ArrayBuffer | Uint8Array
 ): Promise<boolean> {

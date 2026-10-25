@@ -112,6 +112,35 @@ export async function savePdfDocument(
 }
 
 /**
+ * Opens the system file/folder picker to let the user choose where to save the PDF.
+ * On Android: launches Storage Access Framework (Intent.ACTION_CREATE_DOCUMENT) via 'save_as'.
+ * On Web: delegates to savePdfDocument (which uses showSaveFilePicker when available).
+ */
+export async function savePdfDocumentAs(
+  fileName: string,
+  pdfData: Blob | ArrayBuffer | Uint8Array
+): Promise<{ success: boolean; method: 'native-android-picker' | 'file-picker' | 'download' }> {
+  const safeName = fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+
+  if (isNativeAndroid() && (window.NativePdfBridge as any)?.beginPdfTransfer) {
+    try {
+      const ok = await nativeFileAction('save_as', safeName, pdfData);
+      if (ok) return { success: true, method: 'native-android-picker' };
+      throw new Error('Speicherort-Auswahl auf Android konnte nicht geöffnet werden.');
+    } catch (err) {
+      console.error('Native Android save_as failed:', err);
+      throw err;
+    }
+  }
+
+  const res = await savePdfDocument(safeName, pdfData);
+  return {
+    success: res.success,
+    method: res.method === 'native-android' ? 'native-android-picker' : res.method,
+  };
+}
+
+/**
  * Shares the PDF document.
  * On Android: triggers the native Android Share Sheet (WhatsApp, Gmail, Drive, Bluetooth, etc.).
  * On Web: uses the Web Share API if supported, or prompts a download.
