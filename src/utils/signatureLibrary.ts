@@ -45,6 +45,8 @@ export async function getSavedSignatures(): Promise<SavedSignatureTemplate[]> {
       };
       request.onerror = () => reject(request.error);
       tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+      tx.onabort = () => db.close();
     });
   } catch {
     return [];
@@ -58,40 +60,54 @@ export async function saveSignatureTemplate(input: {
   aspectRatio: number;
 }): Promise<SavedSignatureTemplate> {
   const db = await openSignatureDB();
-  const existing = await getSavedSignatures();
-
-  const cleanLabel = input.label.trim() || `Unterschrift ${existing.length + 1}`;
   const clonedBuffer = input.pngBytes.slice(0);
-
-  const record: SavedSignatureTemplate = {
-    id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    label: cleanLabel,
-    transparentDataUrl: input.transparentDataUrl,
-    pngBytes: clonedBuffer,
-    aspectRatio: input.aspectRatio,
-    createdAt: Date.now(),
-  };
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
+    const getAllReq = store.getAll();
+    let savedRecord: SavedSignatureTemplate | null = null;
 
-    // Keep within MAX_TEMPLATES by pruning oldest if necessary
-    if (existing.length >= MAX_TEMPLATES) {
-      const toRemove = existing.slice(MAX_TEMPLATES - 1);
-      for (const oldItem of toRemove) {
-        store.delete(oldItem.id);
+    getAllReq.onsuccess = () => {
+      const existing = ((getAllReq.result as SavedSignatureTemplate[]) || []).sort(
+        (a, b) => b.createdAt - a.createdAt
+      );
+      const cleanLabel = input.label.trim() || `Unterschrift ${existing.length + 1}`;
+      savedRecord = {
+        id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label: cleanLabel,
+        transparentDataUrl: input.transparentDataUrl,
+        pngBytes: clonedBuffer,
+        aspectRatio: input.aspectRatio,
+        createdAt: Date.now(),
+      };
+
+      // Keep within MAX_TEMPLATES by pruning oldest if necessary
+      if (existing.length >= MAX_TEMPLATES) {
+        const toRemove = existing.slice(MAX_TEMPLATES - 1);
+        for (const oldItem of toRemove) {
+          store.delete(oldItem.id);
+        }
       }
-    }
 
-    store.put(record);
+      store.put(savedRecord);
+    };
+
     tx.oncomplete = () => {
       db.close();
-      resolve(record);
+      if (savedRecord) {
+        resolve(savedRecord);
+      } else {
+        reject(new Error('Signatur-Vorlage konnte nicht erstellt werden.'));
+      }
     };
     tx.onerror = () => {
       db.close();
-      reject(tx.error);
+      reject(tx.error || new Error('Fehler beim Speichern der Signatur-Vorlage.'));
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(tx.error || new Error('Transaktion abgebrochen.'));
     };
   });
 }
@@ -119,6 +135,10 @@ export async function renameSignatureTemplate(id: string, newLabel: string): Pro
       db.close();
       reject(tx.error);
     };
+    tx.onabort = () => {
+      db.close();
+      reject(tx.error);
+    };
   });
 }
 
@@ -133,6 +153,10 @@ export async function deleteSignatureTemplate(id: string): Promise<void> {
       resolve();
     };
     tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+    tx.onabort = () => {
       db.close();
       reject(tx.error);
     };

@@ -124,10 +124,23 @@ export async function savePdfDocumentAs(
 
   if (isNativeAndroid() && (window.NativePdfBridge as any)?.beginPdfTransfer) {
     try {
-      const ok = await nativeFileAction('save_as', safeName, pdfData);
-      if (ok) return { success: true, method: 'native-android-picker' };
-      throw new Error('Speicherort-Auswahl auf Android konnte nicht geöffnet werden.');
+      const completionPromise = new Promise<boolean>((resolve) => {
+        (window as any).onNativeSaveAsCompleted = (completed: boolean) => {
+          delete (window as any).onNativeSaveAsCompleted;
+          resolve(Boolean(completed));
+        };
+      });
+
+      const launched = await nativeFileAction('save_as', safeName, pdfData);
+      if (!launched) {
+        delete (window as any).onNativeSaveAsCompleted;
+        throw new Error('Speicherort-Auswahl auf Android konnte nicht geöffnet werden.');
+      }
+
+      const saved = await completionPromise;
+      return { success: saved, method: 'native-android-picker' };
     } catch (err) {
+      delete (window as any).onNativeSaveAsCompleted;
       console.error('Native Android save_as failed:', err);
       throw err;
     }

@@ -66,7 +66,7 @@ export function computeDocumentStateSignature(
   const sigPart = signatures
     .map(
       (s) =>
-        `${s.id}:${s.pageNumber}:${s.xPercent.toFixed(3)}:${s.yPercent.toFixed(3)}:${s.widthPercent.toFixed(3)}:${s.aspectRatio.toFixed(3)}:${(s.opacity ?? 1).toFixed(2)}:${s.rotation ?? 0}`
+        `${s.id}:${s.name || ''}:${s.pngBytes?.byteLength ?? 0}:${s.pageNumber}:${s.xPercent.toFixed(3)}:${s.yPercent.toFixed(3)}:${s.widthPercent.toFixed(3)}:${s.aspectRatio.toFixed(3)}:${(s.opacity ?? 1).toFixed(2)}:${s.rotation ?? 0}`
     )
     .join('|');
 
@@ -127,6 +127,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
   // Current live state
   const pageDocumentRef = useRef<PageDocumentSnapshot | null>(null);
   const currentDocRevisionIdRef = useRef<string | null>(null);
+  const [currentDocRevisionId, setCurrentDocRevisionId] = useState<string | null>(null);
 
   const [signatures, setSignatures] = useState<SignatureItem[]>(options.initialSignatures || []);
   const [textOverlays, setTextOverlays] = useState<TextOverlayItem[]>(options.initialTextOverlays || []);
@@ -236,6 +237,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       const current = stateRef.current;
       const revId = registerPageDocument(current.pageDocument);
       currentDocRevisionIdRef.current = revId;
+      setCurrentDocRevisionId(revId);
       const sigStr = computeDocumentStateSignature(
         revId,
         current.signatures,
@@ -286,6 +288,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         newSnapshot.pageDocument !== undefined ? newSnapshot.pageDocument : pageDocumentRef.current;
       const revId = registerPageDocument(nextPageDoc);
       currentDocRevisionIdRef.current = revId;
+      setCurrentDocRevisionId(revId);
 
       const merged: DocumentSnapshot = {
         pageDocument: nextPageDoc,
@@ -429,6 +432,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         currentHistory = currentHistory.slice(currentHistory.length - MAX_HISTORY_LENGTH);
       }
       currentIdx = Math.min(historyIndex + 1, MAX_HISTORY_LENGTH - 1);
+      pruneUnreferencedRevisions(currentHistory, revId);
       setHistory(currentHistory);
     }
 
@@ -449,6 +453,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     setSelectedTextId(targetEntry.selectedTextId);
 
     currentDocRevisionIdRef.current = targetEntry.docRevisionId;
+    setCurrentDocRevisionId(targetEntry.docRevisionId);
     pageDocumentRef.current = restoredDoc;
     stateRef.current = {
       pageDocument: restoredDoc,
@@ -463,7 +468,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
 
     showNotice(`Undid: ${undoneEntry.action}`, 'undo');
     return undoneEntry.pageNumber || targetEntry.pageNumber;
-  }, [historyIndex, history, registerPageDocument, showNotice]);
+  }, [historyIndex, history, pruneUnreferencedRevisions, registerPageDocument, showNotice]);
 
   // Perform Redo
   const redo = useCallback((): number | null => {
@@ -483,6 +488,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     setSelectedTextId(targetEntry.selectedTextId);
 
     currentDocRevisionIdRef.current = targetEntry.docRevisionId;
+    setCurrentDocRevisionId(targetEntry.docRevisionId);
     pageDocumentRef.current = restoredDoc;
     stateRef.current = {
       pageDocument: restoredDoc,
@@ -517,6 +523,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       const pageDoc = initial?.pageDocument || null;
       const revId = registerPageDocument(pageDoc);
       currentDocRevisionIdRef.current = revId;
+      setCurrentDocRevisionId(revId);
 
       const initSignatures = initial?.signatures || [];
       const initTexts = initial?.textOverlays || [];
@@ -569,6 +576,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     (next: PageDocumentSnapshot) => {
       const revId = registerPageDocument(next);
       currentDocRevisionIdRef.current = revId;
+      setCurrentDocRevisionId(revId);
       pageDocumentRef.current = next;
       stateRef.current.pageDocument = next;
 
@@ -601,12 +609,12 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
   const currentStateSignature = useMemo(
     () =>
       computeDocumentStateSignature(
-        currentDocRevisionIdRef.current,
+        currentDocRevisionId,
         signatures,
         textOverlays,
         formValues
       ),
-    [signatures, textOverlays, formValues]
+    [currentDocRevisionId, signatures, textOverlays, formValues]
   );
 
   const isSaved = !hasPendingFormEdit && currentStateSignature === savedStateSignature;

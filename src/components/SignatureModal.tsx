@@ -161,6 +161,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       });
       const updated = await getSavedSignatures();
       setSavedTemplates(updated);
+      setSaveToLibraryOnInsert(false);
       showLibraryToast(`Vorlage „${label}“ gespeichert.`);
     } catch (err) {
       console.warn('Could not save signature template:', err);

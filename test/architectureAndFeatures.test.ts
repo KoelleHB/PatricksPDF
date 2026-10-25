@@ -5,6 +5,7 @@ import { computePdfFingerprint } from '../src/utils/recentDocuments';
 import { computeDocumentStateSignature } from '../src/hooks/useDocumentHistory';
 import {
   buildExportFileName,
+  sanitizeFileNamePart,
   parsePageRangeInput,
   formatPageNumbersToRangeString,
   DEFAULT_EXPORT_SETTINGS,
@@ -12,7 +13,7 @@ import {
 import { embedSignaturesIntoPdf } from '../src/utils/pdfExportEngine';
 import { createAppError, formatAppErrorReport } from '../src/utils/appError';
 
-test('computePdfFingerprint distinguishes different PDFs with identical byteLength', async () => {
+test('computePdfFingerprint distinguishes different PDFs with identical byteLength (<= 2 MB and > 2 MB)', async () => {
   const bufA = new Uint8Array(1024);
   const bufB = new Uint8Array(1024);
   bufA.fill(0x41);
@@ -25,10 +26,25 @@ test('computePdfFingerprint distinguishes different PDFs with identical byteLeng
 
   assert.equal(fpA1, fpA2, 'Identical buffers must yield identical fingerprint');
   assert.notEqual(fpA1, fpB, 'Distinct buffers of identical size must not collide');
+
+  // > 2 MB multi-slice sampling check
+  const largeSize = 3 * 1024 * 1024;
+  const largeA = new Uint8Array(largeSize);
+  const largeB = new Uint8Array(largeSize);
+  largeB[Math.floor(largeSize / 2)] = 0x99; // Difference in middle slice
+  const fpLargeA = await computePdfFingerprint(largeA.buffer);
+  const fpLargeB = await computePdfFingerprint(largeB.buffer);
+  assert.notEqual(fpLargeA, fpLargeB, 'Large (>2 MB) buffers differing in middle slice must not collide');
 });
 
-test('computeDocumentStateSignature deterministically tracks edits and undo back to saved state', () => {
+test('computeDocumentStateSignature deterministically tracks edits, docRevisionId, and signature metadata', () => {
   const initialSig = computeDocumentStateSignature('rev_1', [], [], { name: 'Max' });
+  const rotatedPageDocSig = computeDocumentStateSignature('rev_2', [], [], { name: 'Max' });
+  assert.notEqual(
+    initialSig,
+    rotatedPageDocSig,
+    'Changing docRevisionId alone (e.g. page rotation without overlays) must update state signature'
+  );
 
   const editedSig = computeDocumentStateSignature(
     'rev_1',
@@ -51,11 +67,35 @@ test('computeDocumentStateSignature deterministically tracks edits and undo back
 
   assert.notEqual(initialSig, editedSig, 'Adding text overlay must change state signature');
 
+  const sigItemA = {
+    id: 's1',
+    name: 'Paraphe',
+    transparentDataUrl: 'data:image/png;base64,AA==',
+    pngBytes: new Uint8Array([1, 2, 3]),
+    originalDataUrl: 'data:image/png;base64,AA==',
+    pageNumber: 1,
+    xPercent: 50,
+    yPercent: 50,
+    widthPercent: 28,
+    aspectRatio: 2,
+    opacity: 1,
+    rotation: 0,
+  };
+  const sigItemB = {
+    ...sigItemA,
+    pngBytes: new Uint8Array([1, 2, 3, 4, 5]),
+  };
+  assert.notEqual(
+    computeDocumentStateSignature('rev_1', [sigItemA], [], {}),
+    computeDocumentStateSignature('rev_1', [sigItemB], [], {}),
+    'Replacing signature binary payload must update state signature'
+  );
+
   const undoneSig = computeDocumentStateSignature('rev_1', [], [], { name: 'Max' });
   assert.equal(initialSig, undoneSig, 'Undoing back to initial state must restore saved state signature');
 });
 
-test('parsePageRangeInput and buildExportFileName handle page subsets and naming templates', () => {
+test('parsePageRangeInput and buildExportFileName handle page subsets, naming templates, and unsafe characters', () => {
   const valid = parsePageRangeInput('1-3, 5, 2', 6);
   assert.equal(valid.error, null);
   assert.deepEqual(valid.pages, [1, 2, 3, 5]);
@@ -63,6 +103,12 @@ test('parsePageRangeInput and buildExportFileName handle page subsets and naming
 
   const outOfBounds = parsePageRangeInput('1-8', 5);
   assert.notEqual(outOfBounds.error, null);
+
+  const reversedRange = parsePageRangeInput('4-2', 5);
+  assert.notEqual(reversedRange.error, null);
+
+  const emptyRange = parsePageRangeInput('   ', 5);
+  assert.notEqual(emptyRange.error, null);
 
   const fixedDate = new Date(2026, 9, 25); // 2026-10-25
   assert.equal(
@@ -85,6 +131,17 @@ test('parsePageRangeInput and buildExportFileName handle page subsets and naming
       defaultFlattenForms: true,
     }),
     'Vertrag_geprueft'
+  );
+
+  // Path traversal / invalid character sanitization
+  assert.equal(sanitizeFileNamePart('Rechnung:2026/04*Test?.pdf'), 'Rechnung_2026_04_Test_.pdf');
+  assert.equal(
+    buildExportFileName('A/B:C.pdf', {
+      namingPreset: 'custom_suffix',
+      customSuffix: 'v1:final/ok',
+      defaultFlattenForms: false,
+    }),
+    'A_B_C_v1_final_ok'
   );
 });
 

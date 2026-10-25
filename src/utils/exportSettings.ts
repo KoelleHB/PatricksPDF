@@ -53,14 +53,22 @@ export function saveExportSettings(settings: ExportSettings): void {
   }
 }
 
+export function sanitizeFileNamePart(raw: string): string {
+  return raw
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function buildExportFileName(
   originalPdfName: string,
   settings: ExportSettings,
   pageSubsetSuffix?: string,
   dateOverride?: Date
 ): string {
-  const baseName = originalPdfName.replace(/\.pdf$/i, '').trim() || 'Dokument';
-  const subsetTag = pageSubsetSuffix ? `_${pageSubsetSuffix}` : '';
+  const rawBase = originalPdfName.replace(/\.pdf$/i, '');
+  const baseName = sanitizeFileNamePart(rawBase) || 'Dokument';
+  const subsetTag = pageSubsetSuffix ? `_${sanitizeFileNamePart(pageSubsetSuffix)}` : '';
 
   switch (settings.namingPreset) {
     case 'original':
@@ -73,7 +81,7 @@ export function buildExportFileName(
       return `${yyyy}-${mm}-${dd}_${baseName}${subsetTag}`;
     }
     case 'custom_suffix': {
-      const rawSuffix = settings.customSuffix.trim() || '_bearbeitet';
+      const rawSuffix = sanitizeFileNamePart(settings.customSuffix) || '_bearbeitet';
       const normalizedSuffix =
         rawSuffix.startsWith('_') || rawSuffix.startsWith('-') ? rawSuffix : `_${rawSuffix}`;
       return `${baseName}${subsetTag}${normalizedSuffix}`;

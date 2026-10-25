@@ -32,6 +32,10 @@ import {
 
 export type PageExportScope = 'all' | 'current' | 'custom';
 
+export interface SaveSuccessInfo {
+  isSubsetExport: boolean;
+}
+
 export interface SaveModalProps {
   isOpen: boolean;
   pdfState: PdfDocumentState;
@@ -43,8 +47,8 @@ export interface SaveModalProps {
   hasPageModifications?: boolean;
   initialSelectedPages?: number[] | null;
   onClose: () => void;
-  onSaveSuccess?: () => void;
-  onExportSuccess?: () => void; // backwards-compatible alias
+  onSaveSuccess?: (info: SaveSuccessInfo) => void;
+  onExportSuccess?: (info: SaveSuccessInfo) => void; // backwards-compatible alias
 }
 
 export const SaveModal: React.FC<SaveModalProps> = ({
@@ -84,9 +88,10 @@ export const SaveModal: React.FC<SaveModalProps> = ({
 
   const activeSessionRef = useRef<number>(0);
 
-  const notifySuccess = () => {
-    onSaveSuccess?.();
-    onExportSuccess?.();
+  const notifySuccess = (isSubsetExport: boolean) => {
+    const info: SaveSuccessInfo = { isSubsetExport };
+    onSaveSuccess?.(info);
+    onExportSuccess?.(info);
   };
 
   // Release superseded previews and free the browser's retained PDF Blob URLs.
@@ -297,6 +302,35 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     saveExportSettings(next);
   };
 
+  const isSubsetExport = Boolean(
+    resolvedPageSelection.selectedPages &&
+      resolvedPageSelection.selectedPages.length < pdfState.numPages
+  );
+
+  const selectedPageSet = React.useMemo(
+    () =>
+      resolvedPageSelection.selectedPages
+        ? new Set(resolvedPageSelection.selectedPages)
+        : null,
+    [resolvedPageSelection.selectedPages]
+  );
+
+  const exportedSignaturesCount = React.useMemo(
+    () =>
+      selectedPageSet
+        ? signatures.filter((s) => selectedPageSet.has(s.pageNumber)).length
+        : signatures.length,
+    [signatures, selectedPageSet]
+  );
+
+  const exportedTextCount = React.useMemo(
+    () =>
+      selectedPageSet
+        ? textOverlays.filter((t) => selectedPageSet.has(t.pageNumber)).length
+        : textOverlays.length,
+    [textOverlays, selectedPageSet]
+  );
+
   const handleDownload = async () => {
     if (!pdfBlob) return;
     setIsSaving(true);
@@ -310,7 +344,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
             ? 'In Downloads gespeichert!'
             : 'Erfolgreich gespeichert!';
         setSaveSuccessMsg(feedback);
-        notifySuccess();
+        notifySuccess(isSubsetExport);
         setTimeout(() => {
           onClose();
         }, 1200);
@@ -331,8 +365,8 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       const targetName = fileName.trim() || 'signed-document.pdf';
       const res = await savePdfDocumentAs(targetName, pdfBlob);
       if (res.success) {
-        setSaveSuccessMsg('Speicherort-Auswahl geöffnet!');
-        notifySuccess();
+        setSaveSuccessMsg('Am gewählten Speicherort gespeichert!');
+        notifySuccess(isSubsetExport);
         setTimeout(() => {
           onClose();
         }, 1200);
@@ -488,14 +522,14 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                 <div className="flex items-center justify-between text-xs text-slate-600">
                   <span>Signatures Embedded:</span>
                   <span className="font-semibold text-slate-900">
-                    {signatures.length} signature{signatures.length !== 1 ? 's' : ''}
+                    {exportedSignaturesCount} signature{exportedSignaturesCount !== 1 ? 's' : ''}
                   </span>
                 </div>
-                {textOverlays.length > 0 && (
+                {exportedTextCount > 0 && (
                   <div className="flex items-center justify-between text-xs text-slate-600">
                     <span>Text Overlays:</span>
                     <span className="font-semibold text-slate-900">
-                      {textOverlays.length} item{textOverlays.length !== 1 ? 's' : ''}
+                      {exportedTextCount} item{exportedTextCount !== 1 ? 's' : ''}
                     </span>
                   </div>
                 )}

@@ -189,6 +189,11 @@ export async function saveRecentDocument(params: {
       db.close();
       reject(err);
     };
+
+    tx.onabort = (err) => {
+      db.close();
+      reject(err);
+    };
   });
 }
 
@@ -293,6 +298,10 @@ export async function removeRecentDocument(id: string): Promise<void> {
         db.close();
         reject(err);
       };
+      tx.onabort = (err) => {
+        db.close();
+        reject(err);
+      };
     });
   } catch (err) {
     console.warn('Could not remove recent document:', err);
@@ -315,6 +324,10 @@ export async function clearRecentDocuments(): Promise<void> {
         resolve();
       };
       tx.onerror = (err) => {
+        db.close();
+        reject(err);
+      };
+      tx.onabort = (err) => {
         db.close();
         reject(err);
       };
@@ -355,6 +368,10 @@ async function pruneOldDocuments(): Promise<void> {
       resolve();
     };
     tx.onerror = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
       db.close();
       resolve();
     };

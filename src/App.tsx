@@ -1101,8 +1101,10 @@ export default function App() {
             setIsSaveModalOpen(false);
             setExportSelectedPages(null);
           }}
-          onSaveSuccess={() => {
-            markCurrentStateSaved();
+          onSaveSuccess={(info) => {
+            if (!info?.isSubsetExport) {
+              markCurrentStateSaved();
+            }
             getRecentDocuments().then(setRecentDocs).catch(() => {});
           }}
         />

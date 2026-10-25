@@ -352,6 +352,7 @@ public class MainActivity extends BridgeActivity {
                             Log.e(TAG, "Failed launching ACTION_CREATE_DOCUMENT", e);
                             if (staged.exists()) staged.delete();
                             Toast.makeText(activity, "Speicherort-Dialog konnte nicht geöffnet werden", Toast.LENGTH_SHORT).show();
+                            activity.notifySaveAsCompleted(false);
                         }
                     });
                     return true;
@@ -598,6 +599,15 @@ public class MainActivity extends BridgeActivity {
         activity.startActivityForResult(intent, REQUEST_CODE_SAVE_PDF_AS);
     }
 
+    private void notifySaveAsCompleted(final boolean success) {
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            runOnUiThread(() -> getBridge().getWebView().evaluateJavascript(
+                "window.onNativeSaveAsCompleted && window.onNativeSaveAsCompleted(" + (success ? "true" : "false") + ");",
+                null
+            ));
+        }
+    }
+
     @Override
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -605,7 +615,10 @@ public class MainActivity extends BridgeActivity {
         if (requestCode == REQUEST_CODE_SAVE_PDF_AS) {
             final File staged = pendingSaveAsSourceFile;
             pendingSaveAsSourceFile = null;
-            if (staged == null || !staged.exists()) return;
+            if (staged == null || !staged.exists()) {
+                notifySaveAsCompleted(false);
+                return;
+            }
 
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
                 final Uri destUri = data.getData();
@@ -620,15 +633,18 @@ public class MainActivity extends BridgeActivity {
                         }
                         out.flush();
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, "PDF am gewählten Speicherort gespeichert", Toast.LENGTH_LONG).show());
+                        notifySaveAsCompleted(true);
                     } catch (Exception e) {
                         Log.e(TAG, "Failed writing PDF to chosen URI", e);
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, "Fehler beim Speichern am gewählten Ort", Toast.LENGTH_SHORT).show());
+                        notifySaveAsCompleted(false);
                     } finally {
                         staged.delete();
                     }
                 }, "pdf-save-as-writer").start();
             } else {
                 staged.delete();
+                notifySaveAsCompleted(false);
             }
         }
     }
