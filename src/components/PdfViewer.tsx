@@ -40,7 +40,6 @@ import { TextSelectionToolbar } from './TextSelectionToolbar';
 import { PdfSearchPanel } from './PdfSearchPanel';
 import { isNativeAndroid } from '../utils/nativeBridge';
 import { computeFitWidthZoom } from '../utils/pdfZoom';
-import { pdfjsLib } from '../utils/pdfWorker';
 import type { PdfSearchHit } from '../utils/pdfSearch';
 
 interface PdfViewerProps {
@@ -203,9 +202,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [outline, setOutline] = useState<PdfOutlineItem[]>([]);
   const [isTocOpen, setIsTocOpen] = useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [textDiagnosticsOn, setTextDiagnosticsOn] = useState(false);
-  const [fontCompensationOn, setFontCompensationOn] = useState(true);
-  const [textDiagnostics, setTextDiagnostics] = useState('');
 
   const [activeSearchMatch, setActiveSearchMatch] = useState<{
     pageNumber: number; query: string; ordinal: number;
@@ -214,8 +210,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const closeSearch = useCallback(() => {
     setIsSearchOpen(false);
     setActiveSearchMatch(null);
-    setTextDiagnosticsOn(false);
-    setTextDiagnostics('');
   }, []);
 
   const handleSearchHit = useCallback((hit: PdfSearchHit, phrase: string) => {
@@ -1218,58 +1212,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     }
   };
 
-  // Diagnostic readings are local-only: numbers and CSS metrics, never PDF
-  // text, filenames, page contents, URLs or automatic analytics. The toggle
-  // is opt-in and measurements are destroyed as soon as the search closes.
-  useEffect(() => {
-    if (!isSearchOpen || !textDiagnosticsOn) return;
-    const measure = () => {
-      const pageNo = activeSearchMatch?.pageNumber ?? pdfState.currentPage;
-      const root = containerRef.current;
-      const page = root?.querySelector(`#pdf-page-${pageNo}`) as HTMLElement | null;
-      const layer = page?.querySelector('.textLayer') as HTMLElement | null;
-      const canvas = page?.querySelector('canvas') as HTMLCanvasElement | null;
-      const hit = layer?.querySelector('.pdf-inline-search-selected') as HTMLElement | null;
-      const span = (hit?.closest('.textLayer > span') || layer?.querySelector(':scope > span')) as HTMLElement | null;
-      if (!page || !layer || !canvas || !span) {
-        setTextDiagnostics(`PDF.js ${pdfjsLib.version} | Seite ${pageNo} | ${zoomLevel}%\nTextlayer noch nicht sichtbar/geladen`);
-        return;
-      }
-      const rect = (el: Element) => el.getBoundingClientRect();
-      const p = rect(page), t = rect(layer), c = rect(canvas), r = rect(span);
-      const st = window.getComputedStyle(span), sl = window.getComputedStyle(layer);
-      const round = (v: number) => Number.isFinite(v) ? v.toFixed(2) : '—';
-      const raw = sl.getPropertyValue('--total-scale-factor').trim();
-      const min = sl.getPropertyValue('--min-font-size').trim();
-      const baseFont = st.getPropertyValue('--font-height').trim();
-      const targetFont = Number.parseFloat(baseFont) * Number.parseFloat(raw) *
-        Number.parseFloat(min);
-      const actualFont = Number.parseFloat(st.fontSize);
-      const metricFactor = st.getPropertyValue('--font-metric-correction').trim();
-      const mark = hit ? rect(hit) : null;
-      const annotations = page.querySelectorAll('[data-pdf-link-id]');
-      const linkStatus = page.dataset.pdfLinkStatus || 'unbekannt';
-      // Positions relative to the same page rectangle, for safe comparison.
-      setTextDiagnostics(
-        `PDF.js ${pdfjsLib.version} | Seite ${pageNo} | Zoom ${zoomLevel}%\n` +
-        `DPR ${round(window.devicePixelRatio)} | Skala ${raw || '—'} | minFont ${min || '—'}\n` +
-        `Canvas ${round(c.width)}×${round(c.height)} | Layer ${round(t.width)}×${round(t.height)}\n` +
-        `Textspan x=${round(r.x-p.x)} y=${round(r.y-p.y)} w=${round(r.width)}\n` +
-        `Font IST ${round(actualFont)}px / SOLL ${round(targetFont)}px | Faktor ${metricFactor || '1'} (${fontCompensationOn ? 'AN' : 'AUS'})\n` +
-        `Treffer x=${mark ? round(mark.x-p.x) : '—'} y=${mark ? round(mark.y-p.y) : '—'} w=${mark ? round(mark.width) : '—'}\n` +
-        `PDF-Linkflächen auf dieser Seite: ${annotations.length} (Erkennung: ${linkStatus})`
-      );
-    };
-    measure();
-    const interval = window.setInterval(measure, 650);
-    return () => window.clearInterval(interval);
-  }, [isSearchOpen, textDiagnosticsOn, fontCompensationOn, zoomLevel, activeSearchMatch?.pageNumber, activeSearchMatch?.ordinal, pdfState.currentPage]);
-
   const pageWidth = Math.round(renderedDimensions.width * (zoomLevel / 100));
   const pageHeight = Math.round(renderedDimensions.height * (zoomLevel / 100));
 
   return (
-    <div className={`flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative ${textDiagnosticsOn ? 'pdf-text-diagnostics' : ''} ${fontCompensationOn ? '' : 'pdf-disable-font-compensation'}`}>
+    <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
       {/* Real-time floating zoom pill badge during pinch gestures */}
       <div
         ref={zoomPillRef}
@@ -1653,11 +1600,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           arrayBuffer={pdfState.arrayBuffer}
           onClose={closeSearch}
           onNavigate={handleSearchHit}
-          diagnosticsEnabled={textDiagnosticsOn}
-          onToggleDiagnostics={() => setTextDiagnosticsOn((enabled) => !enabled)}
-          diagnosticsText={textDiagnostics}
-          fontCompensationOn={fontCompensationOn}
-          onToggleFontCompensation={() => setFontCompensationOn((value) => !value)}
         />
       )}
 
