@@ -1,4 +1,15 @@
+import type { DocumentInitParameters } from 'pdfjs-dist/types/src/display/api';
 import { pdfjsLib } from './pdfWorker';
+
+/**
+ * Extended DocumentInitParameters that includes runtime-supported `enableScripting`
+ * (read in pdf.mjs `getDocument` via `params.enableScripting === true`, though omitted
+ * from upstream JSDoc d.ts) alongside `isEvalSupported: false`.
+ */
+type HardenedDocumentInitParameters = DocumentInitParameters & {
+  enableScripting: false;
+  isEvalSupported: false;
+};
 
 // Cache loaded PDFDocumentProxy promises by ArrayBuffer so the PDF is parsed once
 // and reused across page switches, zoom changes, and re-renders
@@ -69,7 +80,7 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
 
   // Create an isolated copy of the ArrayBuffer for PDF.js worker to consume
   const bufferCopy = data.slice(0);
-  const loadingTask = pdfjsLib.getDocument({
+  const primaryInitParams: HardenedDocumentInitParameters = {
     data: new Uint8Array(bufferCopy),
     // Configure CMaps for non-ASCII fonts and international character encodings
     cMapUrl: '/pdfjs/cmaps/',
@@ -82,13 +93,17 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     stopAtErrors: false,
     // Enable dynamic XFA forms commonly produced by Adobe Acrobat & LiveCycle
     enableXfa: true,
+    // Explicitly disable embedded PDF JavaScript execution (mitigates CVE-2026-16633)
+    enableScripting: false,
+    // Explicitly disable dynamic Function()/eval() compilation in PDF.js worker (mitigates CVE-2024-4367)
+    isEvalSupported: false,
     // Fallback to system fonts if non-embedded fonts are present
     useSystemFonts: true,
     // Unlimited image dimensions in object streams
     maxImageSize: -1,
-    // Support function evaluation for blend modes and shading patterns
     password: password || undefined,
-  });
+  };
+  const loadingTask = pdfjsLib.getDocument(primaryInitParams);
 
   pendingTasks.add(loadingTask);
   const docPromise = loadingTask.promise.catch((err: any) => {
@@ -104,7 +119,7 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     // to reconstruct missing or corrupted XRef tables and object streams directly.
     console.warn('Standard PDF.js load encountered stream/XRef issue; initiating linear XRef recovery mode:', err);
     const recoveryBuffer = data.slice(0);
-    const recoveryTask = pdfjsLib.getDocument({
+    const recoveryInitParams: HardenedDocumentInitParameters = {
       data: new Uint8Array(recoveryBuffer),
       cMapUrl: '/pdfjs/cmaps/',
       cMapPacked: true,
@@ -113,13 +128,16 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
       iccUrl: '/pdfjs/iccs/',
       stopAtErrors: false,
       enableXfa: true,
+      enableScripting: false,
+      isEvalSupported: false,
       useSystemFonts: true,
       maxImageSize: -1,
       disableStream: true,
       disableAutoFetch: true,
       disableRange: true,
       password: password || undefined,
-    });
+    };
+    const recoveryTask = pdfjsLib.getDocument(recoveryInitParams);
 
     pendingTasks.add(recoveryTask);
     return recoveryTask.promise.catch((recoveryErr: any) => {

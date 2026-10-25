@@ -25,7 +25,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'icon.svg', 'sw-share-target.js'],
+        includeAssets: ['apple-touch-icon.png', 'icon.svg', 'sw-share-target.js', 'init-refresh.js'],
         manifest: {
           id: '/',
           name: 'PatricksPDF',

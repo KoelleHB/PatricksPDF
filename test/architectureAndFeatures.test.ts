@@ -664,4 +664,38 @@ test('MainActivity.java method overrides match Capacitor BridgeActivity visibili
   assert.doesNotMatch(mainSource, /protected\s+void\s+onSaveInstanceState\s*\(\s*Bundle\s+outState\s*\)/);
 });
 
+test('PDF.js loader enforces enableScripting: false, isEvalSupported: false and index.html defines strict CSP', () => {
+  const lifecyclePath = path.resolve(process.cwd(), 'src/utils/pdfDocumentLifecycle.ts');
+  const lifecycleSource = fs.readFileSync(lifecyclePath, 'utf8');
+
+  const initParamBlocks = [
+    ...lifecycleSource.matchAll(/:\s*HardenedDocumentInitParameters\s*=\s*\{([\s\S]*?)\};/g),
+  ];
+  assert.equal(initParamBlocks.length, 2, 'Expected both primary and recovery HardenedDocumentInitParameters blocks in pdfDocumentLifecycle.ts');
+
+  for (const [index, match] of initParamBlocks.entries()) {
+    const block = match[1];
+    assert.match(
+      block,
+      /\benableScripting:\s*false\b/,
+      `getDocument call #${index + 1} must explicitly set enableScripting: false (CVE-2026-16633 mitigation)`
+    );
+    assert.match(
+      block,
+      /\bisEvalSupported:\s*false\b/,
+      `getDocument call #${index + 1} must explicitly set isEvalSupported: false (CVE-2024-4367 mitigation)`
+    );
+  }
+
+  const indexHtmlPath = path.resolve(process.cwd(), 'index.html');
+  const indexHtml = fs.readFileSync(indexHtmlPath, 'utf8');
+  assert.match(indexHtml, /http-equiv="Content-Security-Policy"/);
+  assert.match(indexHtml, /script-src\s+'self'\s+'wasm-unsafe-eval'/);
+  assert.doesNotMatch(indexHtml, /script-src[^;]*'unsafe-eval'/);
+  assert.doesNotMatch(indexHtml, /script-src[^;]*'unsafe-inline'/);
+  assert.match(indexHtml, /object-src\s+'none'/);
+  assert.match(indexHtml, /base-uri\s+'self'/);
+});
+
+
 
