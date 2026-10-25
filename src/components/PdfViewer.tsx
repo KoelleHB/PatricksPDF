@@ -40,6 +40,7 @@ import { TextSelectionToolbar } from './TextSelectionToolbar';
 import { PdfSearchPanel } from './PdfSearchPanel';
 import { isNativeAndroid } from '../utils/nativeBridge';
 import { computeFitWidthZoom } from '../utils/pdfZoom';
+import { selectionTouchesPdfTextLayer } from '../utils/pdfSelection';
 import type { PdfSearchHit } from '../utils/pdfSearch';
 
 interface PdfViewerProps {
@@ -267,6 +268,32 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const onChangePageRef = useRef(onChangePage);
   onChangePageRef.current = onChangePage;
 
+  // Android's native selection handles can temporarily collapse or move their
+  // DOM endpoints. Keep a short, side-effect-free grace period so a momentary
+  // selectionchange does not trigger a fit-width zoom or focus re-render.
+  const lastPdfSelectionAtRef = useRef(0);
+  const hasNativePdfSelection = useCallback(() => {
+    if (!isNativeAndroid()) return false;
+    const active = selectionTouchesPdfTextLayer(
+      window.getSelection(), containerRef.current,
+    );
+    if (active) lastPdfSelectionAtRef.current = Date.now();
+    return active ||
+      (lastPdfSelectionAtRef.current > 0 &&
+       Date.now() - lastPdfSelectionAtRef.current < 600);
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    const recordSelection = () => {
+      if (selectionTouchesPdfTextLayer(window.getSelection(), containerRef.current)) {
+        lastPdfSelectionAtRef.current = Date.now();
+      }
+    };
+    document.addEventListener('selectionchange', recordSelection);
+    return () => document.removeEventListener('selectionchange', recordSelection);
+  }, []);
+
   const isScrollingProgrammaticallyRef = useRef(false);
   const lastReportedPageRef = useRef<number>(pdfState.currentPage);
   const pendingZoomAnchorRef = useRef<ZoomAnchor | null>(null);
@@ -363,7 +390,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // When the reading focus moves to a page of different width, recompute
   // automatically, preserving the reading line rather than jumping to page 1.
   useEffect(() => {
-    if (!isFitWidthMode || isReflowMode) return;
+    if (!isFitWidthMode || isReflowMode || hasNativePdfSelection()) return;
     const fitZoom = calculateFitWidthZoom(pdfState.currentPage);
     if (fitZoom === zoomLevelRef.current) return;
     const container = containerRef.current;
@@ -372,13 +399,16 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       pendingZoomAnchorRef.current = captureZoomAnchor(container.clientWidth / 2, readingY);
     }
     setZoomLevel(fitZoom);
-  }, [isFitWidthMode, isReflowMode, pdfState.currentPage, calculateFitWidthZoom, captureZoomAnchor]);
+  }, [isFitWidthMode, isReflowMode, pdfState.currentPage, calculateFitWidthZoom, captureZoomAnchor, hasNativePdfSelection]);
 
   // Keep view fitted to width on screen resize or mobile rotation if fit-width mode is active
   useEffect(() => {
     if (!isFitWidthMode) return;
 
     const handleResize = () => {
+      // Android selection handles can cause visualViewport/layout fluctuations.
+      // Never change the PDF's text geometry in the middle of a range drag.
+      if (hasNativePdfSelection()) return;
       if (containerRef.current) {
         const centerX = containerRef.current.clientWidth / 2;
         const centerY = containerRef.current.clientHeight / 2;
@@ -390,7 +420,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isFitWidthMode, calculateFitWidthZoom, captureZoomAnchor]);
+  }, [isFitWidthMode, calculateFitWidthZoom, captureZoomAnchor, hasNativePdfSelection]);
 
   // Close zoom preset dropdown when clicking outside or pressing Escape
   useEffect(() => {
@@ -567,18 +597,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         }
         if (isScrollingProgrammaticallyRef.current || pinchRef.current?.active) return;
 
-        // Native Android selection handles may automatically scroll by a few
-        // pixels while the user extends a range. Do not promote a new current
-        // page in the middle of that gesture: this would re-render the reader
-        // toolbar and could re-fit the zoom while selecting text.
-        const nativeSelection = window.getSelection();
-        if (nativeSelection && !nativeSelection.isCollapsed) {
-          const anchorNode = nativeSelection.anchorNode;
-          const anchorElement = anchorNode instanceof Element
-            ? anchorNode
-            : anchorNode?.parentElement;
-          if (anchorElement?.closest('.textLayer')) return;
-        }
+        // PDF.js text positions must remain fixed while Android selection
+        // handles are dragged. Avoid auto page focus / fit-width changes.
+        if (hasNativePdfSelection()) return;
 
         let candidatePage = 0;
         let bestScore = -Infinity;
@@ -617,7 +638,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     }
 
     return () => observer.disconnect();
-  }, [pdfState.numPages]);
+  }, [pdfState.numPages, hasNativePdfSelection]);
 
   // Restore exact scroll position after zoomLevel changes using the captured anchor
   useLayoutEffect(() => {
@@ -707,6 +728,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     const handleTouchStart = (e: TouchEvent) => {
       // 1. Double-tap detection for single finger
       if (e.touches.length === 1) {
+        // Native selection handles are not DOM children of the text layer.
+        // Their touch events may target the scroll container instead; never
+        // misinterpret the second handle touch as a double-tap zoom.
+        if (hasNativePdfSelection()) {
+          lastTapRef.current = { time: 0, x: 0, y: 0 };
+          return;
+        }
         const touch = e.touches[0];
         const now = Date.now();
         const dist = Math.hypot(touch.clientX - lastTapRef.current.x, touch.clientY - lastTapRef.current.y);
@@ -1010,7 +1038,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       container.removeEventListener('gestureend', handleGestureEnd as any);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [captureZoomAnchor]);
+  }, [captureZoomAnchor, hasNativePdfSelection]);
 
   // Spacebar pan detection
   useEffect(() => {

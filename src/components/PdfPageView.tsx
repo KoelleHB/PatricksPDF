@@ -18,7 +18,8 @@ import {
 import { SignatureOverlay } from './SignatureOverlay';
 import { TextOverlay } from './TextOverlay';
 import { InteractiveFormField } from './InteractiveFormField';
-import { openPdfExternalLink } from '../utils/nativeBridge';
+import { openPdfExternalLink, isNativeAndroid } from '../utils/nativeBridge';
+import { selectionTouchesPdfTextLayer } from '../utils/pdfSelection';
 
 interface PdfPageViewProps {
   pageNumber: number;
@@ -133,7 +134,12 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        // Unmount offscreen canvases and text layers to release GPU/DOM memory.
+        // Keep the original text DOM mounted for the duration of an Android
+        // range selection, even if dragging a handle scrolls the page offscreen.
+        // Destroying/rebuilding its spans makes selection handles jump.
+        if (!entry.isIntersecting && isNativeAndroid() &&
+            selectionTouchesPdfTextLayer(window.getSelection(), el)) return;
+        // Outside selection, retain the existing memory-saving virtualization.
         setIsNearViewport(entry.isIntersecting);
         if (!entry.isIntersecting) {
           setIsRendered(false);
