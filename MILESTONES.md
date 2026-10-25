@@ -68,9 +68,39 @@ git push origin v1.0.0-gold-offline-binary-refactor
 5. Die obige Zusammenfassung hineinkopieren und auf **Publish release** klicken.
 6. Der Release-Stand bleibt auf GitHub dauerhaft mit Download-Archiv (`.zip` / `.tar.gz`) und zugehörigem Commit archiviert.
 
-### Option C: Stand jederzeit auschecken
-Solltest du später an einer anderen Stelle experimentieren und zu genau diesem Stand zurückwollen:
-
 ```bash
 git checkout v1.0.0-gold-offline-binary-refactor
 ```
+
+---
+
+## 🏆 Meilenstein 2: Konsolidierter Stand nach PR #4 (PDF.js 6, Volltextsuche, Link-Fix & Android-Metriken)
+
+- **Datum**: 25. Oktober 2026
+- **Zugehöriger Commit**: [`8703279`](https://github.com/KoelleHB/PatricksPDF/commit/8703279eb89b47101c541272fb091b85a51b10ea) auf `main` (nach Squash-Merge von [PR #4](https://github.com/KoelleHB/PatricksPDF/pull/4))
+- **Verifizierte Test-APK**: `v1.0.78` (Nutzerabnahme auf Android erfolgreich abgeschlossen)
+
+### Kernarchitektur & Neuerungen dieses Meilensteins:
+
+1. **PDF.js Upgrade auf 6.4.299 & Beseitigung der Link-API-Regression**:
+   - PDF.js 6 hat `convertToViewportRectangle()` ersatzlos gestrichen. Die Koordinaten-Transformation für klickbare PDF-Links und Formularfelder wurde in `pdfViewportRect.ts` auf `convertToViewportPoint()` umgestellt.
+   - Interne `GoTo`-Sprungziele und externe Web-Links (`ACTION_VIEW`) funktionieren auf Desktop und Android wieder subpixelgenau.
+
+2. **Passwortlose, AES-128-verschlüsselte PDFs**:
+   - Robuste Unterstützung für geschützte Handbücher und Dokumente, die ohne Passworteingabe lesbar sind.
+   - Klare Trennung: Anzeige, Suche und Links laufen über PDF.js; `pdf-lib` wird nur bei explizitem Bearbeiten unverschlüsselter PDFs genutzt, und unveränderte Dateien werden beim Speichern ohne Neuserialisierung 1:1 durchgereicht.
+
+3. **Vollintegrierte lokale PDF-Volltextsuche**:
+   - `pdfSearch.ts`, `pdfInlineSearch.ts`, `pdfInlineTextHighlighter.ts` und `PdfSearchPanel.tsx`.
+   - Direkte Inline-Markierung innerhalb der PDF.js-Textspans, Vor-/Zurück-Navigation, Begrenzung auf max. 1.000 Treffer zum Schutz des Speichers.
+
+4. **Android WebView Font-Autosizing-Kompensation**:
+   - `pdfTextMetrics.ts` gleicht WebView-eigene Schriftvergrößerungen (z. B. auf Samsung OneUI) über den dynamischen Korrekturfaktor `--font-metric-correction` (`SOLL / IST`) ab, sodass Textauswahl und Suchmarkierungen exakt über dem Canvas liegen.
+
+5. **Stabilisierte native Textauswahl**:
+   - Native Android-Ziehgriffe und Android-Systemmenü; Schutz der aktiven Textauswahl vor vorzeitigem Unmounten oder Zoom-Sprüngen.
+
+6. **Speicher-Virtualisierung & Test-Suite**:
+   - Freigabe von Canvas/TextLayer außerhalb des Sichtbereichs für flüssige Bedienung bei 300–400+ Seiten.
+   - 11 automatisierte Testdateien in `test/` inklusive Node/tsx-Tests und Headless-Chrome-Smoke-Tests für verschlüsselte PDFs und Link-Geometrie.
+

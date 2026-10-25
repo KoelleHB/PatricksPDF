@@ -1,6 +1,8 @@
 # Nächste Optimierungsphase — PWA und APK
 
-Branch: `feature/native-binary-resource-refactor`. Basis: PR #2 / `main`.
+> **Status (25.10.2026):** Die wesentlichen Schwerpunkte dieser Optimierungsphase (binäre Android-Übertragung via Loopback, PDF.js-Lebenszyklus/Speicherfreigabe und Modularisierung des PWA-Share-Targets/Headers) wurden mit **PR #4** konsolidiert und erfolgreich nach `main` gemergt. Siehe [CHANGELOG.md](../CHANGELOG.md) und [ARCHITECTURE.md](ARCHITECTURE.md).
+
+Ursprünglicher Arbeitsbranch: `feature/native-binary-resource-refactor`. Basis war PR #2 / `main`.
 
 ## A. Binäre Android-Dateiübertragung
 
