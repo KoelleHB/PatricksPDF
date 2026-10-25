@@ -307,29 +307,17 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       resolvedPageSelection.selectedPages.length < pdfState.numPages
   );
 
-  const selectedPageSet = React.useMemo(
-    () =>
-      resolvedPageSelection.selectedPages
-        ? new Set(resolvedPageSelection.selectedPages)
-        : null,
-    [resolvedPageSelection.selectedPages]
-  );
+  const selectedPageSet = resolvedPageSelection.selectedPages
+    ? new Set(resolvedPageSelection.selectedPages)
+    : null;
 
-  const exportedSignaturesCount = React.useMemo(
-    () =>
-      selectedPageSet
-        ? signatures.filter((s) => selectedPageSet.has(s.pageNumber)).length
-        : signatures.length,
-    [signatures, selectedPageSet]
-  );
+  const exportedSignaturesCount = selectedPageSet
+    ? signatures.filter((s) => selectedPageSet.has(s.pageNumber)).length
+    : signatures.length;
 
-  const exportedTextCount = React.useMemo(
-    () =>
-      selectedPageSet
-        ? textOverlays.filter((t) => selectedPageSet.has(t.pageNumber)).length
-        : textOverlays.length,
-    [textOverlays, selectedPageSet]
-  );
+  const exportedTextCount = selectedPageSet
+    ? textOverlays.filter((t) => selectedPageSet.has(t.pageNumber)).length
+    : textOverlays.length;
 
   const handleDownload = async () => {
     if (!pdfBlob) return;
