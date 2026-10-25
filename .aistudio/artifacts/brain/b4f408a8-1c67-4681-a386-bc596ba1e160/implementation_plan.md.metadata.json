@@ -1,6 +1,6 @@
 {
-  "summary":  "Detaillierter Architektur- und Implementierungsplan für alle 12 Verbesserungs- und Funktionspunkte in PatricksPDF (kompakte Delta-History, gehärteter Export- und Formularpfad, SHA-256 Dokument-IDs, Trennung von Metadaten und Binärdaten in IndexedDB v2, zustandsbasierter Gespeichert-Status, lokales Caveat-Font-Loading ohne Google Fonts, einheitliches Fehlermodell, Export ausgewählter Seiten als neues PDF, Mehrfachauswahl in der Seitenverwaltung, freie Speicherort-Wahl auf Android via SAF, wiederverwendbare Unterschriftenbibliothek und persistente Exporteinstellungen).",
-  "updatedAt":  "2026-10-25T13:26:35.725630730Z",
+  "summary":  "Implementierungsplan fuer die sichtbereichszentrierte Platzierung und zoomadaptive Groessenanpassung neuer Unterschriften und Texte inklusive Versatz bei Mehrfacheinfuegung.",
+  "updatedAt":  "2026-10-25T16:19:34.142314646Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

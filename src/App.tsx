@@ -19,6 +19,11 @@ import { AlertCircle, X, Loader2, Share2, FileQuestion, HelpCircle } from 'lucid
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 import { AppError, createAppError } from './utils/appError';
 import { ErrorDiagnosticsModal } from './components/ErrorDiagnosticsModal';
+import {
+  computeSignaturePlacement,
+  computeTextPlacement,
+  type ViewportPageSnapshot,
+} from './utils/pdfPlacement';
 
 export default function App() {
   const [pdfState, setPdfState] = useState<PdfDocumentState | null>(null);
@@ -37,6 +42,15 @@ export default function App() {
   const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
   const manualFileInputRef = useRef<HTMLInputElement>(null);
   const originalPdfBufferRef = useRef<ArrayBuffer | null>(null);
+  const viewportSnapshotGetterRef = useRef<(() => ViewportPageSnapshot | null) | null>(null);
+  const pendingPlacementSnapshotRef = useRef<ViewportPageSnapshot | null>(null);
+
+  const handleRegisterViewportSnapshotGetter = useCallback(
+    (getter: (() => ViewportPageSnapshot | null) | null) => {
+      viewportSnapshotGetterRef.current = getter;
+    },
+    []
+  );
 
   // Native Form Fields metadata (structural fields from PDF)
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
@@ -340,22 +354,50 @@ export default function App() {
     };
   }, []);
 
-  // Add a newly processed transparent signature
+  // Add a newly processed transparent signature centered in the currently visible viewport
   const handleAddSignature = (
     itemData: Omit<SignatureItem, 'id' | 'xPercent' | 'yPercent' | 'pageNumber'>
   ) => {
     if (!pdfState) return;
 
     const newId = `sig-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const snapshot =
+      pendingPlacementSnapshotRef.current ?? viewportSnapshotGetterRef.current?.() ?? null;
+    pendingPlacementSnapshotRef.current = null;
 
-    // Default placement: nicely centered on the bottom half of the current page
+    const existingPlacements = [
+      ...signatures.map((s) => ({
+        pageNumber: s.pageNumber,
+        xPercent: s.xPercent,
+        yPercent: s.yPercent,
+      })),
+      ...textOverlays.map((t) => ({
+        pageNumber: t.pageNumber,
+        xPercent: t.xPercent,
+        yPercent: t.yPercent,
+      })),
+    ];
+
+    const placement = computeSignaturePlacement({
+      snapshot,
+      fallbackPageNumber: pdfState.currentPage,
+      defaultWidthPercent: itemData.widthPercent || 28,
+      aspectRatio: itemData.aspectRatio || 2.2,
+      existingPlacements,
+    });
+
     const newSignature: SignatureItem = {
       ...itemData,
       id: newId,
-      pageNumber: pdfState.currentPage,
-      xPercent: 52,
-      yPercent: 78,
+      pageNumber: placement.pageNumber,
+      xPercent: placement.xPercent,
+      yPercent: placement.yPercent,
+      widthPercent: placement.widthPercent,
     };
+
+    if (placement.pageNumber !== pdfState.currentPage) {
+      setPdfState((prev) => (prev ? { ...prev, currentPage: placement.pageNumber } : prev));
+    }
 
     commitAction(
       {
@@ -364,7 +406,7 @@ export default function App() {
         selectedTextId: null,
       },
       'Add Signature',
-      pdfState.currentPage
+      placement.pageNumber
     );
     markUnsaved();
   };
@@ -428,7 +470,7 @@ export default function App() {
     markUnsaved();
   };
 
-  // Text Overlay Handlers with Undo/Redo tracking
+  // Text Overlay Handlers with Undo/Redo tracking and viewport-centered placement
   const handleAddText = (
     text: string,
     fontFamily: TextFontFamily,
@@ -437,17 +479,51 @@ export default function App() {
   ) => {
     if (!pdfState) return;
     const newId = `txt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const snapshot =
+      pendingPlacementSnapshotRef.current ?? viewportSnapshotGetterRef.current?.() ?? null;
+    pendingPlacementSnapshotRef.current = null;
+
+    const existingPlacements = [
+      ...signatures.map((s) => ({
+        pageNumber: s.pageNumber,
+        xPercent: s.xPercent,
+        yPercent: s.yPercent,
+      })),
+      ...textOverlays.map((t) => ({
+        pageNumber: t.pageNumber,
+        xPercent: t.xPercent,
+        yPercent: t.yPercent,
+      })),
+    ];
+
+    const placement = computeTextPlacement({
+      snapshot,
+      fallbackPageNumber: pdfState.currentPage,
+      text,
+      fontSize,
+      fontFamily,
+      defaultWidthPercent: 25,
+      existingPlacements,
+      basePageWidthPt: pdfState.pageWidth || 595,
+      basePageHeightPt: pdfState.pageHeight || 842,
+    });
+
     const newTextItem: TextOverlayItem = {
       id: newId,
-      pageNumber: pdfState.currentPage,
+      pageNumber: placement.pageNumber,
       text,
-      xPercent: 35,
-      yPercent: 40,
-      widthPercent: 25,
+      xPercent: placement.xPercent,
+      yPercent: placement.yPercent,
+      widthPercent: placement.widthPercent,
       fontSize,
       fontFamily,
       color,
     };
+
+    if (placement.pageNumber !== pdfState.currentPage) {
+      setPdfState((prev) => (prev ? { ...prev, currentPage: placement.pageNumber } : prev));
+    }
+
     commitAction(
       {
         textOverlays: [...textOverlays, newTextItem],
@@ -455,7 +531,7 @@ export default function App() {
         selectedSignatureId: null,
       },
       'Add Text',
-      pdfState.currentPage
+      placement.pageNumber
     );
     markUnsaved();
   };
@@ -1037,8 +1113,14 @@ export default function App() {
             onCommitFormField={handleCommitFormField}
             onResetForm={handleResetForm}
             onChangePage={handleChangePage}
-            onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
-            onOpenTextModal={() => setIsTextModalOpen(true)}
+            onOpenSignatureModal={() => {
+              pendingPlacementSnapshotRef.current = viewportSnapshotGetterRef.current?.() ?? null;
+              setIsSignatureModalOpen(true);
+            }}
+            onOpenTextModal={() => {
+              pendingPlacementSnapshotRef.current = viewportSnapshotGetterRef.current?.() ?? null;
+              setIsTextModalOpen(true);
+            }}
             onOpenPageManager={() => setIsPageManagerOpen(true)}
             canUndo={canUndo}
             canRedo={canRedo}
@@ -1049,6 +1131,7 @@ export default function App() {
             historyNotice={historyNotice}
             isReaderMode={isReaderMode}
             onToggleReaderMode={setIsReaderMode}
+            onRegisterViewportSnapshotGetter={handleRegisterViewportSnapshotGetter}
           />
         )}
       </main>
@@ -1063,8 +1146,14 @@ export default function App() {
           canRedo={canRedo}
           onUndo={handleUndo}
           onRedo={handleRedo}
-          onAddSignature={() => setIsSignatureModalOpen(true)}
-          onAddText={() => setIsTextModalOpen(true)}
+          onAddSignature={() => {
+            pendingPlacementSnapshotRef.current = viewportSnapshotGetterRef.current?.() ?? null;
+            setIsSignatureModalOpen(true);
+          }}
+          onAddText={() => {
+            pendingPlacementSnapshotRef.current = viewportSnapshotGetterRef.current?.() ?? null;
+            setIsTextModalOpen(true);
+          }}
           onOpenPageManager={() => setIsPageManagerOpen(true)}
           onSave={() => setIsSaveModalOpen(true)}
           onChangePage={handleChangePage}

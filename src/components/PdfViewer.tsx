@@ -42,6 +42,7 @@ import { isNativeAndroid } from '../utils/nativeBridge';
 import { computeFitWidthZoom } from '../utils/pdfZoom';
 import { selectionTouchesPdfTextLayer } from '../utils/pdfSelection';
 import type { PdfSearchHit } from '../utils/pdfSearch';
+import { extractViewportPageSnapshot, type ViewportPageSnapshot } from '../utils/pdfPlacement';
 
 interface PdfViewerProps {
   pdfState: PdfDocumentState;
@@ -77,6 +78,7 @@ interface PdfViewerProps {
   onResetForm?: () => void;
   isReaderMode?: boolean;
   onToggleReaderMode?: (enabled: boolean) => void;
+  onRegisterViewportSnapshotGetter?: (getter: (() => ViewportPageSnapshot | null) | null) => void;
 }
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({
@@ -113,6 +115,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   historyNotice,
   isReaderMode = false,
   onToggleReaderMode,
+  onRegisterViewportSnapshotGetter,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainersRef = useRef<{ [pageNum: number]: HTMLDivElement | null }>({});
@@ -353,6 +356,31 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       viewportY,
     };
   }, []);
+
+  // Provide live viewport page & visible area snapshot for centered signature/text placement
+  const getViewportSnapshot = useCallback((): ViewportPageSnapshot | null => {
+    const container = containerRef.current;
+    if (!container || isReflowMode) return null;
+    const containerRect = container.getBoundingClientRect();
+    const pageRects: Array<{ pageNumber: number; rect: DOMRect }> = [];
+    for (let p = 1; p <= numPagesRef.current; p++) {
+      const el = pageContainersRef.current[p];
+      if (!el) continue;
+      pageRects.push({
+        pageNumber: p,
+        rect: el.getBoundingClientRect(),
+      });
+    }
+    return extractViewportPageSnapshot(containerRect, pageRects, currentPageRef.current || 1);
+  }, [isReflowMode]);
+
+  useEffect(() => {
+    if (!onRegisterViewportSnapshotGetter) return;
+    onRegisterViewportSnapshotGetter(getViewportSnapshot);
+    return () => {
+      onRegisterViewportSnapshotGetter(null);
+    };
+  }, [onRegisterViewportSnapshotGetter, getViewportSnapshot]);
 
   // Automatically reset to "fit width" mode whenever a new file is opened
   const lastOpenedDocRef = useRef<string>('');
