@@ -1,10 +1,10 @@
-# Architektur – PatricksPDF
+# Architektur – PatricksPDF (Version 2.0)
 
-**Gilt für:** `main` nach dem am 25.10.2026 gemergten [PR #4](https://github.com/KoelleHB/PatricksPDF/pull/4). Diese Beschreibung bildet den derzeitigen Code ab. Sie ist keine Zusage vollständiger PDF-Standardkompatibilität.
+**Gilt für:** **Version 2.0 (`2.0.0`)** auf `main` (Stand: 25.10.2026). Diese Beschreibung bildet den aktuellen Code- und Sicherheitsstand ab. Sie ist keine Zusage vollständiger PDF-Standardkompatibilität.
 
 ## 1. Gesamtübersicht
 
-PatricksPDF besteht aus einer React-/TypeScript-Anwendung, einer PDF-Lese-/Render-Schicht (PDF.js), einer PDF-Bearbeitungs-/Export-Schicht (pdf-lib) und optional nativen Android-Funktionen.
+PatricksPDF besteht aus einer React-/TypeScript-Anwendung, einer PDF-Lese-/Render-Schicht (PDF.js), einer strikt getrennten PDF-Bearbeitungs-/Export-Schicht (`pdfExportEngine.ts` auf Basis von `pdf-lib`) und optional nativen Android-Funktionen.
 
 ```text
 PDF aus Datei / PWA Share Target / Android-Intent
@@ -12,9 +12,9 @@ PDF aus Datei / PWA Share Target / Android-Intent
              src/App.tsx
      Dokumentzustand + Änderungsverlauf
              /           \
-    PDF.js (lesen)       pdf-lib (Bearbeiten/Export)
+    PDF.js (lesen)       pdfExportEngine.ts (pdf-lib)
        |   |   |                 |
-    Canvas Text Links        neue PDF-Bytes
+    Canvas Text Links    physisch bereinigte PDF-Bytes
        |   |   |                 |
        PdfViewer / PdfPageView / SaveModal
                        |
@@ -24,28 +24,33 @@ PDF aus Datei / PWA Share Target / Android-Intent
               Speichern / Teilen / Druck
 ```
 
-**Grundsatz:** Die PDF-Binärdaten bleiben für die normalen Lese-/Editieroperationen auf dem Gerät. Explizite Export-, Druck-, Link- und Share-Aktionen übergeben Daten ggf. an gewählte Zielanwendungen oder Betriebssystemdienste. Die App speichert „Zuletzt geöffnet“-Dokumente dauerhaft im lokalen IndexedDB-Cache, siehe unten.
+**Grundsatz:** Die PDF-Binärdaten bleiben für die normalen Lese-/Editieroperationen auf dem Gerät. Explizite Export-, Druck-, Link- und Share-Aktionen übergeben Daten ggf. an gewählte Zielanwendungen oder Betriebssystemdienste. Die App speichert „Zuletzt geöffnet“-Dokumente sowie gespeicherte Unterschriften-Vorlagen dauerhaft im lokalen IndexedDB-Cache, siehe unten.
 
 ## 2. Komponenten und Verantwortlichkeiten
 
 | Modul | Aufgabe |
 | --- | --- |
-| `src/App.tsx` | Dokument öffnen, Passwortdialog, Bearbeitungszustand, Unsaved-Changes-Warnung, Speichern-/Teilen-/Druck-UI und Modals orchestrieren |
-| `src/components/PdfViewer.tsx` | Fortlaufendes Scrollen, Fokus-Seite, Fit Width/Zoom, Suche, Inhaltsverzeichnis, Reader-/Reflow-Modus und Touch-/Gestensteuerung |
+| `src/App.tsx` | Dokument öffnen, Passwortdialog, Bearbeitungszustand, Debounce-Flush vor Ausgaben, Unsaved-Changes-Warnung, isolierter Teil-Export-Snapshot (`stagedExportOverride`), Speichern-/Teilen-/Druck-UI und Modals orchestrieren |
+| `src/components/PdfViewer.tsx` | Fortlaufendes Scrollen, Fokus-Seite, Fit Width/Zoom, Suche, Inhaltsverzeichnis, Reader-/Reflow-Modus, Touch-/Gestensteuerung sowie Berechnung des aktuell sichtbaren Seiten-Ausschnitts (`getViewportPlacement`) |
 | `src/components/PdfPageView.tsx` | Einzelne PDF-Seite: Canvas, echte Textschicht, Link-Annotationen, Formfelder, Signaturen/Textoverlays; bedarfsorientiertes Mounting |
 | `src/utils/pdfDocumentLifecycle.ts` | Laden und Cache der `PDFDocumentProxy`-Instanzen, Worker-konforme ArrayBuffer-Kopien, Render-Cancellation, Ressourcenfreigabe |
-| `src/utils/pdfEngine.ts` | Canvas-/Textlayer-Rendering, Link-/Formfeld-Extraktion, Seitendaten, Manipulation und Export |
+| `src/utils/pdfEngine.ts` | Canvas-/Textlayer-Rendering, Link-/Formfeld-Extraktion, sichere Inhaltsverzeichnis-Extraktion (`extractDocumentOutline`), Seitenvorschau |
+| `src/utils/pdfExportEngine.ts` | PDF-Modifikation und Export: physische Seiten-/Objekt-Isolation bei Teil-Exporten (`isolateSelectedPagesInSourceDoc`), AcroForm-Validierung/-Flattening, Einbetten von Signaturen/Texten (`embedSignaturesIntoPdf`), Seitenoperationen (`applyPageModifications`) und isolierter Entwurfs-Export (`buildStagedPageExportSnapshot`) |
+| `src/utils/pdfPlacement.ts` | Berechnung der viewport-zentrierten, zoom-angepassten und kaskadierten Platzierung neuer Unterschriften und Textfelder (`computeViewportElementPlacement`) |
 | `src/utils/pdfRawLinks.ts` | `pdf-lib`-Fallback für auslesbare, **nicht verschlüsselte** Linkannotation-Strukturen |
 | `src/utils/pdfViewportRect.ts` | Rechtecke per PDF.js-6-kompatibler Punkttransformation umrechnen |
 | `src/utils/pdfSearch.ts` / `pdfSearchMatcher.ts` | Dokumentweite PDF.js-Textsuche und Trefferzuordnung |
 | `src/utils/pdfInlineTextHighlighter.ts` / `pdfInlineSearch.ts` | Markierungen innerhalb der originalen PDF.js-Textspans |
 | `src/utils/pdfTextMetrics.ts` / `pdfSelection.ts` | Android-Schriftmetriken und Schutz aktiver nativer Textauswahl |
-| `src/hooks/useDocumentHistory.ts` | Undo/Redo für Dokument-/Overlay-/Formulardaten |
-| `src/components/PageManagementModal.tsx` | Reihenfolge, Duplikate, Drehung, Import, leere und gelöschte Seiten |
-| `src/components/SaveModal.tsx` | Ausgabe vorbereiten und Download/Share/Print veranlassen |
-| `src/utils/nativeBridge.ts` / `androidPdfTransfer.ts` | Browser-/Android-Ausgabepfade, sicheres Öffnen externer Links, übertragungsarme native PDF-Aktionen |
-| `android/app/src/main/java/com/patrickspdf/app/MainActivity.java` | Android-WebView-Bridge, System-Intents, MediaStore/PrintManager/FileProvider |
-| `src/utils/recentDocuments.ts` | Lokale IndexedDB-Historie kürzlich geöffneter Dokumente |
+| `src/hooks/useDocumentHistory.ts` | Kompaktes Delta-Undo/Redo für Dokument-/Overlay-/Formulardaten mit deduplizierten Binär-Revisionen und deterministischer Zustands-Signatur |
+| `src/components/PageManagementModal.tsx` | Seitenverwaltung mit Mehrfachauswahl, Reihenfolge, Duplikaten, Drehung, Import, leeren/gelöschten Seiten und rückwirkungsfreiem Teil-Export |
+| `src/components/SaveModal.tsx` | Ausgabe vorbereiten (Gesamtdokument oder Seitenbereich), Dateinamens-Vorlagen anwenden und Download/Save-As/Share/Print veranlassen |
+| `src/utils/signatureLibrary.ts` / `SignatureModal.tsx` | Lokale IndexedDB-Unterschriftenbibliothek (`PatricksPDFSignaturesDB`) zum dauerhaften Speichern, Umbenennen und Wiederverwenden mehrerer Unterschriften |
+| `src/utils/exportSettings.ts` | Persistente Exporteinstellungen (Dateinamens-Schema, Suffix, Flattening-Standard) in `localStorage` |
+| `src/utils/appError.ts` / `ErrorDiagnosticsModal.tsx` | Strukturiertes `AppError`-Fehlermodell (`APP_VERSION = '2.0.0'`) und Diagnose-Modal |
+| `src/utils/nativeBridge.ts` / `androidPdfTransfer.ts` | Browser-/Android-Ausgabepfade, korrelierter `save_as`-Dialog mit Request-ID & Timeout, sicheres Öffnen externer Links, binärer Loopback-Transfer |
+| `android/app/src/main/java/com/patrickspdf/app/MainActivity.java` | Android-WebView-Bridge, System-Intents, MediaStore/SAF (`ACTION_CREATE_DOCUMENT` mit `onSaveInstanceState`-Sicherung)/PrintManager/FileProvider |
+| `src/utils/recentDocuments.ts` | Lokale IndexedDB-v2-Historie kürzlich geöffneter Dokumente mit Metadaten-/Blob-Trennung und SHA-256-Fingerprint |
 
 Siehe [PDF-Rendering](PDF-RENDERING.md) für die Koordinatensysteme, PDF.js-6-Fallen und Android-Auswahl.
 
@@ -69,30 +74,34 @@ In `App.tsx` liegen der aktuelle `PdfDocumentState` (PDF-Datei, `arrayBuffer`, S
 
 - Binäre Dokumentrevisionen (`PageDocumentSnapshot`) werden dedupliziert in einer Revisions-Map (`docRevisionId`) abgelegt, sodass `ArrayBuffer`-Instanzen bei reinen Overlay- oder Formularänderungen nicht kopiert werden; nicht mehr referenzierte Revisionen werden automatisch bereinigt.
 - Jeder Historieneintrag speichert den `docRevisionId`-Verweis, die Änderungsart (`HistoryDeltaOperation`), Overlay-/Formularzustände sowie eine deterministische Zustands-Signatur (`stateSignature`).
-- Schreibvorgänge in Formularfelder werden debounced und vor Undo-/Speicher-Operationen geflusht. **Undo und Redo stellen jeweils die referenzierte `PageDocumentSnapshot`-Revision wieder her.**
+- Schreibvorgänge in Formularfelder werden debounced und vor Undo-, Speicher-, Schnell-Druck- und Schnell-Teilen-Operationen explizit per `flushPendingFormCommit()` geflusht. **Undo und Redo stellen jeweils die referenzierte `PageDocumentSnapshot`-Revision wieder her.**
 
-Der `isSaved`-Status wird deterministisch aus dem Vergleich der aktuellen Zustands-Signatur (`computeDocumentStateSignature`) mit der zuletzt gespeicherten bzw. initialen Signatur abgeleitet. Macht der Nutzer alle Änderungen seit dem Öffnen oder letzten Speichern per Undo rückgängig, wird das Dokument automatisch wieder als gespeichert erkannt. Teilen und Drucken verändern die gespeicherte Signatur nicht.
+Der `isSaved`-Status wird deterministisch aus dem Vergleich der aktuellen Zustands-Signatur (`computeDocumentStateSignature`) mit der zuletzt gespeicherten bzw. initialen Signatur abgeleitet. Macht der Nutzer alle Änderungen seit dem Öffnen oder letzten Speichern per Undo rückgängig, wird das Dokument automatisch wieder als gespeichert erkannt. Teilen, Drucken und reine Teil-Exporte verändern die gespeicherte Signatur des Gesamtdokuments nicht.
 
-## 5. PDF-Anzeige und Zoom
+## 5. PDF-Anzeige, Zoom und Viewport-Platzierung
 
 - PDF.js rendert die Seite in ein Canvas; daneben erzeugt der **offizielle `TextLayerBuilder`** selektierbare Textspans.
 - Sichtbarer Text im Canvas und unsichtbare Spans müssen exakt dieselbe Seitentransformation haben. `PdfPageView` trennt `pageWidth` / `pageHeight` je Seite.
 - `PdfViewer` berücksichtigt beim **Fit-Width-Zoom** die fokussierte Seite und den sichtbaren Container, nicht nur das erste Dokumentseitenformat.
+- **Viewport-zentrierte Platzierung (`src/utils/pdfPlacement.ts`):** Wenn der Nutzer eine Unterschrift oder einen Text einfügt, ermittelt `PdfViewer.getViewportPlacement()` über die Bounding-Rects des Scroll-Containers und des aktiven Seiten-Containers den tatsächlich sichtbaren Ausschnitt der Seite in Prozentkoordinaten (`0..100`). `computeViewportElementPlacement()` platziert das neue Element im Zentrum dieses sichtbaren Bereichs, skaliert bei starkem Zoom die Anfangsgröße einer Unterschrift proportional herunter und versetzt mehrere ohne Zwischenscrollen eingefügte Elemente leicht stufenförmig (Kaskadierung).
 - Die Suche (`MAX_RESULTS = 1000`) liest vorhandene PDF-Textinhalte lokal. Das Inline-Highlight ist Teil des vorhandenen PDF.js-Textlayers und vermeidet getrennt positionierte HTML-Rechtecke.
 - Acrobat-Annotationen: PDF.js liefert Anzeige-Koordinaten und Link-/Formfeld-Metadaten; `pdfRectToViewport` verwendet die PDF.js-6-API `convertToViewportPoint()`.
 
-## 6. PDF-Änderung, Teil-Export und Exporteinstellungen
+## 6. PDF-Änderung, physisch isolierter Teil-Export und Exporteinstellungen
 
 Zwei Fälle sind bewusst zu unterscheiden:
 
 1. **Unveränderte Inhaltsbytes (Gesamtdokument):** Bei noch vorhandenen aktuellen PDF-Bytes ohne zusätzliche Overlay-/Formularänderungen, ohne Flattening und ohne Seitenbereichs-Filter verwendet `SaveModal` dieselben Bytes statt das Dokument erneut über `pdf-lib` zu serialisieren.
-2. **Inhaltliche Änderungen oder Teil-Export (`selectedPages`):** `embedSignaturesIntoPdf` lädt eine defensive Bytekopie mit `pdf-lib`, validiert und aktualisiert AcroForm-Felder, bettet Signaturen und Textoverlays (lokale Schrift `Caveat-Regular.ttf` bzw. Helvetica) ein und entfernt bei einem Teil-Export nicht ausgewählte Seiten. Der initiale Export und der Retry-Pfad in `SaveModal` nutzen dieselbe idempotente Generatorfunktion (`compileExportPdf`).
+2. **Inhaltliche Änderungen oder Teil-Export (`selectedPages`):** `embedSignaturesIntoPdf` in `src/utils/pdfExportEngine.ts` lädt eine defensive Bytekopie mit `pdf-lib` (`ignoreEncryption: false`), validiert und aktualisiert AcroForm-Felder strikt (Fehler beim Setzen von Werten, beim Appearance-Update oder beim `form.flatten()` brechen den Export mit einer klaren Fehlermeldung ab, statt ein unvollständiges PDF zu erzeugen) und bettet Signaturen und Textoverlays (lokale Schrift `Caveat-Regular.ttf` bzw. Helvetica) ein.
+   - **Physische Bereinigung beim Teil-Export:** Ein bloßes `pdfDoc.removePage()` in `pdf-lib` würde zwar den Seitenbaum kürzen, aber indirekte Objekte, Content-Streams und Formularwerte entfernter Seiten im PDF-Kontext belassen. Deshalb isoliert `isolateSelectedPagesInSourceDoc()` zunächst das Quelldokument (entfernt ausgeschlossene Seiten, bereinigt seitenfremde `Widgets`, löscht `Annots`/`StructParents`), kopiert anschließend ausschließlich die ausgewählten Seiten über `exportDoc.copyPages()` in ein **frisches `PDFDocument.create()`** und baut bei nicht-abgeflachten Formularen das `AcroForm`-Dictionary über `rebuildAcroFormForCopiedPages()` nur für die auf den Zielseiten vorhandenen `Widget`-Annotationen neu auf.
 
-Bevorzugte Exporteinstellungen (Dateinamens-Vorlage mit Suffix, Datum oder Originalname sowie Formular-Flattening-Standard) werden über `src/utils/exportSettings.ts` in `localStorage` (`patrickspdf_export_settings_v1`) gespeichert.
+**Rückwirkungsfreier Teil-Export aus der Seitenverwaltung (`buildStagedPageExportSnapshot`):**
+Wenn in `PageManagementModal` Seiten gedreht, umsortiert oder gelöscht und anschließend markierte Seiten per „Auswahl exportieren“ exportiert werden, wird das aktive Arbeitsdokument in `App.tsx` **nicht** verändert. Stattdessen erzeugt `buildStagedPageExportSnapshot()` einen isolierten Export-Snapshot (`stagedExportOverride`), der nur für diesen Speichervorgang an `SaveModal` übergeben wird.
 
-**Strukturelle Seitenoperationen** (inklusive Mehrfachauswahl und Sammelaktionen in `PageManagementModal`) werden über `applyPageModifications` in das aktive `pdfState.arrayBuffer` eingerechnet. Zusätzlich erlaubt die Seitenverwaltung den direkten Export markierter Seiten als neues PDF.
+**Strukturelle Seitenoperationen (`applyPageModifications`):**
+Werden Änderungen in der Seitenverwaltung regulär übernommen und wurden dabei Seiten gelöscht, kopiert `applyPageModifications()` die verbleibenden Seiten ebenfalls in ein frisches `PDFDocument`, damit gelöschte Seiteninhalte physisch aus dem Puffer entfernt werden.
 
-**Sicherheitsgrenze:** `pdf-lib` ist kein verlässlicher Entschlüsseler/Bearbeiter für verschlüsselte PDFs. `embedSignaturesIntoPdf` lehnt `EncryptedPDFError` ab, statt `ignoreEncryption` als vermeintliche Entschlüsselung zu verwenden. Anzeige und Links über PDF.js sind separat davon möglich.
+**Sicherheitsgrenze Verschlüsselung:** `pdf-lib` ist kein verlässlicher Entschlüsseler/Bearbeiter für verschlüsselte PDFs. `loadUnencryptedPdfForModification()` erzwingt `ignoreEncryption: false` sowohl in `embedSignaturesIntoPdf` als auch in `applyPageModifications` (inkl. Seitenimport) und lehnt `EncryptedPDFError` mit einer verständlichen deutschen Meldung ab. Anzeige und Links über PDF.js sind separat davon möglich.
 
 ## 7. Android und PWA: getrennte Integration
 
@@ -103,20 +112,19 @@ Bevorzugte Exporteinstellungen (Dateinamens-Vorlage mit Suffix, Datum oder Origi
 
 **Native Android-App**
 - `isNativeAndroid()` erkennt die von der App bereitgestellte `window.NativePdfBridge`.
-- Android unterstützt Save (`save` in `MediaStore.Downloads`), Save As (`save_as` über `Intent.ACTION_CREATE_DOCUMENT` zur freien Ordner-/Speicherortwahl), Share (`ACTION_SEND` + `FileProvider`) und Print (`PrintManager`) via `MainActivity.java`. `androidPdfTransfer.ts` verwendet für PDF-Dateien bevorzugt einen binären Loopback-Transfer und bei Bedarf begrenzte Chunks, **keinen einzigen riesigen Base64-String**.
-
-Beide Varianten sind nicht gleichzusetzen: Ein Share-Intent aus Chrome kann funktionieren, während Drive/Filemanager lediglich einen Link oder Titel liefern. Das ist kein Beweis für verlorene Daten im PDF-Renderer.
+- Android unterstützt Save (`save` in `MediaStore.Downloads`), Save As (`save_as` über `Intent.ACTION_CREATE_DOCUMENT` zur freien Ordner-/Speicherortwahl), Share (`ACTION_SEND` + `FileProvider`) und Print (`PrintManager`) via `MainActivity.java`.
+- **Härtung des `save_as`-Lebenszyklus:** `savePdfDocumentAs()` in `src/utils/nativeBridge.ts` korreliert jeden Aufruf über eine eindeutige `requestId`, verhindert parallele Dialoge, begrenzt die Wartezeit auf 120 Sekunden und räumt globale Listener im `finally`-Block auf. `MainActivity.java` persistiert `pendingSaveAsPdfFile` und `pendingSaveAsRequestId` in `onSaveInstanceState`, sodass der Rückkanal auch nach einer Activity-Neuerstellung durch das Android-System zuverlässig funktioniert.
+- `androidPdfTransfer.ts` verwendet für PDF-Dateien bevorzugt einen binären Loopback-Transfer und bei Bedarf begrenzte Chunks, **keinen einzigen riesigen Base64-String**.
 
 ## 8. Sicherheit und lokale Persistenz
 
 - Dokumentverarbeitung ist grundsätzlich browser-/app-lokal, **nicht** automatisch ein serverseitiger PDF-Upload.
 - Über IndexedDB (`PatricksPDFRecentDB`, Version 2) werden im Geräteprofil Metadaten (`recent_docs_meta`) und PDF-Binärdaten (`recent_docs_blobs`) getrennt gespeichert (bis 15 Dokumente bzw. 50 MiB, identifiziert per SHA-256-Fingerprint `computePdfFingerprint`). Die Binärdaten werden erst beim Öffnen, Teilen oder Drucken bedarfsgesteuert geladen.
 - Wiederverwendbare Unterschriften-Vorlagen werden lokal in IndexedDB (`PatricksPDFSignaturesDB`, Store `signatures`) mit Bezeichnung gespeichert.
-- PDF-Link-Ziele sind auf `http:` / `https:` beschränkt. Keine Ausführung von `javascript:`- oder `file:`-Links aus Annotationen.
+- PDF-Link-Ziele (sowohl in Seiten-Annotationen als auch in Gliederungs-/Inhaltsverzeichnis-Einträgen) sind streng auf `http:` / `https:` mit gültigem Hostnamen beschränkt. Keine Ausführung von `javascript:`-, `data:`-, `content:`- oder `file:`-Links.
 - Keine geheimen PDF-Beispiele oder Keystores in Tests, öffentliche CI-Logs oder Repository aufnehmen.
-- Keine pauschale Sicherheitszusage: native Android-JavaScript-Bridges, PDF-Parsing und externe URL-Öffnung müssen bei künftigen Änderungen weiter geprüft werden.
 
-## 9. Build, Qualitätssicherung und Releases
+## 9. Build, Qualitätssicherung und Releases (Version 2.0)
 
 ```bash
 npm ci
@@ -128,10 +136,12 @@ npx cap sync android
 
 Für lokalen Android-Debug-Build anschließend `cd android && ./gradlew assembleDebug` (JDK 21, Android SDK erforderlich).
 
-[`.github/workflows/build-apk.yml`](../.github/workflows/build-apk.yml) prüft zusätzlich per Chrome eine künstlich erzeugte **AES-128-PDF** mit internen und externen Links. Danach folgt der APK-Build mit optionalem Release-Signing. Die Release-APK-Version wird aus der **Workflow-Run-Nummer** gebildet: `1.0.<run_number>`; `package.json` ist weiterhin `0.0.0`.
+[`.github/workflows/build-apk.yml`](../.github/workflows/build-apk.yml) prüft zusätzlich per Chrome eine künstlich erzeugte **AES-128-PDF** mit internen und externen Links. Danach folgt der APK-Build mit optionalem Release-Signing.
+- `package.json`, `src/utils/appError.ts` und der Default in `android/app/build.gradle` stehen auf **`2.0.0`**.
+- Die CI-APK-Version wird aus der **Workflow-Run-Nummer** gebildet: **`2.0.<run_number>`** (`PatricksPDF-release-v2.0.<run_number>`).
 
-Die synthetische PDF liegt unter `test/fixtures/encrypted-pdf-links.pdf`. Ein öffentlicher FRITZ!Box-Handbuch-Integrationstest existiert unter `test/publicFritzLinks.test.ts`, ist im regulären CI **ohne explizite Testdatei übersprungen**. Für Gerätetests kann das öffentlich erhältliche Handbuch lokal geöffnet werden, ohne es in Git einzuchecken.
+Die synthetische PDF liegt unter `test/fixtures/encrypted-pdf-links.pdf`. Ein öffentlicher FRITZ!Box-Handbuch-Integrationstest existiert unter `test/publicFritzLinks.test.ts`, ist im regulären CI **ohne explizite Testdatei übersprungen**.
 
 ## 10. Änderungsregeln
 
-Bei Eingriffen in PDF.js-Version, PDF-Worker, Annotation-Rendering, Textlayer-CSS, Schriftmetriken oder Seitenskalierung immer das Szenario aus [PDF-RENDERING.md](PDF-RENDERING.md) vollständig testen. Bei State-/Export-Änderungen zusätzlich: Undo/Redo über Seitenänderungen, verschlüsselte Anzeige vs. Editierfehler, Speichern/Teilen/Drucken und große PDFs. Tests müssen auch **reale Klickpfade bzw. Browser-Integration** abdecken; die reine Existenz von Linkannotationen im PDF ist nicht ausreichend.
+Bei Eingriffen in PDF.js-Version, PDF-Worker, Annotation-Rendering, Textlayer-CSS, Schriftmetriken oder Seitenskalierung immer das Szenario aus [PDF-RENDERING.md](PDF-RENDERING.md) vollständig testen. Bei State-/Export-Änderungen zusätzlich: physische Objektfreiheit bei Teil-Exporten (`test/architectureAndFeatures.test.ts`), Viewport-Platzierung (`test/pdfPlacement.test.ts`), Undo/Redo über Seitenänderungen, verschlüsselte Anzeige vs. Editierfehler, Speichern/Teilen/Drucken und große PDFs.

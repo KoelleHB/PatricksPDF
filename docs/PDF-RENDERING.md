@@ -1,6 +1,6 @@
 # PDF-Rendering, Android-Textauswahl und PDF-Links
 
-**Ziel:** Die kritischen Implementierungsdetails und die im Oktober 2026 nachgewiesenen Regressionen dauerhaft festhalten. Bezug: [PR #4](https://github.com/KoelleHB/PatricksPDF/pull/4), `pdfjs-dist 6.4.299`, freigegebene Android-Test-APK `1.0.78`, Merge-Commit `8703279`. Siehe auch [Architektur](ARCHITECTURE.md).
+**Ziel:** Die kritischen Implementierungsdetails und die im Oktober 2026 nachgewiesenen Regressionen dauerhaft festhalten. Bezug: **Version 2.0 (`2.0.0`)**, [PR #4](https://github.com/KoelleHB/PatricksPDF/pull/4), `pdfjs-dist 6.4.299`. Siehe auch [Architektur](ARCHITECTURE.md).
 
 ## 1. Warum Renderer, Textlayer und Annotationen zusammengehören
 
@@ -9,13 +9,15 @@ Eine PDF-Seite wird auf unterschiedlichen Ebenen dargestellt:
 1. **Canvas**: Sichtbares, mit PDF.js gerendertes Dokumentbild (`renderPdfPageToCanvas` in `src/utils/pdfEngine.ts`).
 2. **PDF.js-Textlayer**: Unsichtbare, positionierte HTML-Textspans für Auswahl, Kopieren und Inline-Suchmarkierung. Quelle ist Mozillas `TextLayerBuilder` (`renderPdfTextLayer`).
 3. **Klickbare PDF-Link-Annotationen**: Prozentual innerhalb der Seite positionierte `<a>`-Elemente (`PdfPageView.tsx`).
-4. **AcroForm-/Eigene Overlays**: Eingaben, Signaturen, zusätzliche Texte.
+4. **AcroForm-/Eigene Overlays**: Eingaben, Signaturen, zusätzliche Texte (viewport-zentriert platziert über `src/utils/pdfPlacement.ts`).
 
 Jede Ebene muss auf demselben **PDF-Viewport** einschließlich CropBox, Seitenrotation und Zoom basieren. „Links funktionieren im PDF, aber nicht im Viewer“ kann daher zwei Ursachen haben: *keine erzeugten Linkdaten* oder *falsche Trefferflächen/Event-Reihenfolge*. Diese Fälle zuerst unterscheiden.
 
 **Maßgebliche Quelldateien:**
 - `src/utils/pdfDocumentLifecycle.ts` – Worker-/Doc-Cache und ArrayBuffer-Isolation.
-- `src/utils/pdfEngine.ts` – Canvas, Textlayer, Formfelder, Links und Export.
+- `src/utils/pdfEngine.ts` – Canvas, Textlayer, Formfelder, Links und Outline/Inhaltsverzeichnis.
+- `src/utils/pdfExportEngine.ts` – PDF-Modifikation, physisch isolierter Teil-Export, AcroForm-Validierung/-Flattening.
+- `src/utils/pdfPlacement.ts` – Viewport-zentrierte und zoom-angepasste Platzierung von Signaturen/Texten.
 - `src/utils/pdfViewportRect.ts` – Annotationsrechtecke.
 - `src/components/PdfPageView.tsx` – DOM-Ebenen und Lebenszyklus.
 - `src/utils/pdfTextMetrics.ts` / `pdfSelection.ts` – Android-Spezifika.
@@ -155,6 +157,8 @@ Die CI führt darüber hinaus einen **Headless-Chrome-Browser-Smoke-Test** mit `
 | Android-Fontkompensation | `test/pdfTextMetrics.test.ts` | Soll-/Ist-Faktor bei übergroßer WebView-Schrift |
 | Inline-Highlight und Textsuche | `test/pdfInlineSearch.test.ts`, `test/pdfSearch.test.ts` | Zeichenbereiche und Suchbegriffe |
 | Selektions-Erkennung und Zoom | `test/pdfSelection.test.ts`, `test/pdfjsPublicFixture.test.ts` | erkannte Textschicht, synthetische PDF-Leseprüfung |
+| Viewport-zentrierte & zoom-angepasste Platzierung | `test/pdfPlacement.test.ts` | Platzierung im sichtbaren Ausschnitt, Zoom-Skalierung, Kaskadierung |
+| Physisch bereinigter Teil-Export, Staged-Snapshot, AcroForm-Validierung & v2.0-Architektur | `test/architectureAndFeatures.test.ts` | Keine verwaisten PDF-Objekte/Streams entfernter Seiten, strikte Verschlüsselungs- & Formularprüfung |
 
 **Auf einem echten Android-Gerät mindestens:**
 

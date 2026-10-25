@@ -53,9 +53,11 @@ export function createAppError(
   };
 }
 
+export const APP_VERSION = '2.0.0';
+
 export function formatAppErrorReport(err: AppError): string {
   const lines = [
-    `=== PatricksPDF Fehlerdiagnose ===`,
+    `=== PatricksPDF v${APP_VERSION} Fehlerdiagnose ===`,
     `Zeitpunkt: ${err.timestamp}`,
     `Code: ${err.code}`,
     `Titel: ${err.title}`,

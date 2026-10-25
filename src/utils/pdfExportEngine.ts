@@ -772,6 +772,24 @@ export async function embedSignaturesIntoPdf(
   });
 }
 
+async function loadUnencryptedPdfForModification(bytes: ArrayBuffer): Promise<PDFDocument> {
+  try {
+    return await PDFDocument.load(bytes.slice(0), {
+      ignoreEncryption: false,
+      updateMetadata: false,
+      throwOnInvalidObject: false,
+      capNumbers: true,
+    });
+  } catch (err: any) {
+    if (err?.name === 'EncryptedPDFError' || /encrypt/i.test(String(err?.message || ''))) {
+      throw new Error(
+        'Diese PDF ist verschlüsselt oder bearbeitungsgeschützt. PatricksPDF kann sie anzeigen, aber mit pdf-lib nicht sicher bearbeiten oder neu speichern. Bitte verwende eine vom Rechteinhaber zur Bearbeitung freigegebene, unverschlüsselte PDF.'
+      );
+    }
+    throw err;
+  }
+}
+
 /**
  * Executes arbitrary page management operations: reordering, deletion, blank page insertions,
  * external PDF page imports, and 90° step rotations.
@@ -786,13 +804,7 @@ export async function applyPageModifications(
     throw new Error('A PDF document must have at least one page.');
   }
 
-  const copy = originalPdfBytes.slice(0);
-  const pdfDoc = await PDFDocument.load(copy, {
-    ignoreEncryption: false,
-    updateMetadata: false,
-    throwOnInvalidObject: false,
-    capNumbers: true,
-  });
+  const pdfDoc = await loadUnencryptedPdfForModification(originalPdfBytes);
 
   const originalPageCount = pdfDoc.getPageCount();
   const survivingOneBasedSet = new Set<number>();
@@ -836,11 +848,7 @@ export async function applyPageModifications(
       } else if (spec.source === 'imported' && spec.sourceBuffer) {
         let extDoc = externalDocCache.get(spec.sourceBuffer);
         if (!extDoc) {
-          extDoc = await PDFDocument.load(spec.sourceBuffer.slice(0), {
-            ignoreEncryption: true,
-            throwOnInvalidObject: false,
-            capNumbers: true,
-          });
+          extDoc = await loadUnencryptedPdfForModification(spec.sourceBuffer);
           externalDocCache.set(spec.sourceBuffer, extDoc);
         }
         const pIdx = spec.sourceDocPageIndex ?? 0;
@@ -893,11 +901,7 @@ export async function applyPageModifications(
           usedOriginalIndices.add(origIdx);
         } else {
           if (!cloneDoc) {
-            cloneDoc = await PDFDocument.load(originalPdfBytes.slice(0), {
-              ignoreEncryption: true,
-              throwOnInvalidObject: false,
-              capNumbers: true,
-            });
+            cloneDoc = await loadUnencryptedPdfForModification(originalPdfBytes);
           }
           const [copied] = await pdfDoc.copyPages(cloneDoc, [origIdx]);
           copied.setRotation(degrees(targetAngle));
@@ -914,11 +918,7 @@ export async function applyPageModifications(
     } else if (spec.source === 'imported' && spec.sourceBuffer) {
       let extDoc = externalDocCache.get(spec.sourceBuffer);
       if (!extDoc) {
-        extDoc = await PDFDocument.load(spec.sourceBuffer.slice(0), {
-          ignoreEncryption: true,
-          throwOnInvalidObject: false,
-          capNumbers: true,
-        });
+        extDoc = await loadUnencryptedPdfForModification(spec.sourceBuffer);
         externalDocCache.set(spec.sourceBuffer, extDoc);
       }
       const pIdx = spec.sourceDocPageIndex ?? 0;

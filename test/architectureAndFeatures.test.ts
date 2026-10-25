@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import zlib from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { computePdfFingerprint } from '../src/utils/recentDocuments';
@@ -562,7 +564,7 @@ test('savePdfDocumentAs enforces requestId correlation, concurrency lock, timeou
   }
 });
 
-test('createAppError and formatAppErrorReport generate structured diagnostics', () => {
+test('createAppError and formatAppErrorReport generate structured v2.0.0 diagnostics', () => {
   const err = createAppError(
     'PDF_EXPORT_FAILED',
     'Export fehlgeschlagen',
@@ -571,8 +573,75 @@ test('createAppError and formatAppErrorReport generate structured diagnostics', 
     { pages: 4 }
   );
   const report = formatAppErrorReport(err);
+  assert.match(report, /PatricksPDF v2\.0\.0 Fehlerdiagnose/);
   assert.match(report, /PDF_EXPORT_FAILED/);
   assert.match(report, /Test stack error/);
   assert.match(report, /"pages":4/);
+});
+
+test('applyPageModifications explicitly rejects encrypted PDFs instead of using ignoreEncryption: true', async () => {
+  const encryptedPath = path.resolve(process.cwd(), 'test/fixtures/encrypted-pdf-links.pdf');
+  const encryptedBytes = fs.readFileSync(encryptedPath);
+  const encryptedBuffer = encryptedBytes.buffer.slice(
+    encryptedBytes.byteOffset,
+    encryptedBytes.byteOffset + encryptedBytes.byteLength
+  ) as ArrayBuffer;
+
+  // 1. Direct modification of an encrypted document must reject with German security notice
+  await assert.rejects(
+    () =>
+      applyPageModifications(encryptedBuffer, [
+        {
+          id: 'p1',
+          source: 'existing',
+          originalPageIndex: 0,
+          rotationAngle: 90,
+          rotationDelta: 90,
+          width: 595,
+          height: 842,
+          aspectRatio: 595 / 842,
+        },
+      ]),
+    /verschlüsselt oder bearbeitungsgeschützt/
+  );
+
+  // 2. Importing pages from an encrypted external PDF into an unencrypted working document must also reject
+  const unencryptedDoc = await PDFDocument.create();
+  unencryptedDoc.addPage([400, 600]);
+  const unencryptedRaw = await unencryptedDoc.save();
+  const unencryptedBuffer = unencryptedRaw.buffer.slice(
+    unencryptedRaw.byteOffset,
+    unencryptedRaw.byteOffset + unencryptedRaw.byteLength
+  ) as ArrayBuffer;
+
+  await assert.rejects(
+    () =>
+      applyPageModifications(unencryptedBuffer, [
+        {
+          id: 'p1',
+          source: 'existing',
+          originalPageIndex: 0,
+          rotationAngle: 0,
+          rotationDelta: 0,
+          width: 400,
+          height: 600,
+          aspectRatio: 400 / 600,
+        },
+        {
+          id: 'imp-1',
+          source: 'imported',
+          originalPageIndex: -1,
+          rotationAngle: 0,
+          rotationDelta: 0,
+          width: 595,
+          height: 842,
+          aspectRatio: 595 / 842,
+          sourceBuffer: encryptedBuffer,
+          sourceDocPageIndex: 0,
+          sourceFileName: 'encrypted.pdf',
+        },
+      ]),
+    /verschlüsselt oder bearbeitungsgeschützt/
+  );
 });
 

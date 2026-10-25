@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { X, Search, ChevronRight, Bookmark, ExternalLink } from 'lucide-react';
 import { PdfOutlineItem } from '../types';
+import { openPdfExternalLink } from '../utils/nativeBridge';
 
 interface TableOfContentsDrawerProps {
   isOpen: boolean;
@@ -55,7 +56,11 @@ export const TableOfContentsDrawer: React.FC<TableOfContentsDrawerProps> = ({
               onSelectPage(item.targetPage);
               onClose();
             } else if (item.url) {
-              window.open(item.url, '_blank', 'noopener,noreferrer');
+              try {
+                openPdfExternalLink(item.url);
+              } catch (err) {
+                console.warn('Rejected invalid outline URL:', err);
+              }
             }
           }}
           style={{ paddingLeft: `${Math.max(12, depth * 18 + 12)}px` }}

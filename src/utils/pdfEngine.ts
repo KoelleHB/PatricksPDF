@@ -1,29 +1,6 @@
-import {
-  PDFDocument,
-  degrees,
-  PDFHexString,
-  PDFArray,
-  StandardFonts,
-  rgb,
-} from 'pdf-lib';
-import fontkit from '@pdf-lib/fontkit';
+import { PDFDocument } from 'pdf-lib';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormFieldType, FormValuesState, PageInfo, PageSpec, PdfLinkAnnotation, PdfOutlineItem } from '../types';
 import { pdfjsLib } from './pdfWorker';
-
-// Cache for Caveat script font ArrayBuffer
-let cachedScriptFontBytes: ArrayBuffer | null = null;
-
-async function getScriptFontBytes(): Promise<ArrayBuffer> {
-  if (cachedScriptFontBytes) return cachedScriptFontBytes;
-  try {
-    const res = await fetch('/Caveat-Regular.ttf');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    cachedScriptFontBytes = await res.arrayBuffer();
-    return cachedScriptFontBytes;
-  } catch (err) {
-    throw new Error('Lokale Schriftdatei Caveat-Regular.ttf konnte nicht geladen werden. Bitte die App neu installieren oder den PWA-Cache aktualisieren.');
-  }
-}
 
 export interface RenderPageResult {
   width: number;
@@ -284,64 +261,6 @@ export async function renderPdfTextLayer(
   }
 }
 
-/**
- * Calculates the exact PDF image coordinates, bounding box, and rotation angle
- * taking into account page rotation (0, 90, 180, 270 deg) and MediaBox/CropBox origin offsets.
- */
-export function calculatePdfImagePlacement(
-  page: any,
-  xPercent: number,
-  yPercent: number,
-  widthPercent: number,
-  aspectRatio: number
-) {
-  const rotation = ((page.getRotation().angle % 360) + 360) % 360;
-  const mediaBox = page.getMediaBox();
-  const cropBox = page.getCropBox();
-  // In ISO 32000-1, visual viewport boundaries are determined by CropBox (fallback to MediaBox)
-  const box = cropBox || mediaBox;
-  const originX = (box && box.x) || 0;
-  const originY = (box && box.y) || 0;
-  const boxWidth = (box && box.width) || page.getWidth();
-  const boxHeight = (box && box.height) || page.getHeight();
-
-  // In rotated pages, the visual dimensions presented in the viewer are swapped
-  const isTransposed = rotation === 90 || rotation === 270;
-  const visWidth = isTransposed ? boxHeight : boxWidth;
-  const visHeight = isTransposed ? boxWidth : boxHeight;
-
-  const w_vis = (widthPercent / 100) * visWidth;
-  const h_vis = w_vis / aspectRatio;
-  const x_vis = (xPercent / 100) * visWidth;
-  const y_vis = (yPercent / 100) * visHeight;
-
-  // Visual Bottom-Left of the signature image mapped into PDF unrotated user space
-  // Verified mathematically against PDF.js convertToPdfPoint for 0, 90, 180, 270 deg
-  let x = 0;
-  let y = 0;
-
-  if (rotation === 0) {
-    x = originX + x_vis;
-    y = originY + boxHeight - (y_vis + h_vis);
-  } else if (rotation === 90) {
-    x = originX + (y_vis + h_vis);
-    y = originY + x_vis;
-  } else if (rotation === 180) {
-    x = originX + boxWidth - x_vis;
-    y = originY + (y_vis + h_vis);
-  } else if (rotation === 270) {
-    x = originX + boxWidth - (y_vis + h_vis);
-    y = originY + boxHeight - x_vis;
-  }
-
-  return {
-    x,
-    y,
-    width: w_vis,
-    height: h_vis,
-    rotate: degrees(rotation),
-  };
-}
 
 /**
  * Extracts interactive AcroForm fields (text fields, comb fields, multiline text,
@@ -630,64 +549,9 @@ async function extractPdfFormFieldsViaPdfLib(
   }
 }
 
-/**
- * Calculates text placement for rotated and offset pages with sub-pixel typography alignment.
- * Maps visual page coordinates (where xPercent, yPercent is top-left of the line box)
- * directly to the font baseline in PDF user space across 0, 90, 180, and 270 deg page rotations.
- */
-export function calculatePdfTextPlacement(
-  page: any,
-  xPercent: number,
-  yPercent: number,
-  fontSize: number,
-  lineIndex: number = 0,
-  lineHeight: number = 0
-) {
-  const rotation = ((page.getRotation().angle % 360) + 360) % 360;
-  const mediaBox = page.getMediaBox();
-  const cropBox = page.getCropBox();
-  const box = cropBox || mediaBox;
-  const originX = (box && box.x) || 0;
-  const originY = (box && box.y) || 0;
-  const boxWidth = (box && box.width) || page.getWidth();
-  const boxHeight = (box && box.height) || page.getHeight();
-
-  const isTransposed = rotation === 90 || rotation === 270;
-  const visWidth = isTransposed ? boxHeight : boxWidth;
-  const visHeight = isTransposed ? boxWidth : boxHeight;
-
-  const x_vis = (xPercent / 100) * visWidth;
-  // Font baseline is positioned using CSS typography metrics:
-  // For line-height 1.25, top half-leading is 0.125 * fontSize, and font ascent is ~0.80 * fontSize.
-  // Total distance from top-left box origin to the first line's baseline is ~0.925 * fontSize.
-  const baselineOffset = fontSize * 0.925;
-  const y_vis = (yPercent / 100) * visHeight + baselineOffset + lineIndex * (lineHeight || fontSize * 1.25);
-
-  let x = 0;
-  let y = 0;
-
-  if (rotation === 0) {
-    x = originX + x_vis;
-    y = originY + boxHeight - y_vis;
-  } else if (rotation === 90) {
-    x = originX + y_vis;
-    y = originY + x_vis;
-  } else if (rotation === 180) {
-    x = originX + boxWidth - x_vis;
-    y = originY + y_vis;
-  } else if (rotation === 270) {
-    x = originX + boxWidth - y_vis;
-    y = originY + boxHeight - x_vis;
-  }
-
-  return {
-    x,
-    y,
-    rotate: degrees(rotation),
-  };
-}
-
 export {
+  calculatePdfImagePlacement,
+  calculatePdfTextPlacement,
   embedSignaturesIntoPdf,
   isolateSelectedPagesInSourceDoc,
   rebuildAcroFormForCopiedPages,
@@ -1223,7 +1087,17 @@ export async function extractDocumentOutline(
             targetPage = await resolveDestinationPage(doc, rawUrl.substring(1));
           }
           if (!targetPage) {
-            url = rawUrl;
+            try {
+              const parsed = new URL(rawUrl);
+              if (
+                (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+                parsed.hostname
+              ) {
+                url = parsed.href;
+              }
+            } catch {
+              // Ignore unsupported or unsafe outline URI schemes (e.g. javascript:, file:, data:)
+            }
           }
         }
 

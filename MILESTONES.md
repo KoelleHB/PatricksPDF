@@ -104,3 +104,39 @@ git checkout v1.0.0-gold-offline-binary-refactor
    - Freigabe von Canvas/TextLayer außerhalb des Sichtbereichs für flüssige Bedienung bei 300–400+ Seiten.
    - 11 automatisierte Testdateien in `test/` inklusive Node/tsx-Tests und Headless-Chrome-Smoke-Tests für verschlüsselte PDFs und Link-Geometrie.
 
+---
+
+## 🏆 Meilenstein 3: Version 2.0 (`2.0.0`) – Privacy-First Teil-Export, Viewport-Platzierung, Unterschriftenbibliothek & Senior-Engineer-Härtung
+
+- **Datum**: 25. Oktober 2026
+- **Version**: `2.0.0` (CI-Schema: `2.0.<github.run_number>`)
+- **Empfohlener Git-Tag**: `v2.0.0`
+
+### Kernarchitektur & Neuerungen von Version 2.0:
+
+1. **Datenschutzsicherer Teil-Export ohne verwaiste PDF-Objekte (`src/utils/pdfExportEngine.ts`)**:
+   - Beim Export ausgewählter Seiten (`1-3, 5`) oder beim Löschen von Seiten in der Seitenverwaltung werden ausgeschlossene Seiten vorab isoliert, seitenfremde Referenzen (`Widgets`, `Annots`, `StructParents`) bereinigt und ausschließlich die gewünschten Seiten in ein frisches `PDFDocument.create()` kopiert.
+   - Vertrauliche Texte, FlateDecode-Streams oder Formularwerte entfernter Seiten sind physisch nicht mehr in der exportierten PDF-Datei enthalten (abgesichert durch Binär- und Stream-Dekompressionstests).
+
+2. **Rückwirkungsfreier Teil-Export aus der Seitenverwaltung (`buildStagedPageExportSnapshot`)**:
+   - Werden in der Seitenverwaltung Seiten gedreht oder umsortiert und direkt als Auswahl exportiert, bleibt das geöffnete Arbeitsdokument über einen isolierten Export-Snapshot (`stagedExportOverride`) unangetastet, falls der Nutzer die Änderungen nicht explizit übernimmt.
+
+3. **Viewport-zentrierte & zoom-angepasste Element-Platzierung (`src/utils/pdfPlacement.ts`)**:
+   - Neue Unterschriften und Textfelder erscheinen exakt in der Mitte des aktuell sichtbaren Seiten-Ausschnitts statt starr in der Seitenmitte.
+   - Beim starken Reinzoomen skaliert die Anfangsgröße einer Unterschrift proportional mit dem sichtbaren Ausschnitt; mehrere direkt nacheinander eingefügte Elemente werden leicht versetzt (Kaskadierung) platziert.
+
+4. **Wiederverwendbare Unterschriftenbibliothek & persistente Exporteinstellungen**:
+   - Lokale IndexedDB-Bibliothek (`PatricksPDFSignaturesDB`) zum Speichern, Benennen und 1-Klick-Einfügen mehrerer Unterschriften.
+   - Dauerhafte Exporteinstellungen (`localStorage`) für Dateinamens-Schemata (`_unterschrieben`, Datum, eigenes Suffix) und Formular-Flattening.
+
+5. **Kompakte Delta-Historie & IndexedDB v2**:
+   - Deduplizierte Binär-Revisionen (`docRevisionId`) und deterministische Zustands-Signatur (`computeDocumentStateSignature`) in `useDocumentHistory.ts`.
+   - Trennung von leichten Listen-Metadaten (`recent_docs_meta`) und abrufbasierten PDF-Binärdaten (`recent_docs_blobs`) mit SHA-256-Inhalts-Fingerprint in `recentDocuments.ts`.
+
+6. **Strikte Fehler-, Sicherheits- und Android-Lifecycle-Härtung**:
+   - Strikte AcroForm-Validierung und Fehlerweitergabe beim Feld-Setzen, Appearance-Update und Flattening sowie deterministischer Debounce-Flush vor Speichern/Drucken/Teilen.
+   - Strikte Ablehnung verschlüsselter PDFs (`ignoreEncryption: false`) bei jeglicher `pdf-lib`-Bearbeitung inklusive externem Seitenimport.
+   - Gehärteter Android-`save_as`-Dialog (`ACTION_CREATE_DOCUMENT`) mit `requestId`-Korrelation, 120s-Timeout, Parallelitätssperre und `onSaveInstanceState`-Wiederherstellung bei Activity-Neustarts.
+   - 13 automatisierte Test-Suiten in `test/`.
+
+

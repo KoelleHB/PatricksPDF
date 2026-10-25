@@ -832,6 +832,7 @@ export default function App() {
   // Quick Print active document via Android PrintManager / Browser Spooler
   const handleQuickPrint = async () => {
     if (!pdfState) return;
+    flushPendingFormCommit();
     setIsQuickProcessing(true);
     try {
       const bytes = await generateCurrentCompositePdf();
@@ -854,6 +855,7 @@ export default function App() {
   // Quick Share active document via Android Share Sheet / Web Share
   const handleQuickShare = async () => {
     if (!pdfState) return;
+    flushPendingFormCommit();
     setIsQuickProcessing(true);
     try {
       const bytes = await generateCurrentCompositePdf();
@@ -981,7 +983,10 @@ export default function App() {
           hasUnsavedChanges={hasUnsavedChanges}
           hasPageModifications={hasPageModifications}
           recentCount={recentDocs.length}
-          onOpenSave={() => setIsSaveModalOpen(true)}
+          onOpenSave={() => {
+            flushPendingFormCommit();
+            setIsSaveModalOpen(true);
+          }}
           onOpenPageManager={() => setIsPageManagerOpen(true)}
           onOpenRecent={() => setIsRecentModalOpen(true)}
           onQuickPrint={handleQuickPrint}
@@ -1156,7 +1161,10 @@ export default function App() {
             setIsTextModalOpen(true);
           }}
           onOpenPageManager={() => setIsPageManagerOpen(true)}
-          onSave={() => setIsSaveModalOpen(true)}
+          onSave={() => {
+            flushPendingFormCommit();
+            setIsSaveModalOpen(true);
+          }}
           onChangePage={handleChangePage}
           onChangeDocument={handleRequestCloseDocument}
         />
@@ -1222,6 +1230,7 @@ export default function App() {
           onApplyChanges={handleApplyPageModifications}
           onJumpToPage={(pageNum) => handleChangePage(pageNum)}
           onExportSelectedPages={async (selectedPageNumbers, stagedPages) => {
+            flushPendingFormCommit();
             if (stagedPages && stagedPages.length > 0) {
               const snapshot = await buildStagedPageExportSnapshot(
                 pdfState,
@@ -1272,6 +1281,7 @@ export default function App() {
           }
         }}
         onSaveFirst={() => {
+          flushPendingFormCommit();
           setIsUnsavedModalOpen(false);
           setIsSaveModalOpen(true);
         }}
