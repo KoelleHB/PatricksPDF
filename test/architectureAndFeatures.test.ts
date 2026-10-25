@@ -645,3 +645,23 @@ test('applyPageModifications explicitly rejects encrypted PDFs instead of using 
   );
 });
 
+test('MainActivity.java method overrides match Capacitor BridgeActivity visibility modifiers', () => {
+  const mainActivityPath = path.resolve(
+    process.cwd(),
+    'android/app/src/main/java/com/patrickspdf/app/MainActivity.java'
+  );
+  const bridgeActivityPath = path.resolve(
+    process.cwd(),
+    'node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/BridgeActivity.java'
+  );
+
+  const mainSource = fs.readFileSync(mainActivityPath, 'utf8');
+  const bridgeSource = fs.readFileSync(bridgeActivityPath, 'utf8');
+
+  // BridgeActivity declares onSaveInstanceState as public; overriding it as protected fails javac
+  assert.match(bridgeSource, /public\s+void\s+onSaveInstanceState\s*\(\s*Bundle\s+outState\s*\)/);
+  assert.match(mainSource, /public\s+void\s+onSaveInstanceState\s*\(\s*Bundle\s+outState\s*\)/);
+  assert.doesNotMatch(mainSource, /protected\s+void\s+onSaveInstanceState\s*\(\s*Bundle\s+outState\s*\)/);
+});
+
+

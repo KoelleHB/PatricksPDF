@@ -642,7 +642,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onSaveInstanceState(Bundle outState) {
+    public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
         File staged = pendingSaveAsSourceFile;
         String reqId = pendingSaveAsRequestId;
@@ -723,6 +723,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private void handleIncomingIntent(Intent intent) {
         if (intent == null) return;
 
