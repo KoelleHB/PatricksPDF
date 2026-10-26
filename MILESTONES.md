@@ -176,5 +176,31 @@ Dieser Meilenstein transformiert PatricksPDF auf Smartphones und in der Android-
    - Desktop-PWA-Oberfläche (>= 768px) bleibt 100 % unberührt.
    - Vollständige automatisierte Testabdeckung inklusive Versionskonsistenz, CSP-Prüfung, Scripting-Härtung und Mobile-Komponenten-Integrität.
 
+---
+
+## 🏆 Meilenstein 5: Version 2.2 (`2.2.0`) – Intelligenter Seitenfokus, Ganze Seite & Mobile Ergonomie
+
+- **Datum**: 26. Oktober 2026
+- **Version**: `2.2.0` (CI-Schema: `2.2.<github.run_number>`)
+- **Empfohlener Git-Tag**: `v2.2.0`
+
+### Zusammenfassung der Kernarchitektur:
+
+1. **Intelligenter Seitenfokus in Seitenübersicht und Seitenverwaltung**:
+   - `MobilePageGridBottomSheet` und `PageManagementModal` öffnen nicht mehr stumpf auf Seite 1, sondern scrollen die Karte der aktuell gelesenen Seite automatisch ins Blickfeld.
+   - Ein dedizierter Button **„An den Anfang“** (`ArrowUpToLine`) in beiden Übersichten ermöglicht jederzeit den sofortigen, flüssigen Sprung nach ganz oben zu Seite 1.
+
+2. **Mobile-TopBar-Bereinigung & 3-Punkte-Menü**:
+   - Das Raster-Icon wurde aus der oberen App-Bar entfernt, wodurch die Kopfleiste auf mobilen Geräten noch ruhiger und aufgeräumter wirkt.
+   - Die Seitenübersicht ist nun zusätzlich im 3-Punkte-Menü erreichbar (sowie primär über die schwebende Seitenkapsel).
+
+3. **Floating-Pill mit Live-Zoom-Prozentanzeige & 1-Tap-Fit-Page**:
+   - Zeigt den aktuellen Zoomwert in Prozent (z. B. `100%`) an.
+   - Bei Klick wird das Dokument direkt auf die Stufe **„Ganze Seite“** zurückgesetzt.
+
+4. **Perfekt zentriertes Dokument-Öffnen in Zoomstufe „Ganze Seite“**:
+   - Beim Öffnen eines Dokuments (sowohl mobil als auch auf dem Desktop) wird die erste Seite zentriert und ohne vertikalen/horizontalen Versatz in der Zoomstufe „Ganze Seite“ eingepasst.
+
+
 
 

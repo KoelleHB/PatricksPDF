@@ -4,27 +4,29 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 interface MobileFloatingPillProps {
   currentPage: number;
   numPages: number;
-  isFitWidth: boolean;
+  zoomLevel: number;
   isVisible: boolean;
   onPrevPage: () => void;
   onNextPage: () => void;
-  onToggleFitMode: () => void;
+  onResetToFitPage: () => void;
   onOpenPageGrid: () => void;
 }
 
 export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
   currentPage,
   numPages,
-  isFitWidth,
+  zoomLevel,
   isVisible,
   onPrevPage,
   onNextPage,
-  onToggleFitMode,
+  onResetToFitPage,
   onOpenPageGrid,
 }) => {
+  const roundedZoom = Math.round(zoomLevel);
+
   return (
     <aside
-      aria-label="Schnellsteuerung für Seiten und Lesemodus"
+      aria-label="Schnellsteuerung für Seiten und Zoom"
       className={`fixed left-1/2 -translate-x-1/2 bottom-20 z-30 transition-all duration-300 ease-in-out pointer-events-auto ${
         isVisible
           ? 'translate-y-0 opacity-100 scale-100'
@@ -72,18 +74,15 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
         {/* Divider */}
         <span className="w-px h-4 bg-slate-200 mx-0.5" />
 
-        {/* Fit Width / Original quick switch */}
+        {/* Zoom percentage button: shows zoom % and resets to "Ganze Seite" (Fit Page) on click */}
         <button
           type="button"
-          onClick={onToggleFitMode}
-          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition active:scale-95 cursor-pointer whitespace-nowrap min-h-[28px] flex items-center justify-center ${
-            isFitWidth
-              ? 'bg-blue-600 text-white shadow-2xs'
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200/70'
-          }`}
-          title={isFitWidth ? 'Auf Originalgröße (100%) schalten' : 'An Bildschirmbreite anpassen'}
+          onClick={onResetToFitPage}
+          className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 hover:bg-slate-200/80 active:bg-blue-100 active:text-blue-700 text-slate-700 transition active:scale-95 cursor-pointer whitespace-nowrap min-h-[28px] flex items-center justify-center font-mono"
+          title="Klicken, um auf 'Ganze Seite' zurückzusetzen"
+          aria-label={`Zoom: ${roundedZoom}%. Klicken für Ganze Seite.`}
         >
-          {isFitWidth ? 'Breite' : 'Original'}
+          {roundedZoom}%
         </button>
       </div>
     </aside>

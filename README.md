@@ -1,20 +1,23 @@
 # PatricksPDF
 
-Privater PDF-Editor und -Reader (**Version 2.1 / `2.1.0`**) als **Web-App/PWA** sowie **Android-App (Capacitor)**. Die eigentliche PDF-Verarbeitung erfolgt vollständig im Client. PatricksPDF kann PDFs lesen, durchsuchen, markieren bzw. Text kopieren, im aktuell sichtbaren Zoom-Ausschnitt unterschreiben und mit Text ergänzen, Formularfelder ausfüllen, Seiten verwalten sowie Dateien und Seiten-Teilmengen datenschutzsicher speichern, teilen und drucken.
+Privater PDF-Editor und -Reader (**Version 2.2 / `2.2.0`**) als **Web-App/PWA** sowie **Android-App (Capacitor)**. Die eigentliche PDF-Verarbeitung erfolgt vollständig im Client. PatricksPDF kann PDFs lesen, durchsuchen, markieren bzw. Text kopieren, im aktuell sichtbaren Zoom-Ausschnitt unterschreiben und mit Text ergänzen, Formularfelder ausfüllen, Seiten verwalten sowie Dateien und Seiten-Teilmengen datenschutzsicher speichern, teilen und drucken.
 
-**Dokumentationsstand:** 26. Oktober 2026 – **Version 2.1 (`2.1.0`)**. Diese Dokumentation beschreibt den vollständigen Code- und Architekturzustand von Version 2.1.
+**Dokumentationsstand:** 26. Oktober 2026 – **Version 2.2 (`2.2.0`)**. Diese Dokumentation beschreibt den vollständigen Code- und Architekturzustand von Version 2.2.
 
 ## Funktionen
 
-- **Immersiver Mobile-Reader (Android APK & Viewports < 768px):**
+- **Immersiver Mobile-Reader & Ergonomie (Android APK & Viewports < 768px):**
   - **Auto-Hide Navigation:** Beim Scrollen im Dokument faden Top-Bar und Werkzeugleiste sanft aus (`transform: translateY`, `opacity: 0`), sodass Smartphones die maximale Bildfläche nutzen. Ein Einzeltap auf das Dokument blendet die Steuerelemente sanft wieder ein. Bei aktiven Werkzeugen (Text, Signatur) bleiben alle Bedienelemente dauerhaft fixiert sichtbar.
-  - **Kompakte Top-Bar (`MobileReaderTopBar`):** Frosted Glass (`backdrop-blur-md bg-white/80`), Zurück-Button, Dokumenttitel, Metadaten-Badge, Undo & Redo direkt erreichbar, Suche, Schnellzugriff auf Seitenübersicht und Drei-Punkte-Menü (`⋮`) mit „Datei öffnen“ und „Verlauf zeigen“.
-  - **Schwebende Floating-Pill (`MobileFloatingPill`):** Unten zentrierte Kapsel für schnelles Blättern (`<` `1 / 5` `>`) und 1-Tap-Zoom-Modi („Breite anpassen“ / „Original“), ohne Pinch-to-Zoom zu behindern.
+  - **Kompakte Top-Bar (`MobileReaderTopBar`):** Frosted Glass (`backdrop-blur-md bg-white/80`), Zurück-Button, Dokumenttitel, Metadaten-Badge, Undo & Redo direkt erreichbar, Suche und aufgeräumtes Drei-Punkte-Menü (`⋮`) mit „Datei öffnen“, „Verlauf zeigen“ und „Seitenübersicht“.
+  - **Schwebende Floating-Pill (`MobileFloatingPill`):** Unten zentrierte Kapsel für schnelles Blättern (`<` `1 / 5` `>`), kontinuierliche **Zoom-Prozentanzeige** (z. B. `100%`) und 1-Klick-Rückkehr zu **„Ganze Seite“**, ohne Pinch-to-Zoom zu behindern.
   - **Ergonomische Bottom Action Bar (`MobileBottomBar`):** Daumengerechte Thumb-Zone für **Seiten** (mit dynamischem Seitenanzahl-Badge), **Text** (Stift), **Signieren** (hervorgehobener primärer Aktions-Button `#2563EB`) und **Speichern / Exportieren** (Teilen/Download-Icon), mit voller Unterstützung von `env(safe-area-inset-bottom)`.
-  - **Kompaktes Bottom-Sheet für Seitenraster (`MobilePageGridBottomSheet`):** Einhand-bedienbare Seitenübersicht mit `IntersectionObserver` Lazy Thumbnail Rendering für verzögerungsfreies Scrollen selbst bei 50+ Seiten.
+  - **Intelligente Seitenübersicht (`MobilePageGridBottomSheet`):** Öffnet automatisch zentriert auf der aktuell gelesenen Seite; mit Button **„An den Anfang“** (`ArrowUpToLine`) für sofortigen Sprung zu Seite 1 und `IntersectionObserver` Lazy Thumbnail Rendering.
+  - **Seitenverwaltung mit Direktsprung (`PageManagementModal`):** Öffnet auf der aktuellen Seite und bietet in der Kopfleiste den Button **„An den Anfang“**.
+- **Perfekt zentriertes Dokument-Öffnen in Zoomstufe „Ganze Seite“:**
+  - Beim Öffnen eines Dokuments (sowohl mobil als auch auf dem Desktop) wird die erste Seite zentriert und ohne vertikalen/horizontalen Versatz in der Zoomstufe „Ganze Seite“ eingepasst.
 - **Desktop-PWA-Modus (>= 768px):**
   - Klassische Desktop-Werkzeugleisten mit allen erweiterten Zoomstufen, Werkzeugen und Shortcuts bleiben zu 100 % erhalten und unberührt.
-- **Lesen & Sicherheit:** PDF.js-Canvas, fortlaufende Seitendarstellung, Zoom/Fit Width je Seite, Lesemodus/Reflow, Inhaltsverzeichnis (mit streng geprüften internen Zielen und externen HTTP(S)-Links), interne und externe PDF-Links. **CVE-2026-16633-Härtung:** `enableScripting: false` und `isEvalSupported: false` schließen willkürliche Skriptausführung deterministisch aus.
+- **Lesen & Sicherheit:** PDF.js-Canvas, fortlaufende Seitendarstellung, Zoom/Fit Width/Fit Page je Seite, Lesemodus/Reflow, Inhaltsverzeichnis (mit streng geprüften internen Zielen und externen HTTP(S)-Links), interne und externe PDF-Links. **CVE-2026-16633-Härtung:** `enableScripting: false` und `isEvalSupported: false` schließen willkürliche Skriptausführung deterministisch aus.
 - **Suchen und kopieren:** lokale Volltextsuche mit Fundstellenkontext, Vor/Zurück, Navigation und positionsgenauer Markierung; native Android-Textauswahl. Die Suche ist auf **1.000 Treffer** begrenzt.
 - **Bearbeiten, Viewport-Platzierung & Unterschriftenbibliothek:**
   - Unterschriften (inklusive lokal in IndexedDB gespeicherter Vorlagen-Bibliothek mit frei vergebbarer Bezeichnung) und freie Textfelder (lokal eingebettete Schriften Helvetica und Caveat ohne externe Google-Fonts-Abhängigkeit) werden **automatisch in der Mitte des aktuell sichtbaren Seiten-Ausschnitts (Viewport)** platziert.
@@ -25,7 +28,7 @@ Privater PDF-Editor und -Reader (**Version 2.1 / `2.1.0`**) als **Web-App/PWA** 
 - **Speicherfreundliche Versionierung & Speicherstatus:** Undo/Redo arbeitet mit kompakten Änderungsoperationen und deduplizierten Dokument-Revisionen (max. 50 Einträge); der „Gespeichert“-Status wird deterministisch aus der Zustands-Signatur abgeleitet.
 - **Ausgabe & Exporteinstellungen:** Vollständiges PDF oder ausgewählte Seiten/Seitenbereiche speichern, teilen und drucken – inklusive dauerhaft gespeicherter Dateinamens-Vorlagen (Suffix, Datum, Originalname) und Formular-Flattening-Vorgabe. Unter Android stehen sowohl das schnelle Speichern in `Downloads` als auch ein gegen Activity-Neustarts, Timeouts und Parallelaufrufe abgesicherter System-Ordnerdialog (`ACTION_CREATE_DOCUMENT`) zur Verfügung.
 - **Zuletzt geöffnet & Performance:** lokale Historie über IndexedDB v2 mit getrennten Stores für leichte Metadaten (`recent_docs_meta`) und abrufbasierte PDF-Binärdaten (`recent_docs_blobs`) sowie kollisionssicherem SHA-256-Inhalts-Fingerprint. Nicht-blockierende Thumbnail-Generierung im Hintergrund via `requestIdleCallback` und WeakMap-gecachte 10-Seiten-Parallelauflösung.
-- **Einheitliche Fehlerdiagnose:** Strukturiertes `AppError`-Fehlermodell (`v2.1.0`) mit technischer Diagnose-Ansicht und Kopierfunktion (`ErrorDiagnosticsModal`).
+- **Einheitliche Fehlerdiagnose:** Strukturiertes `AppError`-Fehlermodell (`v2.2.0`) mit technischer Diagnose-Ansicht und Kopierfunktion (`ErrorDiagnosticsModal`).
 
 ## Wichtige Grenzen
 

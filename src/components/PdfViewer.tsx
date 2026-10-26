@@ -206,21 +206,57 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     [pdfState.currentPage, pdfState.arrayBuffer, pdfState.pageWidth, pageInfos, focusedPageSize, renderedDimensions.width]
   );
 
-  // Always open in "fit width" mode by default
-  const [isFitWidthMode, setIsFitWidthMode] = useState<boolean>(true);
+  // Calculate fit-page zoom percentage so the entire page fits both width and height with margins
+  const calculateFitPageZoom = useCallback(
+    (pageNumber: number = pdfState.currentPage, customWidth?: number, customHeight?: number) => {
+      const container = containerRef.current;
+      const clientWidth =
+        customWidth || (container && container.clientWidth > 0 ? container.clientWidth : (typeof window !== 'undefined' ? window.innerWidth : 800));
+      const clientHeight =
+        customHeight || (container && container.clientHeight > 0 ? container.clientHeight : (typeof window !== 'undefined' ? window.innerHeight : 600));
+
+      const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
+      const horizontalMargin = isMobileDevice ? 24 : 64;
+      const verticalMargin = isMobileDevice ? 48 : 64;
+
+      const availableWidth = Math.max(100, clientWidth - horizontalMargin);
+      const availableHeight = Math.max(100, clientHeight - verticalMargin);
+
+      const pageInfo = pageInfos[pageNumber - 1];
+      const focusedWidth =
+        focusedPageSize?.document === pdfState.arrayBuffer &&
+        focusedPageSize.pageNumber === pageNumber
+          ? focusedPageSize.width
+          : undefined;
+      const baseWidth = pageInfo?.width || focusedWidth || pdfState.pageWidth || renderedDimensions.width || 595;
+      const baseHeight = pageInfo?.height || pdfState.pageHeight || renderedDimensions.height || 842;
+
+      const scaleX = (availableWidth / baseWidth) * 100;
+      const scaleY = (availableHeight / baseHeight) * 100;
+      const fitZoom = Math.min(scaleX, scaleY);
+
+      return Math.min(500, Math.max(35, Math.round(fitZoom)));
+    },
+    [pdfState.currentPage, pdfState.arrayBuffer, pdfState.pageWidth, pdfState.pageHeight, pageInfos, focusedPageSize, renderedDimensions.width, renderedDimensions.height]
+  );
+
+  // Always open in "fit page" (Ganze Seite) mode by default, centered on page 1
+  const [isFitWidthMode, setIsFitWidthMode] = useState<boolean>(false);
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState<boolean>(false);
   const zoomMenuRef = useRef<HTMLDivElement>(null);
 
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     if (typeof window === 'undefined') return 100;
-    const isMobile = window.innerWidth < 640;
-    const horizontalMargin = isMobile ? 32 : 72;
-    const availableWidth = window.innerWidth - horizontalMargin;
+    const isMobileDevice = window.innerWidth < 768;
+    const horizontalMargin = isMobileDevice ? 24 : 64;
+    const verticalMargin = isMobileDevice ? 48 : 64;
+    const availableWidth = Math.max(100, window.innerWidth - horizontalMargin);
+    const availableHeight = Math.max(100, window.innerHeight - verticalMargin);
     const baseWidth = pdfState.pageWidth || 595;
-    if (availableWidth > 0 && baseWidth > 0) {
-      return Math.min(500, Math.max(35, Math.round((availableWidth / baseWidth) * 100)));
-    }
-    return 100;
+    const baseHeight = pdfState.pageHeight || 842;
+    const scaleX = (availableWidth / baseWidth) * 100;
+    const scaleY = (availableHeight / baseHeight) * 100;
+    return Math.min(500, Math.max(35, Math.round(Math.min(scaleX, scaleY))));
   });
 
   // Reflow mode must be declared before search navigation callbacks.
@@ -406,7 +442,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [onRegisterViewportSnapshotGetter, getViewportSnapshot]);
 
-  // Automatically reset to "fit width" mode whenever a new file is opened
+  // Automatically reset to "fit page" (Ganze Seite) mode and cleanly center page 1 whenever a new file is opened
   const lastOpenedDocRef = useRef<string>('');
   useEffect(() => {
     const docId = pdfState.name || String(pdfState.arrayBuffer?.byteLength || '');
@@ -414,7 +450,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     if (lastOpenedDocRef.current !== docId) {
       lastOpenedDocRef.current = docId;
-      setIsFitWidthMode(true);
+      setIsFitWidthMode(false);
 
       if (pdfState.pageWidth && pdfState.pageHeight) {
         setRenderedDimensions({
@@ -423,21 +459,34 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         });
       }
 
-      // Immediately apply fit-width zoom
-      const initialFit = calculateFitWidthZoom();
+      // Immediately apply fit-page zoom for page 1
+      const initialFit = calculateFitPageZoom(1);
       setZoomLevel(initialFit);
 
-      // Re-measure after layout has rendered to ensure exact pixel fit
+      // Cleanly reset container scroll position to top
+      if (containerRef.current) {
+        containerRef.current.scrollTop = 0;
+        containerRef.current.scrollLeft = 0;
+      }
+      if (pdfState.currentPage !== 1) {
+        onChangePage(1);
+      }
+
+      // Re-measure after layout has rendered to ensure exact pixel fit and centering
       const timer = setTimeout(() => {
-        const measuredFit = calculateFitWidthZoom();
+        const measuredFit = calculateFitPageZoom(1);
         if (measuredFit) {
           setZoomLevel(measuredFit);
         }
-      }, 60);
+        if (containerRef.current) {
+          containerRef.current.scrollTop = 0;
+          containerRef.current.scrollLeft = 0;
+        }
+      }, 75);
 
       return () => clearTimeout(timer);
     }
-  }, [pdfState.name, pdfState.arrayBuffer, pdfState.pageWidth, pdfState.pageHeight, calculateFitWidthZoom]);
+  }, [pdfState.name, pdfState.arrayBuffer, pdfState.pageWidth, pdfState.pageHeight, pdfState.currentPage, calculateFitPageZoom, onChangePage]);
 
   // When the reading focus moves to a page of different width, recompute
   // automatically, preserving the reading line rather than jumping to page 1.
@@ -1265,19 +1314,19 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     setZoomLevel(fitZoom);
   };
 
-  const handleFitPage = () => {
+  const handleFitPage = useCallback(() => {
     setIsFitWidthMode(false);
     if (!containerRef.current) return;
     const centerX = containerRef.current.clientWidth / 2;
     const centerY = containerRef.current.clientHeight / 2;
     pendingZoomAnchorRef.current = captureZoomAnchor(centerX, centerY);
-    const padding = 64;
-    const availableHeight = containerRef.current.clientHeight - padding;
-    if (availableHeight > 0 && renderedDimensions.height > 0) {
-      const calculatedZoom = Math.round((availableHeight / renderedDimensions.height) * 100);
-      setZoomLevel(Math.min(500, Math.max(35, calculatedZoom)));
+
+    const fitPageZoom = calculateFitPageZoom(pdfState.currentPage);
+    setZoomLevel(fitPageZoom);
+    if (containerRef.current) {
+      containerRef.current.scrollLeft = 0;
     }
-  };
+  }, [calculateFitPageZoom, captureZoomAnchor, pdfState.currentPage]);
 
   // Mobile Page Grid Bottom Sheet state
   const [isMobilePageGridOpen, setIsMobilePageGridOpen] = useState(false);
@@ -1906,19 +1955,16 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           and creates duplicate copy actions. Keep it for desktop only. */}
       {!isNativeAndroid() && <TextSelectionToolbar />}
 
-      {/* Mobile Floating Pill (Quick page navigation + Fit-Width toggle) */}
+      {/* Mobile Floating Pill (Quick page navigation + Zoom % / Reset to Fit Page) */}
       {isMobile && !isReaderMode && (
         <MobileFloatingPill
           currentPage={pdfState.currentPage}
           numPages={pdfState.numPages}
-          isFitWidth={isFitWidthMode}
+          zoomLevel={zoomLevel}
           isVisible={isControlsVisible}
           onPrevPage={() => scrollToPage(pdfState.currentPage - 1, 'smooth')}
           onNextPage={() => scrollToPage(pdfState.currentPage + 1, 'smooth')}
-          onToggleFitMode={() => {
-            if (isFitWidthMode) handleResetZoom();
-            else handleFitWidth();
-          }}
+          onResetToFitPage={handleFitPage}
           onOpenPageGrid={() => setIsMobilePageGridOpen(true)}
         />
       )}

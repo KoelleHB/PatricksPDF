@@ -2,7 +2,36 @@
 
 Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilensteine von PatricksPDF.
 
-> **Versionskonvention (ab Version 2.1):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.1.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.1.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.1.<run_number>`).
+> **Versionskonvention (ab Version 2.2):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.2.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.2.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.2.<run_number>`). Der Header zeigt den Badge **`v2.2`**.
+
+## 26.10.2026 – Version 2.2 (`2.2.0`) – Intelligenter Seitenfokus, Ganze-Seite-Zentrierung & Mobile-TopBar-Bereinigung
+
+### Intelligenter Seitenfokus & Direktsprung „An den Anfang“
+
+- **Seitenübersicht (`src/components/mobile/MobilePageGridBottomSheet.tsx`):**
+  - Öffnet nicht mehr stumpf auf Seite 1, sondern scrollt die Karte der **aktuell betrachteten Seite** automatisch mittig in den sichtbaren Bereich.
+  - Im Header wurde ein Button **„An den Anfang“** (`ArrowUpToLine`) integriert, der die Rasterübersicht per 1-Klick sanft nach ganz oben zu Seite 1 scrollt.
+- **Seitenverwaltung (`src/components/PageManagementModal.tsx`, `src/components/PageManagementHeader.tsx`):**
+  - Scrollt beim Öffnen und nach dem Laden der Seitenübersichten automatisch zur aktuell im Reader aktiven Seite.
+  - Neuer Button **„An den Anfang“** in der Kopfleiste für sofortigen Sprung zum Anfang des Dokuments.
+
+### Mobile-TopBar-Bereinigung & 3-Punkte-Menü
+
+- **Schlankere Top-Bar (`src/components/mobile/MobileReaderTopBar.tsx`):**
+  - Das Raster-Icon wurde aus den direkten oberen Leisten-Icons entfernt, da die Seitenübersicht direkt und ergonomisch über die schwebende Seitenblätterpille erreichbar ist.
+  - Das 3-Punkte-Menü (`⋮`) enthält nun den dedizierten Menüeintrag **„Seitenübersicht“** (`LayoutGrid`).
+
+### Zoomstufe „Ganze Seite“ & %-Anzeige in der Floating-Pill
+
+- **Zoom-Button in der Seitenblätterpille (`src/components/mobile/MobileFloatingPill.tsx`, `src/components/PdfViewer.tsx`):**
+  - Zeigt kontinuierlich den aktuellen Seitenzoom in Prozent an (z. B. `100%`).
+  - Ein Klick auf den Prozentwert schaltet direkt und sauber auf die Zoomstufe **„Ganze Seite“** (`fit-page`) zurück.
+
+### Dokument-Öffnen: Saubere Zentrierung & Ganze Seite
+
+- **Initialer Anzeigemodus (`src/components/PdfViewer.tsx`):**
+  - Beim Öffnen eines Dokuments (sowohl mobil als auch auf dem Desktop) wird die erste Seite zentriert und exakt auf **„Ganze Seite“** eingepasst, ohne visuellen Versatz oder unvollständige Ränder.
+  - Horizontale und vertikale Scrollpositionen werden deterministisch auf `0` gesetzt.
 
 ## 26.10.2026 – Version 2.1 (`2.1.0`) – Immersives Mobile-UI, Thumb-Zone & Performance-Optimierungen
 

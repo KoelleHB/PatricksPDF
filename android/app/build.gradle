@@ -10,7 +10,7 @@ android {
         // GitHub Actions run number grows monotonically for this workflow.
         // Local builds use a stable development default.
         versionCode = (System.getenv("PATRICKSPDF_VERSION_CODE") ?: "1").toInteger()
-        versionName = System.getenv("PATRICKSPDF_VERSION_NAME") ?: "2.1.0"
+        versionName = System.getenv("PATRICKSPDF_VERSION_NAME") ?: "2.2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

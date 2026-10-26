@@ -1,8 +1,8 @@
-# CI-Wartung und Gradle-Warnungen (Stand: Version 2.1 – 26.10.2026)
+# CI-Wartung und Gradle-Warnungen (Stand: Version 2.2 – 26.10.2026)
 
 ## Umgesetzt
 
-- **Version 2.1 (`2.1.0`)**: `package.json`, `package-lock.json` und der lokale Fallback in `android/app/build.gradle` sind auf `2.1.0` vereinheitlicht; der CI-Workflow `.github/workflows/build-apk.yml` vergibt `PATRICKSPDF_VERSION_NAME: 2.1.${{ github.run_number }}` und erzeugt die Artefakte `PatricksPDF-release-v2.1.<run_number>` bzw. `PatricksPDF-debug-v2.1.<run_number>`.
+- **Version 2.2 (`2.2.0`)**: `package.json`, `package-lock.json` und der lokale Fallback in `android/app/build.gradle` sind auf `2.2.0` vereinheitlicht; der CI-Workflow `.github/workflows/build-apk.yml` vergibt `PATRICKSPDF_VERSION_NAME: 2.2.${{ github.run_number }}` und erzeugt die Artefakte `PatricksPDF-release-v2.2.<run_number>` bzw. `PatricksPDF-debug-v2.2.<run_number>`.
 - **Sicherheits- & Integritäts-Gate**: `enableScripting: false` und `isEvalSupported: false` werden in automatisierten Unit-Tests verifiziert.
 - **Erweiterte Test-Gate-Prüfung im CI**: Vor dem Web- und Android-Build führt `.github/workflows/build-apk.yml` `npm run lint`, alle Test-Suiten via `npm test` (inkl. Prüfung auf Versionskonsistenz, Mobile-UI-Architektur, physische Bereinigung entfernter Seiten beim Teil-Export und Viewport-Platzierung) sowie den Headless-Chrome-Browser-Smoke-Test mit verschlüsselter PDF aus.
 - **Bereinigung von Repository-Altlasten**: Entfernen des fremden `bun.lock` (ausschließliche Nutzung von `package-lock.json` mit `npm ci`), der doppelten Legacy-CMaps unter `/public/cmaps/` sowie veralteter Zwischennotizen.

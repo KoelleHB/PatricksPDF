@@ -186,17 +186,6 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
             <Search className="w-4 h-4" />
           </button>
 
-          {/* Grid / Page Overview Toggle */}
-          <button
-            type="button"
-            onClick={onTogglePageGrid}
-            className="p-1.5 rounded-full text-slate-700 hover:bg-slate-100 active:bg-slate-200/70 transition cursor-pointer min-w-[34px] min-h-[34px] flex items-center justify-center"
-            title="Seitenübersicht anzeigen"
-            aria-label="Seitenübersicht anzeigen"
-          >
-            <LayoutGrid className="w-4 h-4" />
-          </button>
-
           {/* Overflow Menu (Three-dots) */}
           <div className="relative" ref={menuRef}>
             <button
@@ -252,6 +241,20 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
 
                 {/* 2. Reading Features */}
                 <div className="py-1">
+                  {onTogglePageGrid && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        onTogglePageGrid();
+                      }}
+                      className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
+                    >
+                      <LayoutGrid className="w-4 h-4 text-slate-600" />
+                      <span>Seitenübersicht</span>
+                    </button>
+                  )}
+
                   {onOpenToc && (
                     <button
                       type="button"

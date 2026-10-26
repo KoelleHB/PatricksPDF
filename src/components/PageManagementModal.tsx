@@ -66,6 +66,20 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
   const [isImporting, setIsImporting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Auto-scroll to current page when opening
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const currentCardRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || isLoadingPages || pages.length === 0) return;
+    const timer = setTimeout(() => {
+      if (currentCardRef.current) {
+        currentCardRef.current.scrollIntoView({ block: 'center', behavior: 'auto' });
+      }
+    }, 75);
+    return () => clearTimeout(timer);
+  }, [isOpen, isLoadingPages, pages.length]);
+
   // Initialize page specifications from document whenever modal opens or document changes
   useEffect(() => {
     if (!isOpen || !pdfState.arrayBuffer) return;
@@ -591,6 +605,9 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
             isApplying={isApplying}
             isImporting={isImporting}
             importFileInputRef={importFileInputRef}
+            onJumpToBeginning={() => {
+              gridContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
             onRotateAll={() => handleRotateAll(90)}
             onAddBlank={() => setShowAddBlankDialog(true)}
             onImportFile={handleImportPdfFile}
@@ -712,7 +729,10 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
           )}
 
           {/* Main Pages Overview Grid */}
-          <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-6 bg-slate-100/70">
+          <div
+            ref={gridContainerRef}
+            className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-6 bg-slate-100/70"
+          >
             {isLoadingPages ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-500 py-12">
                 <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
@@ -740,6 +760,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                   return (
                     <div
                       key={page.id}
+                      ref={isCurrent ? (node) => { currentCardRef.current = node; } : undefined}
                       draggable
                       onDragStart={(e) => handleDragStart(e, index)}
                       onDragOver={(e) => handleDragOver(e, index)}
