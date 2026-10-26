@@ -27,6 +27,20 @@ Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilenstein
   - Zeigt kontinuierlich den aktuellen Seitenzoom in Prozent an (z. B. `100%`).
   - Ein Klick auf den Prozentwert schaltet direkt und sauber auf die Zoomstufe **„Ganze Seite“** (`fit-page`) zurück.
 
+### Fixes Mobile-Layout, Fullscreen-Modus & beruhigte Button-Farbgebung
+
+- **Überdeckungsfreies fixes Layout (`src/components/mobile/MobileReaderTopBar.tsx`, `src/components/mobile/MobileBottomBar.tsx`, `src/components/PdfViewer.tsx`):**
+  - Die obere Titelleiste und die untere Werkzeugleiste sind nun fest im Flex-Layout verankert (`sticky top-0 shrink-0` bzw. `shrink-0` am Fuß), anstatt als schwebende Overlays über dem Dokumenten-Canvas zu liegen.
+  - Das Dokumenten-Viewport füllt exakt den Raum dazwischen aus: Beim Öffnen ist der Kopf der ersten Seite zu 100 % sichtbar und wird nicht mehr durch die Titelleiste verdeckt.
+  - Kein störendes Auto-Hide beim Scrollen mehr: Die Leisten bleiben standardmäßig fixiert und stabil stehen.
+- **Echter Fullscreen-Modus in der Floating-Pill (`src/components/mobile/MobileFloatingPill.tsx`):**
+  - Neuer Vollbild-Umschaltbutton (`Maximize2` / `Minimize2`) direkt in der schwebenden Seitenblätterpille.
+  - Im Fullscreen-Modus blenden sich Top-Bar und Bottom-Bar aus, sodass das Dokument den gesamten Bildschirm einnimmt; die Pille bleibt dezent bei `bottom-6` positioniert, um jederzeit 1-Klick-Rückkehr zu ermöglichen.
+  - Synchronisation mit der Browser-Fullscreen-API und automatische Anpassung bei Hardware-Gesten.
+- **Beruhigte, einheitlich helle Bottom-Bar-Buttons (`src/components/mobile/MobileBottomBar.tsx`):**
+  - Alle vier Buttons (Seiten, Text, Signieren, Speichern) nutzen ein einheitlich ruhiges, helles Farbschema (`bg-slate-50`, feiner Rahmen `border-slate-200/80`, dunkle Schrift `text-slate-700`).
+  - Grelle Farben (knallblaues Signieren, pechschwarzes Speichern) wurden durch dezente, harmonische Icon-Farbakzente ersetzt.
+
 ### Dokument-Öffnen: Saubere Zentrierung & Ganze Seite
 
 - **Initialer Anzeigemodus (`src/components/PdfViewer.tsx`):**

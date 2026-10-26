@@ -35,10 +35,10 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
     <nav
       id="bottom-action-toolbar"
       aria-label="Mobile Werkzeugleiste"
-      className={`fixed bottom-0 inset-x-0 z-30 bg-white/90 backdrop-blur-md border-t border-slate-200/80 px-3 py-2 shadow-lg transition-all duration-300 ease-in-out ${
+      className={`shrink-0 z-30 bg-white/90 backdrop-blur-md border-t border-slate-200/80 px-3 py-2 shadow-lg transition-all duration-300 ease-in-out ${
         isVisible
-          ? 'translate-y-0 opacity-100 pointer-events-auto'
-          : 'translate-y-full opacity-0 pointer-events-none'
+          ? 'opacity-100 pointer-events-auto block'
+          : 'opacity-0 pointer-events-none hidden'
       }`}
       style={{
         paddingBottom: 'max(0.6rem, env(safe-area-inset-bottom, 0.6rem))',
@@ -82,29 +82,29 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           </button>
         )}
 
-        {/* 3. Signieren (Hervorgehobener primärer Aktions-Button mit Akzentblau) */}
+        {/* 3. Signieren (Einheitlich ruhig hell) */}
         <button
           type="button"
           id="mobile-add-signature-btn"
           onClick={onAddSignature}
-          className="flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-[11px] font-semibold shadow-md shadow-blue-500/20 transition active:scale-95 cursor-pointer min-h-[48px]"
+          className="flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200/70 border border-slate-200/80 text-slate-700 text-[11px] font-medium transition active:scale-95 cursor-pointer min-h-[48px]"
           title="Unterschrift hinzufügen"
           aria-label="Unterschrift hinzufügen"
         >
-          <Plus className="w-4 h-4 shrink-0 stroke-[2.5]" />
+          <Plus className="w-4 h-4 text-blue-600 shrink-0 stroke-[2.2]" />
           <span className="leading-none tracking-tight">Signieren</span>
         </button>
 
-        {/* 4. Speichern / Exportieren */}
+        {/* 4. Speichern / Exportieren (Einheitlich ruhig hell) */}
         <button
           type="button"
           id="mobile-save-btn"
           onClick={handleSave}
-          className="flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-black text-white text-[11px] font-medium shadow-xs transition active:scale-95 cursor-pointer min-h-[48px]"
+          className="flex flex-col items-center justify-center gap-1 py-1.5 px-2 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200/70 border border-slate-200/80 text-slate-700 text-[11px] font-medium transition active:scale-95 cursor-pointer min-h-[48px]"
           title="PDF Speichern oder Exportieren"
           aria-label="PDF Speichern oder Exportieren"
         >
-          <Download className="w-4 h-4 text-emerald-400 shrink-0" />
+          <Download className="w-4 h-4 text-emerald-600 shrink-0" />
           <span className="leading-none tracking-tight">Speichern</span>
         </button>
       </div>

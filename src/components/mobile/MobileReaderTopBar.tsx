@@ -91,8 +91,8 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
   return (
     <header
       id="mobile-reader-top-bar"
-      className={`fixed top-0 inset-x-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60 shadow-xs transition-all duration-300 ease-in-out ${
-        isVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-full opacity-0 pointer-events-none'
+      className={`sticky top-0 inset-x-0 shrink-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/60 shadow-xs transition-all duration-300 ease-in-out ${
+        isVisible ? 'opacity-100 pointer-events-auto block' : 'opacity-0 pointer-events-none hidden'
       }`}
       style={{
         paddingTop: 'max(0.35rem, env(safe-area-inset-top, 0.35rem))',

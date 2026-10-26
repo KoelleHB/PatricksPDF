@@ -1332,20 +1332,62 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [isMobilePageGridOpen, setIsMobilePageGridOpen] = useState(false);
 
   // Determine whether tools/modals or internal overlays are currently active to pin controls
-  const isPinned = Boolean(
-    isToolActive ||
-    isSearchOpen ||
-    isTocOpen ||
-    isMobilePageGridOpen ||
-    selectedSignatureId !== null ||
-    selectedTextId !== null
-  );
+  // Mobile Fullscreen Mode state
+  const [isMobileFullscreen, setIsMobileFullscreen] = useState(false);
 
-  const { isControlsVisible, handleDocumentTap } = useImmersiveNavigation({
+  const handleToggleMobileFullscreen = useCallback(() => {
+    setIsMobileFullscreen((prev) => {
+      const next = !prev;
+      onControlsVisibilityChange?.(!next);
+      if (typeof document !== 'undefined') {
+        if (next) {
+          if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          }
+        } else {
+          if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
+        }
+      }
+      setTimeout(() => {
+        if (!isFitWidthMode) {
+          handleFitPage();
+        }
+      }, 100);
+      return next;
+    });
+  }, [onControlsVisibilityChange, isFitWidthMode, handleFitPage]);
+
+  // Sync with document fullscreenchange (e.g. user exits via hardware gesture)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && isMobileFullscreen) {
+        setIsMobileFullscreen(false);
+        onControlsVisibilityChange?.(true);
+        setTimeout(() => {
+          if (!isFitWidthMode) {
+            handleFitPage();
+          }
+        }, 100);
+      }
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [isMobileFullscreen, onControlsVisibilityChange, isFitWidthMode, handleFitPage]);
+
+  // All navigation bars stay fundamentally fixed; hide only in Fullscreen Mode
+  const isPinned = true;
+
+  const { handleDocumentTap } = useImmersiveNavigation({
     isPinned,
     scrollElement: containerRef.current,
     onVisibilityChange: onControlsVisibilityChange,
   });
+
+  const isControlsVisible = !isMobileFullscreen;
 
   const handleContainerClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -1955,17 +1997,19 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           and creates duplicate copy actions. Keep it for desktop only. */}
       {!isNativeAndroid() && <TextSelectionToolbar />}
 
-      {/* Mobile Floating Pill (Quick page navigation + Zoom % / Reset to Fit Page) */}
+      {/* Mobile Floating Pill (Quick page navigation + Zoom % / Reset to Fit Page + Fullscreen toggle) */}
       {isMobile && !isReaderMode && (
         <MobileFloatingPill
           currentPage={pdfState.currentPage}
           numPages={pdfState.numPages}
           zoomLevel={zoomLevel}
-          isVisible={isControlsVisible}
+          isVisible={true}
+          isFullscreen={isMobileFullscreen}
           onPrevPage={() => scrollToPage(pdfState.currentPage - 1, 'smooth')}
           onNextPage={() => scrollToPage(pdfState.currentPage + 1, 'smooth')}
           onResetToFitPage={handleFitPage}
           onOpenPageGrid={() => setIsMobilePageGridOpen(true)}
+          onToggleFullscreen={handleToggleMobileFullscreen}
         />
       )}
 

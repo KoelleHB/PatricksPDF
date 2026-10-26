@@ -1,15 +1,17 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 
 interface MobileFloatingPillProps {
   currentPage: number;
   numPages: number;
   zoomLevel: number;
   isVisible: boolean;
+  isFullscreen?: boolean;
   onPrevPage: () => void;
   onNextPage: () => void;
   onResetToFitPage: () => void;
   onOpenPageGrid: () => void;
+  onToggleFullscreen?: () => void;
 }
 
 export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
@@ -17,17 +19,21 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
   numPages,
   zoomLevel,
   isVisible,
+  isFullscreen = false,
   onPrevPage,
   onNextPage,
   onResetToFitPage,
   onOpenPageGrid,
+  onToggleFullscreen,
 }) => {
   const roundedZoom = Math.round(zoomLevel);
 
   return (
     <aside
       aria-label="Schnellsteuerung für Seiten und Zoom"
-      className={`fixed left-1/2 -translate-x-1/2 bottom-20 z-30 transition-all duration-300 ease-in-out pointer-events-auto ${
+      className={`fixed left-1/2 -translate-x-1/2 ${
+        isFullscreen ? 'bottom-6' : 'bottom-20'
+      } z-30 transition-all duration-300 ease-in-out pointer-events-auto ${
         isVisible
           ? 'translate-y-0 opacity-100 scale-100'
           : 'translate-y-10 opacity-0 scale-95 pointer-events-none'
@@ -84,6 +90,29 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
         >
           {roundedZoom}%
         </button>
+
+        {/* Fullscreen toggle button */}
+        {onToggleFullscreen && (
+          <>
+            <span className="w-px h-4 bg-slate-200 mx-0.5" />
+            <button
+              type="button"
+              id="mobile-fullscreen-btn"
+              onClick={onToggleFullscreen}
+              className={`p-1.5 rounded-full text-slate-700 hover:bg-slate-100 active:bg-slate-200/70 transition cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center ${
+                isFullscreen ? 'text-blue-600 bg-blue-50' : ''
+              }`}
+              title={isFullscreen ? 'Vollbildmodus beenden' : 'Vollbildmodus aktivieren'}
+              aria-label={isFullscreen ? 'Vollbildmodus beenden' : 'Vollbildmodus aktivieren'}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-3.5 h-3.5" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </>
+        )}
       </div>
     </aside>
   );

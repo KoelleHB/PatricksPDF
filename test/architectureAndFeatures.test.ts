@@ -735,6 +735,8 @@ test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons 
   assert.match(floatingPillSource, /export (const|function) MobileFloatingPill/);
   assert.match(floatingPillSource, /zoomLevel/);
   assert.match(floatingPillSource, /onResetToFitPage/);
+  assert.match(floatingPillSource, /onToggleFullscreen/, 'Floating pill must support fullscreen toggle');
+  assert.match(floatingPillSource, /mobile-fullscreen-btn/, 'Floating pill must have fullscreen button');
 
   const bottomSheetSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobilePageGridBottomSheet.tsx'), 'utf8');
   assert.match(bottomSheetSource, /export (const|function) MobilePageGridBottomSheet/);
@@ -747,6 +749,12 @@ test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons 
   const bottomBarSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileBottomBar.tsx'), 'utf8');
   assert.match(bottomBarSource, /export (const|function) MobileBottomBar/);
   assert.match(bottomBarSource, /safe-area-inset-bottom/, 'Mobile bottom bar must respect safe-area-inset-bottom');
+  // Unified calm light buttons:
+  assert.doesNotMatch(bottomBarSource, /bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white/, 'Sign button must be unified calm light');
+  assert.doesNotMatch(bottomBarSource, /bg-slate-900 hover:bg-slate-800 active:bg-black text-white/, 'Save button must be unified calm light');
+
+  // Verify non-overlapping top bar layout:
+  assert.match(topBarSource, /sticky\s+top-0\s+inset-x-0\s+shrink-0/, 'Mobile top bar must be sticky and shrink-0 to prevent document overlap');
 });
 
 test('disposePdfJsResources safely disposes documents and tasks without throwing TypeError: destroy is not a function', () => {

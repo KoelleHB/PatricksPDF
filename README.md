@@ -42,7 +42,7 @@ Privater PDF-Editor und -Reader (**Version 2.2 / `2.2.0`**) als **Web-App/PWA** 
 | Teil | Technik | Relevante Dateien |
 | --- | --- | --- |
 | UI, State & Fehlerdiagnose | React 19, TypeScript, Vite 6, Tailwind CSS 4 | `src/App.tsx`, `src/components/`, `src/hooks/useDocumentHistory.ts`, `src/utils/appError.ts` |
-| Immersives Mobile-UI | Auto-Hide, Floating Pill, Thumb-Zone, Bottom Sheet | `src/components/mobile/`, `src/hooks/useImmersiveNavigation.ts`, `src/components/PdfViewer.tsx` |
+| Immersives Mobile-UI | Überdeckungsfreies Layout, Fullscreen-Modus, Floating Pill mit Zoom-%, Thumb-Zone | `src/components/mobile/`, `src/hooks/useImmersiveNavigation.ts`, `src/components/PdfViewer.tsx` |
 | Anzeige, Text und Links | `pdfjs-dist` **6.4.299** (Scripting deaktiviert), Mozilla `TextLayerBuilder` | `src/utils/pdfWorker.ts`, `src/utils/pdfEngine.ts`, `src/utils/pdfDocumentLifecycle.ts` |
 | PDF-Export, Teil-Export & Seitenoperationen | `pdf-lib` **1.17.1**, `@pdf-lib/fontkit`, physische Objekt-Isolation | `src/utils/pdfExportEngine.ts`, `src/components/SaveModal.tsx`, `src/components/PageManagementModal.tsx`, `src/utils/exportSettings.ts` |
 | Viewport-Platzierung | Zoom- und ausschnittabhängige Koordinatenberechnung + Kaskadierung | `src/utils/pdfPlacement.ts`, `src/components/PdfViewer.tsx` |
