@@ -43,6 +43,10 @@ import { computeFitWidthZoom } from '../utils/pdfZoom';
 import { selectionTouchesPdfTextLayer } from '../utils/pdfSelection';
 import type { PdfSearchHit } from '../utils/pdfSearch';
 import { extractViewportPageSnapshot, type ViewportPageSnapshot } from '../utils/pdfPlacement';
+import { MobileReaderTopBar } from './mobile/MobileReaderTopBar';
+import { MobileFloatingPill } from './mobile/MobileFloatingPill';
+import { MobilePageGridBottomSheet } from './mobile/MobilePageGridBottomSheet';
+import { useImmersiveNavigation } from '../hooks/useImmersiveNavigation';
 
 interface PdfViewerProps {
   pdfState: PdfDocumentState;
@@ -79,6 +83,16 @@ interface PdfViewerProps {
   isReaderMode?: boolean;
   onToggleReaderMode?: (enabled: boolean) => void;
   onRegisterViewportSnapshotGetter?: (getter: (() => ViewportPageSnapshot | null) | null) => void;
+  isMobile?: boolean;
+  isToolActive?: boolean;
+  isSaved?: boolean;
+  onBack?: () => void;
+  onQuickPrint?: () => void;
+  onQuickShare?: () => void;
+  onOpenFile?: () => void;
+  onOpenRecent?: () => void;
+  onOpenDiagnostics?: () => void;
+  onControlsVisibilityChange?: (isVisible: boolean) => void;
 }
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({
@@ -116,6 +130,16 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   isReaderMode = false,
   onToggleReaderMode,
   onRegisterViewportSnapshotGetter,
+  isMobile = false,
+  isToolActive = false,
+  isSaved = true,
+  onBack,
+  onQuickPrint,
+  onQuickShare,
+  onOpenFile,
+  onOpenRecent,
+  onOpenDiagnostics,
+  onControlsVisibilityChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainersRef = useRef<{ [pageNum: number]: HTMLDivElement | null }>({});
@@ -1255,16 +1279,41 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     }
   };
 
+  // Mobile Page Grid Bottom Sheet state
+  const [isMobilePageGridOpen, setIsMobilePageGridOpen] = useState(false);
+
+  // Determine whether tools/modals or internal overlays are currently active to pin controls
+  const isPinned = Boolean(
+    isToolActive ||
+    isSearchOpen ||
+    isTocOpen ||
+    isMobilePageGridOpen ||
+    selectedSignatureId !== null ||
+    selectedTextId !== null
+  );
+
+  const { isControlsVisible, handleDocumentTap } = useImmersiveNavigation({
+    isPinned,
+    scrollElement: containerRef.current,
+    onVisibilityChange: onControlsVisibilityChange,
+  });
+
   const handleContainerClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    if (
-      !target.closest('[data-signature-overlay]') &&
-      !target.closest('[data-text-overlay]') &&
-      !target.closest('button') &&
-      !target.closest('a')
-    ) {
+    const isInteractive = Boolean(
+      target.closest('[data-signature-overlay]') ||
+      target.closest('[data-text-overlay]') ||
+      target.closest('[data-form-field]') ||
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('textarea') ||
+      target.closest('a')
+    );
+
+    if (!isInteractive) {
       onSelectSignature(null);
       if (onSelectText) onSelectText(null);
+      handleDocumentTap();
     }
   };
 
@@ -1272,7 +1321,32 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const pageHeight = Math.round(renderedDimensions.height * (zoomLevel / 100));
 
   return (
-    <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100 relative">
+    <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-100/90 relative">
+      {/* Mobile Reader Top Bar (Frosted glass with back, doc title, metadata, search, grid, overflow menu) */}
+      {!isReaderMode && isMobile && (
+        <MobileReaderTopBar
+          pdfState={pdfState}
+          isVisible={isControlsVisible}
+          isSaved={isSaved}
+          onBack={onBack || (() => {})}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={onUndo}
+          onRedo={onRedo}
+          onToggleSearch={() => (isSearchOpen ? closeSearch() : setIsSearchOpen(true))}
+          isSearchActive={isSearchOpen}
+          onTogglePageGrid={() => setIsMobilePageGridOpen((prev) => !prev)}
+          onOpenToc={() => setIsTocOpen(true)}
+          onToggleReflow={() => setIsReflowMode((prev) => !prev)}
+          isReflowActive={isReflowMode}
+          onQuickPrint={onQuickPrint}
+          onQuickShare={onQuickShare}
+          onOpenFile={onOpenFile}
+          onOpenRecent={onOpenRecent}
+          onOpenDiagnostics={onOpenDiagnostics}
+        />
+      )}
+
       {/* Real-time floating zoom pill badge during pinch gestures */}
       <div
         ref={zoomPillRef}
@@ -1282,8 +1356,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         <span>100%</span>
       </div>
 
-      {/* Top Floating Page Navigation & Zoom Toolbar (hidden in Reader Mode) */}
-      {!isReaderMode && (
+      {/* Top Floating Page Navigation & Zoom Toolbar (hidden in Reader Mode and on Mobile) */}
+      {!isReaderMode && !isMobile && (
         <div className="shrink-0 bg-white/95 backdrop-blur border-b border-slate-200 px-2.5 sm:px-6 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 shadow-xs z-30 overflow-x-auto no-scrollbar">
           {/* Left: Eye (Reader Mode), Zoom, TOC, Reflow */}
           <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
@@ -1831,6 +1905,35 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           React toolbar on every selectionchange interferes with drag handles
           and creates duplicate copy actions. Keep it for desktop only. */}
       {!isNativeAndroid() && <TextSelectionToolbar />}
+
+      {/* Mobile Floating Pill (Quick page navigation + Fit-Width toggle) */}
+      {isMobile && !isReaderMode && (
+        <MobileFloatingPill
+          currentPage={pdfState.currentPage}
+          numPages={pdfState.numPages}
+          isFitWidth={isFitWidthMode}
+          isVisible={isControlsVisible}
+          onPrevPage={() => scrollToPage(pdfState.currentPage - 1, 'smooth')}
+          onNextPage={() => scrollToPage(pdfState.currentPage + 1, 'smooth')}
+          onToggleFitMode={() => {
+            if (isFitWidthMode) handleResetZoom();
+            else handleFitWidth();
+          }}
+          onOpenPageGrid={() => setIsMobilePageGridOpen(true)}
+        />
+      )}
+
+      {/* Mobile Page Grid Bottom Sheet */}
+      {isMobile && (
+        <MobilePageGridBottomSheet
+          isOpen={isMobilePageGridOpen}
+          pdfState={pdfState}
+          currentPage={pdfState.currentPage}
+          onClose={() => setIsMobilePageGridOpen(false)}
+          onSelectPage={(pageNum) => scrollToPage(pageNum, 'smooth')}
+          onOpenFullPageManager={onOpenPageManager}
+        />
+      )}
     </div>
   );
 };

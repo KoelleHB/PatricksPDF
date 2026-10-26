@@ -1,6 +1,6 @@
-# Architektur – PatricksPDF (Version 2.0)
+# Architektur – PatricksPDF (Version 2.1)
 
-**Gilt für:** **Version 2.0 (`2.0.0`)** auf `main` (Stand: 25.10.2026). Diese Beschreibung bildet den aktuellen Code- und Sicherheitsstand ab. Sie ist keine Zusage vollständiger PDF-Standardkompatibilität.
+**Gilt für:** **Version 2.1 (`2.1.0`)** auf `main` (Stand: 26.10.2026). Diese Beschreibung bildet den aktuellen Code- und Sicherheitsstand ab. Sie ist keine Zusage vollständiger PDF-Standardkompatibilität.
 
 ## 1. Gesamtübersicht
 
@@ -17,11 +17,13 @@ PDF aus Datei / PWA Share Target / Android-Intent
     Canvas Text Links    physisch bereinigte PDF-Bytes
        |   |   |                 |
        PdfViewer / PdfPageView / SaveModal
-                       |
-             Web APIs oder Android
-               NativePdfBridge
-                       |
-              Speichern / Teilen / Druck
+       |   \
+       |    MobileReaderTopBar / MobileFloatingPill / MobileBottomBar (Mobile / APK)
+       |
+    Web APIs oder Android
+      NativePdfBridge
+             |
+     Speichern / Teilen / Druck
 ```
 
 **Grundsatz:** Die PDF-Binärdaten bleiben für die normalen Lese-/Editieroperationen auf dem Gerät. Explizite Export-, Druck-, Link- und Share-Aktionen übergeben Daten ggf. an gewählte Zielanwendungen oder Betriebssystemdienste. Die App speichert „Zuletzt geöffnet“-Dokumente sowie gespeicherte Unterschriften-Vorlagen dauerhaft im lokalen IndexedDB-Cache, siehe unten.
@@ -30,11 +32,16 @@ PDF aus Datei / PWA Share Target / Android-Intent
 
 | Modul | Aufgabe |
 | --- | --- |
-| `src/App.tsx` | Dokument öffnen, Passwortdialog, Bearbeitungszustand, Debounce-Flush vor Ausgaben, Unsaved-Changes-Warnung, isolierter Teil-Export-Snapshot (`stagedExportOverride`), Speichern-/Teilen-/Druck-UI und Modals orchestrieren |
-| `src/components/PdfViewer.tsx` | Fortlaufendes Scrollen, Fokus-Seite, Fit Width/Zoom, Suche, Inhaltsverzeichnis, Reader-/Reflow-Modus, Touch-/Gestensteuerung sowie Berechnung des aktuell sichtbaren Seiten-Ausschnitts (`getViewportPlacement`) |
+| `src/App.tsx` | Dokument öffnen, Passwortdialog, Bearbeitungszustand, Debounce-Flush vor Ausgaben, Unsaved-Changes-Warnung, isolierter Teil-Export-Snapshot (`stagedExportOverride`), Speichern-/Teilen-/Druck-UI, Modals orchestrieren sowie asynchroner Thumbnail-Hintergrundpersist via `requestIdleCallback` |
+| `src/components/PdfViewer.tsx` | Fortlaufendes Scrollen, Fokus-Seite, Fit Width/Zoom, Suche, Inhaltsverzeichnis, Reader-/Reflow-Modus, Touch-/Gestensteuerung, Koordination der Desktop- und Mobile-Reader-UIs sowie Berechnung des aktuell sichtbaren Seiten-Ausschnitts (`getViewportPlacement`) |
+| `src/components/mobile/MobileReaderTopBar.tsx` | Kompakte frosted-glass Top-Bar für Smartphones: Zurück, Dokumenttitel, Metadaten-Badge, Undo & Redo direkt erreichbar, Suche, Schnellzugriff auf Seitenraster und Drei-Punkte-Menü mit „Datei öffnen“ und „Verlauf zeigen“ |
+| `src/components/mobile/MobileFloatingPill.tsx` | Schwebende, zentrierte Kapsel über dem Dokumentenrand für schnelles Blättern (`< 1 / X >`) und 1-Tap-Zoom-Modi („Breite anpassen“ / „Original“) |
+| `src/components/mobile/MobileBottomBar.tsx` | Ergonomische Daumenleiste (Thumb-Zone) für Smartphones: Seiten (mit dynamischem Badge), Textwerkzeug, hervorgehobener Signatur-Button (`#2563EB`) und Speichern/Exportieren (`safe-area-inset-bottom`) |
+| `src/components/mobile/MobilePageGridBottomSheet.tsx` | Einhand-bedienbare Seitenübersicht als Bottom-Sheet mit `IntersectionObserver` Lazy Thumbnail Rendering |
+| `src/hooks/useImmersiveNavigation.ts` | Intelligente Auto-Hide-Navigation auf mobilen Endgeräten: Sanftes Ausblenden von Top- und Bottom-Bar beim Scrollen, Einzeltap-Wiedereinblendung, Arretierung bei aktiven Werkzeugen |
 | `src/components/PdfPageView.tsx` | Einzelne PDF-Seite: Canvas, echte Textschicht, Link-Annotationen, Formfelder, Signaturen/Textoverlays; bedarfsorientiertes Mounting |
-| `src/utils/pdfDocumentLifecycle.ts` | Laden und Cache der `PDFDocumentProxy`-Instanzen, Worker-konforme ArrayBuffer-Kopien, Render-Cancellation, Ressourcenfreigabe |
-| `src/utils/pdfEngine.ts` | Canvas-/Textlayer-Rendering, Link-/Formfeld-Extraktion, sichere Inhaltsverzeichnis-Extraktion (`extractDocumentOutline`), Seitenvorschau |
+| `src/utils/pdfDocumentLifecycle.ts` | Laden und Cache der `PDFDocumentProxy`-Instanzen, Worker-konforme ArrayBuffer-Kopien, Render-Cancellation, Ressourcenfreigabe und CVE-2026-16633-Härtung (`enableScripting: false`, `isEvalSupported: false`) |
+| `src/utils/pdfEngine.ts` | Canvas-/Textlayer-Rendering, Link-/Formfeld-Extraktion, sichere Inhaltsverzeichnis-Extraktion (`extractDocumentOutline`), Seitenvorschau, WeakMap-PageInfo-Caching und parallele 10er-Batch-Auflösung |
 | `src/utils/pdfExportEngine.ts` | PDF-Modifikation und Export: physische Seiten-/Objekt-Isolation bei Teil-Exporten (`isolateSelectedPagesInSourceDoc`), AcroForm-Validierung/-Flattening, Einbetten von Signaturen/Texten (`embedSignaturesIntoPdf`), Seitenoperationen (`applyPageModifications`) und isolierter Entwurfs-Export (`buildStagedPageExportSnapshot`) |
 | `src/utils/pdfPlacement.ts` | Berechnung der viewport-zentrierten, zoom-angepassten und kaskadierten Platzierung neuer Unterschriften und Textfelder (`computeViewportElementPlacement`) |
 | `src/utils/pdfRawLinks.ts` | `pdf-lib`-Fallback für auslesbare, **nicht verschlüsselte** Linkannotation-Strukturen |
@@ -47,7 +54,7 @@ PDF aus Datei / PWA Share Target / Android-Intent
 | `src/components/SaveModal.tsx` | Ausgabe vorbereiten (Gesamtdokument oder Seitenbereich), Dateinamens-Vorlagen anwenden und Download/Save-As/Share/Print veranlassen |
 | `src/utils/signatureLibrary.ts` / `SignatureModal.tsx` | Lokale IndexedDB-Unterschriftenbibliothek (`PatricksPDFSignaturesDB`) zum dauerhaften Speichern, Umbenennen und Wiederverwenden mehrerer Unterschriften |
 | `src/utils/exportSettings.ts` | Persistente Exporteinstellungen (Dateinamens-Schema, Suffix, Flattening-Standard) in `localStorage` |
-| `src/utils/appError.ts` / `ErrorDiagnosticsModal.tsx` | Strukturiertes `AppError`-Fehlermodell (`APP_VERSION = '2.0.0'`) und Diagnose-Modal |
+| `src/utils/appError.ts` / `ErrorDiagnosticsModal.tsx` | Strukturiertes `AppError`-Fehlermodell (`APP_VERSION = '2.1.0'`) und Diagnose-Modal |
 | `src/utils/nativeBridge.ts` / `androidPdfTransfer.ts` | Browser-/Android-Ausgabepfade, korrelierter `save_as`-Dialog mit Request-ID & Timeout, sicheres Öffnen externer Links, binärer Loopback-Transfer |
 | `android/app/src/main/java/com/patrickspdf/app/MainActivity.java` | Android-WebView-Bridge, System-Intents, MediaStore/SAF (`ACTION_CREATE_DOCUMENT` mit `onSaveInstanceState`-Sicherung)/PrintManager/FileProvider |
 | `src/utils/recentDocuments.ts` | Lokale IndexedDB-v2-Historie kürzlich geöffneter Dokumente mit Metadaten-/Blob-Trennung und SHA-256-Fingerprint |
@@ -119,12 +126,13 @@ Werden Änderungen in der Seitenverwaltung regulär übernommen und wurden dabei
 ## 8. Sicherheit und lokale Persistenz
 
 - Dokumentverarbeitung ist grundsätzlich browser-/app-lokal, **nicht** automatisch ein serverseitiger PDF-Upload.
+- **CVE-2026-16633-Härtung (`src/utils/pdfDocumentLifecycle.ts`):** `enableScripting: false` und `isEvalSupported: false` werden sowohl beim regulären Laden als auch im linearen XRef-Recovery-Modus erzwungen; zusammen mit der restriktiven Content Security Policy in `index.html` wird die Ausführung von JavaScript in manipulierten PDFs vollständig blockiert.
 - Über IndexedDB (`PatricksPDFRecentDB`, Version 2) werden im Geräteprofil Metadaten (`recent_docs_meta`) und PDF-Binärdaten (`recent_docs_blobs`) getrennt gespeichert (bis 15 Dokumente bzw. 50 MiB, identifiziert per SHA-256-Fingerprint `computePdfFingerprint`). Die Binärdaten werden erst beim Öffnen, Teilen oder Drucken bedarfsgesteuert geladen.
 - Wiederverwendbare Unterschriften-Vorlagen werden lokal in IndexedDB (`PatricksPDFSignaturesDB`, Store `signatures`) mit Bezeichnung gespeichert.
 - PDF-Link-Ziele (sowohl in Seiten-Annotationen als auch in Gliederungs-/Inhaltsverzeichnis-Einträgen) sind streng auf `http:` / `https:` mit gültigem Hostnamen beschränkt. Keine Ausführung von `javascript:`-, `data:`-, `content:`- oder `file:`-Links.
 - Keine geheimen PDF-Beispiele oder Keystores in Tests, öffentliche CI-Logs oder Repository aufnehmen.
 
-## 9. Build, Qualitätssicherung und Releases (Version 2.0)
+## 9. Build, Qualitätssicherung und Releases (Version 2.1)
 
 ```bash
 npm ci
@@ -137,8 +145,8 @@ npx cap sync android
 Für lokalen Android-Debug-Build anschließend `cd android && ./gradlew assembleDebug` (JDK 21, Android SDK erforderlich).
 
 [`.github/workflows/build-apk.yml`](../.github/workflows/build-apk.yml) prüft zusätzlich per Chrome eine künstlich erzeugte **AES-128-PDF** mit internen und externen Links. Danach folgt der APK-Build mit optionalem Release-Signing.
-- `package.json`, `src/utils/appError.ts` und der Default in `android/app/build.gradle` stehen auf **`2.0.0`**.
-- Die CI-APK-Version wird aus der **Workflow-Run-Nummer** gebildet: **`2.0.<run_number>`** (`PatricksPDF-release-v2.0.<run_number>`).
+- `package.json`, `src/utils/appError.ts` und der Default in `android/app/build.gradle` stehen auf **`2.1.0`**.
+- Die CI-APK-Version wird aus der **Workflow-Run-Nummer** gebildet: **`2.1.<run_number>`** (`PatricksPDF-release-v2.1.<run_number>`).
 
 Die synthetische PDF liegt unter `test/fixtures/encrypted-pdf-links.pdf`. Ein öffentlicher FRITZ!Box-Handbuch-Integrationstest existiert unter `test/publicFritzLinks.test.ts`, ist im regulären CI **ohne explizite Testdatei übersprungen**.
 

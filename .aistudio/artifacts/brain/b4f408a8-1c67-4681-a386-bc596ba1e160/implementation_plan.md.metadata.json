@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementierungsplan fuer die sichtbereichszentrierte Platzierung und zoomadaptive Groessenanpassung neuer Unterschriften und Texte inklusive Versatz bei Mehrfacheinfuegung.",
-  "updatedAt":  "2026-10-25T16:19:34.142314646Z",
+  "summary":  "Implementierungsplan für:\n1. Anpassung des Drei-Punkte-Menüs (Entfernen von 'Seiten organisieren', Hinzufügen von 'Datei öffnen' und 'Verlauf zeigen')\n2. Integration von Undo- & Redo-Schaltflächen in der mobilen Top-Bar direkt neben dem Suche-Icon\n3. Performance-Optimierung der Seitenübersicht (Lazy Loading von Thumbnails via IntersectionObserver)\n4. Beschleunigung des Öffnens größerer PDF-Dateien (nicht-blockierende Hintergrund-Tasks für Verlauf-Thumbnails und Formular-Felder)",
+  "updatedAt":  "2026-10-26T11:20:41.571302381Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

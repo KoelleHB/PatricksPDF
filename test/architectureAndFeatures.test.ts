@@ -564,7 +564,7 @@ test('savePdfDocumentAs enforces requestId correlation, concurrency lock, timeou
   }
 });
 
-test('createAppError and formatAppErrorReport generate structured v2.0.0 diagnostics', () => {
+test('createAppError and formatAppErrorReport generate structured v2.1.0 diagnostics', () => {
   const err = createAppError(
     'PDF_EXPORT_FAILED',
     'Export fehlgeschlagen',
@@ -573,7 +573,7 @@ test('createAppError and formatAppErrorReport generate structured v2.0.0 diagnos
     { pages: 4 }
   );
   const report = formatAppErrorReport(err);
-  assert.match(report, /PatricksPDF v2\.0\.0 Fehlerdiagnose/);
+  assert.match(report, /PatricksPDF v2\.1\.0 Fehlerdiagnose/);
   assert.match(report, /PDF_EXPORT_FAILED/);
   assert.match(report, /Test stack error/);
   assert.match(report, /"pages":4/);
@@ -696,6 +696,48 @@ test('PDF.js loader enforces enableScripting: false, isEvalSupported: false and 
   assert.match(indexHtml, /object-src\s+'none'/);
   assert.match(indexHtml, /base-uri\s+'self'/);
 });
+
+test('Version 2.1.0 is strictly consistent across package.json, appError.ts, build.gradle and CI workflow', () => {
+  const pkgJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
+  assert.equal(pkgJson.version, '2.1.0', 'package.json version must be 2.1.0');
+
+  const pkgLock = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package-lock.json'), 'utf8'));
+  assert.equal(pkgLock.version, '2.1.0', 'package-lock.json version must be 2.1.0');
+  assert.equal(pkgLock.packages[''].version, '2.1.0', 'package-lock.json root package version must be 2.1.0');
+
+  const appErrorSource = fs.readFileSync(path.resolve(process.cwd(), 'src/utils/appError.ts'), 'utf8');
+  assert.match(appErrorSource, /export\s+const\s+APP_VERSION\s*=\s*'2\.1\.0';/, 'APP_VERSION must be 2.1.0');
+
+  const gradleSource = fs.readFileSync(path.resolve(process.cwd(), 'android/app/build.gradle'), 'utf8');
+  assert.match(gradleSource, /versionName\s*=\s*System\.getenv\("PATRICKSPDF_VERSION_NAME"\)\s*\?:\s*"2\.1\.0"/);
+
+  const workflowSource = fs.readFileSync(path.resolve(process.cwd(), '.github/workflows/build-apk.yml'), 'utf8');
+  assert.match(workflowSource, /PATRICKSPDF_VERSION_NAME:\s*2\.1\.\$\{\{\s*github\.run_number\s*\}\}/);
+  assert.match(workflowSource, /PatricksPDF-release-v2\.1\.\$\{\{\s*github\.run_number\s*\}\}/);
+});
+
+test('Mobile UI components and auto-hide navigation hook are defined and cleanly exported', () => {
+  const topBarSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileReaderTopBar.tsx'), 'utf8');
+  assert.match(topBarSource, /export (const|function) MobileReaderTopBar/);
+  // Verify Undo & Redo buttons and 3-dots menu options:
+  assert.match(topBarSource, /Undo2/);
+  assert.match(topBarSource, /Redo2/);
+  assert.match(topBarSource, /Datei öffnen/);
+  assert.match(topBarSource, /Verlauf/);
+  assert.doesNotMatch(topBarSource, /Seiten organisieren/);
+
+  const floatingPillSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileFloatingPill.tsx'), 'utf8');
+  assert.match(floatingPillSource, /export (const|function) MobileFloatingPill/);
+
+  const bottomSheetSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobilePageGridBottomSheet.tsx'), 'utf8');
+  assert.match(bottomSheetSource, /export (const|function) MobilePageGridBottomSheet/);
+  assert.match(bottomSheetSource, /IntersectionObserver/, 'Lazy thumbnail rendering required for page grid performance');
+
+  const bottomBarSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileBottomBar.tsx'), 'utf8');
+  assert.match(bottomBarSource, /export (const|function) MobileBottomBar/);
+  assert.match(bottomBarSource, /safe-area-inset-bottom/, 'Mobile bottom bar must respect safe-area-inset-bottom');
+});
+
 
 
 

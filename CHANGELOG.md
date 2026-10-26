@@ -2,7 +2,51 @@
 
 Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilensteine von PatricksPDF.
 
-> **Versionskonvention (ab Version 2.0):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.0.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.0.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.0.<run_number>`).
+> **Versionskonvention (ab Version 2.1):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.1.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.1.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.1.<run_number>`).
+
+## 26.10.2026 – Version 2.1 (`2.1.0`) – Immersives Mobile-UI, Thumb-Zone & Performance-Optimierungen
+
+### Sicherheit & Scripting-Härtung (CVE-2026-16633 Mitigation)
+
+- **Explizite Deaktivierung eingebetteter PDF-Skripte (`src/utils/pdfDocumentLifecycle.ts`):**
+  - In `loadPdfJsDoc()` wird sowohl im primären Ladepfad als auch im linearen XRef-Recovery-Pfad `enableScripting: false` explizit gesetzt (der PDF.js-Default war `true`).
+  - Schließt die Schwachstelle CVE-2026-16633 (CVSS 8.6, willkürliche JS-Ausführung über manipulierte PDFs) zusammen mit `isEvalSupported: false` und der restriktiven Content Security Policy in `index.html` deterministisch ab.
+
+### Immersives Mobile-UI & Ergonomie (Android APK & Viewports < 768px)
+
+- **Immersiver Lesemodus mit Auto-Hide-Navigation (`src/hooks/useImmersiveNavigation.ts`, `src/components/PdfViewer.tsx`):**
+  - Beim Scrollen faden die obere App-Bar und die untere Werkzeugleiste sanft aus (`transform: translateY`, `opacity: 0`).
+  - Ein Einzeltap auf den Dokumenten-Canvas blendet alle Steuerelemente weich wieder ein.
+  - Wenn ein Bearbeitungswerkzeug aktiv ist (Signatur- oder Textoverlay-Modus), bleiben alle Bedienelemente dauerhaft fixiert sichtbar.
+- **Kompakte Top-Bar (`src/components/mobile/MobileReaderTopBar.tsx`):**
+  - Frosted-Glass-Optik (`backdrop-blur-md bg-white/80`).
+  - Zurück-Button, Dokumenttitel und dezenter Metadaten-Badge (`PDF • Größe • Gespeichert`).
+  - Direkte Undo- und Redo-Aktionen (`Undo2`, `Redo2`) in der App-Bar neben dem Suche-Icon.
+  - Drei-Punkte-Menü (`⋮`) mit schnellem Direktzugriff auf „Datei öffnen“ und „Verlauf zeigen“.
+- **Schwebende Floating Controls (`src/components/mobile/MobileFloatingPill.tsx`):**
+  - Ergonomische, schwebende Kapsel („Pill“) unten zentriert über dem Dokument.
+  - Kompakte Einhand-Seitennavigation (`<` `Seite X / Y` `>`) und Schnellauswahl für den Lesemodus („Breite anpassen“ / „Original“), ohne Pinch-to-Zoom zu behindern.
+- **Ergonomische Bottom Action Bar (`src/components/mobile/MobileBottomBar.tsx`):**
+  - Vollständige Daumenbedienung (Thumb-Zone) für die Kernwerkzeuge: **Seiten** (mit dynamischem Seitenanzahl-Badge), **Text** (Stift-Icon), **Signieren** (hervorgehobener primärer Aktions-Button `#2563EB`) sowie **Speichern / Exportieren** (Teilen/Download-Icon).
+  - Respektiert strikt die Safe-Area des Smartphones (`padding-bottom: env(safe-area-inset-bottom)`).
+- **Einhand-Seitenübersicht als Bottom-Sheet (`src/components/mobile/MobilePageGridBottomSheet.tsx`):**
+  - Schneller Wechsel zwischen Dokumentseiten über ein kompaktes Bottom-Sheet.
+  - Keine redundante Desktop-Menüüberladung auf mobilen Endgeräten.
+
+### Performance & Skalierung bei großen Dokumenten
+
+- **Lazy Rendering von Seiten-Thumbnails (`MobilePageGridBottomSheet.tsx`):**
+  - Thumbnails im Bottom-Sheet werden per `IntersectionObserver` nur dann gerendert, wenn die entsprechende Karte im sichtbaren Bereich des Sheets scrollt. Verhindert UI-Einfrieren bei PDFs mit 20+ Seiten.
+- **Paralleles Batching & WeakMap-Caching für Seiteninformationen (`src/utils/pdfEngine.ts`):**
+  - `getPageInfoList()` puffert Seiten-Metadaten pro PDF-Dokumentinstanz in einer WeakMap.
+  - Ungecachte Seiten werden in parallelen 10er-Batches aufgelöst, was die Ladezeit der Seitenübersicht bei großen Dokumenten drastisch verkürzt.
+- **Nicht-blockierender Thumbnail-Hintergrund-Persist (`src/App.tsx`):**
+  - Die Erzeugung des Titel-Thumbnails für die IndexedDB-Historie erfolgt entkoppelt über `requestIdleCallback` / verzögerten Timeout, sodass das Öffnen großer Dokumente im Viewer unmittelbar reagiert.
+
+### Stabilität & Regressionstests
+
+- Desktop PWA (>= 768px) bleibt in Layout, Toolbars und Workflows vollkommen unberührt.
+- 100 % Testabdeckung für Versionskonsistenz, CSP, PDF.js-Scripting-Härtung und Mobile-UI-Architektur (`test/architectureAndFeatures.test.ts`).
 
 ## 25.10.2026 – Version 2.0 (`2.0.0`) – Datenschutz-Härtung, Viewport-Platzierung & Senior-Engineer-Audit
 

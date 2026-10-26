@@ -24,6 +24,7 @@ import {
   computeTextPlacement,
   type ViewportPageSnapshot,
 } from './utils/pdfPlacement';
+import { useIsMobile } from './hooks/useIsMobile';
 
 export default function App() {
   const [pdfState, setPdfState] = useState<PdfDocumentState | null>(null);
@@ -155,6 +156,24 @@ export default function App() {
   const [isPageManagerOpen, setIsPageManagerOpen] = useState(false);
   const [isReaderMode, setIsReaderMode] = useState(false);
 
+  // Mobile environment & bottom bar visibility state
+  const isMobile = useIsMobile();
+  const [isMobileBottomBarVisible, setIsMobileBottomBarVisible] = useState(true);
+
+  // Pin controls if an interactive tool/modal is open or an overlay is selected
+  const isToolActive = Boolean(
+    isSignatureModalOpen ||
+    isTextModalOpen ||
+    isSaveModalOpen ||
+    isPageManagerOpen ||
+    isRecentModalOpen ||
+    isPasswordModalOpen ||
+    isUnsavedModalOpen ||
+    showDiagnosticsModal ||
+    selectedSignatureId !== null ||
+    selectedTextId !== null
+  );
+
   // Load a user-selected PDF file with robust error handling and password detection
   const handleFileSelect = async (file: File, password?: string) => {
     setIsLoadingPdf(true);
@@ -218,19 +237,27 @@ export default function App() {
       setPasswordPendingDoc(null);
       setHasPageModifications(false);
 
-      // Asynchronously generate page 1 thumbnail and save to local document history
-      generatePageThumbnail(arrayBuffer, 1, 160, password)
-        .then(async (thumbnail) => {
-          await saveRecentDocument({
-            name: file.name,
-            buffer: arrayBuffer,
-            numPages: pdfJsDoc.numPages,
-            thumbnailDataUrl: thumbnail || undefined,
-          });
-          const updatedRecent = await getRecentDocuments();
-          setRecentDocs(updatedRecent);
-        })
-        .catch((err) => console.warn('Recent doc thumbnail save warning:', err));
+      // Non-blocking background generation of page 1 thumbnail for local document history
+      const scheduleRecentDocPersist = () => {
+        generatePageThumbnail(arrayBuffer, 1, 160, password)
+          .then(async (thumbnail) => {
+            await saveRecentDocument({
+              name: file.name,
+              buffer: arrayBuffer,
+              numPages: pdfJsDoc.numPages,
+              thumbnailDataUrl: thumbnail || undefined,
+            });
+            const updatedRecent = await getRecentDocuments();
+            setRecentDocs(updatedRecent);
+          })
+          .catch((err) => console.warn('Recent doc thumbnail save warning:', err));
+      };
+
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(scheduleRecentDocPersist, { timeout: 1500 });
+      } else {
+        setTimeout(scheduleRecentDocPersist, 350);
+      }
     } catch (err: any) {
       console.error('Error loading PDF file:', err);
 
@@ -716,16 +743,22 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo, selectedSignatureId, selectedTextId, handleDeleteSignature, handleDeleteText]);
 
-  const handleChangePage = (newPage: number) => {
-    if (!pdfState) return;
-    const boundedPage = Math.max(1, Math.min(pdfState.numPages, newPage));
-    setPdfState({
-      ...pdfState,
-      currentPage: boundedPage,
-    });
-    setSelectedSignatureId(null);
-    setSelectedTextId(null);
-  };
+  const handleChangePage = useCallback(
+    (newPage: number) => {
+      setPdfState((prev) => {
+        if (!prev) return null;
+        const boundedPage = Math.max(1, Math.min(prev.numPages, newPage));
+        if (prev.currentPage === boundedPage) return prev;
+        return {
+          ...prev,
+          currentPage: boundedPage,
+        };
+      });
+      setSelectedSignatureId(null);
+      setSelectedTextId(null);
+    },
+    [setSelectedSignatureId, setSelectedTextId]
+  );
 
   const handleClearDocument = () => {
     clearThumbnailCache();
@@ -975,7 +1008,7 @@ export default function App() {
   return (
     <div className="fixed inset-0 flex flex-col bg-slate-100 text-slate-900 font-sans overflow-hidden">
       {/* Top Navigation & Status */}
-      {!isReaderMode && (
+      {!isReaderMode && (!isMobile || !pdfState) && (
         <Header
           documentName={pdfState?.name || ''}
           hasDocument={!!pdfState}
@@ -995,6 +1028,8 @@ export default function App() {
           onCloseDocument={handleRequestCloseDocument}
         />
       )}
+
+
 
       {/* Error Notification Toast/Banner */}
       {pdfErrorMessage && (
@@ -1138,12 +1173,24 @@ export default function App() {
             isReaderMode={isReaderMode}
             onToggleReaderMode={setIsReaderMode}
             onRegisterViewportSnapshotGetter={handleRegisterViewportSnapshotGetter}
+            isMobile={isMobile}
+            isToolActive={isToolActive}
+            isSaved={isSaved}
+            onBack={handleRequestCloseDocument}
+            onQuickPrint={handleQuickPrint}
+            onQuickShare={handleQuickShare}
+            onOpenFile={() => manualFileInputRef.current?.click()}
+            onOpenRecent={() => setIsRecentModalOpen(true)}
+            onOpenDiagnostics={
+              activeAppError || shareIssueNotice ? () => setShowDiagnosticsModal(true) : undefined
+            }
+            onControlsVisibilityChange={setIsMobileBottomBarVisible}
           />
         )}
       </main>
 
-      {/* Mobile Bottom Navigation Bar (Visible on phones) */}
-      {pdfState && !isReaderMode && (
+      {/* Mobile Bottom Navigation Bar (Visible on phones & Android APK) */}
+      {pdfState && isMobile && !isReaderMode && (
         <MobileBottomBar
           pdfState={pdfState}
           signatureCount={signatures.length}
@@ -1152,6 +1199,7 @@ export default function App() {
           canRedo={canRedo}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          isVisible={isMobileBottomBarVisible}
           onAddSignature={() => {
             pendingPlacementSnapshotRef.current = viewportSnapshotGetterRef.current?.() ?? null;
             setIsSignatureModalOpen(true);
@@ -1296,7 +1344,7 @@ export default function App() {
         onChange={(e) => {
           const file = e.target.files?.[0];
           if (file) {
-            handleFileSelect(file);
+            handleRequestFileSelect(file);
             setShareIssueNotice(null);
           }
           e.target.value = '';

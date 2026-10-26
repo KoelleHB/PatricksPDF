@@ -561,27 +561,46 @@ export {
   type StagedPageExportSnapshot,
 } from './pdfExportEngine';
 
+const pageInfoCache = new WeakMap<ArrayBuffer, PageInfo[]>();
+
 /**
  * Extracts dimension, orientation, and rotation information for every page in a document.
+ * Cached in-memory per ArrayBuffer and resolved in parallel batches for high performance on large PDFs.
  */
 export async function getPageInfoList(data: ArrayBuffer): Promise<PageInfo[]> {
+  const cached = pageInfoCache.get(data);
+  if (cached) return cached;
+
   const pdfJsDoc = await loadPdfJsDoc(data);
   const numPages = pdfJsDoc.numPages;
-  const list: PageInfo[] = [];
+  const list: PageInfo[] = new Array(numPages);
 
-  for (let i = 1; i <= numPages; i++) {
-    const page = await pdfJsDoc.getPage(i);
-    const viewport = page.getViewport({ scale: 1.0 });
-    const rotation = ((page.rotate % 360) + 360) % 360;
-    list.push({
-      pageNumber: i,
-      width: viewport.width,
-      height: viewport.height,
-      rotation,
-      aspectRatio: viewport.width / viewport.height,
-    });
+  // Process in concurrent chunks of 10 pages to eliminate sequential round-trip serialization delay
+  const chunkSize = 10;
+  for (let start = 1; start <= numPages; start += chunkSize) {
+    const end = Math.min(numPages, start + chunkSize - 1);
+    const promises: Promise<void>[] = [];
+
+    for (let i = start; i <= end; i++) {
+      const pageIndex = i;
+      promises.push(
+        pdfJsDoc.getPage(pageIndex).then((page) => {
+          const viewport = page.getViewport({ scale: 1.0 });
+          const rotation = ((page.rotate % 360) + 360) % 360;
+          list[pageIndex - 1] = {
+            pageNumber: pageIndex,
+            width: viewport.width,
+            height: viewport.height,
+            rotation,
+            aspectRatio: viewport.width / viewport.height,
+          };
+        })
+      );
+    }
+    await Promise.all(promises);
   }
 
+  pageInfoCache.set(data, list);
   return list;
 }
 

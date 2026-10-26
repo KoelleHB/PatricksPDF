@@ -1,57 +1,33 @@
-# Implementierungsplan: Sichtbereichszentrierte Platzierung von Unterschriften und Texten
+# Implementierungsplan: Menü-Anpassung, Undo/Redo & Performance-Optimierung
 
-## 1. Ausgangslage & Zielsetzung
-Beim Hinzufügen einer Unterschrift oder eines Textfeldes werden neue Elemente derzeit an festen Standardkoordinaten der aktuellen PDF-Seite platziert (Unterschriften bei `52% / 78%`, Texte bei `35% / 40%`). Wenn Nutzer zuvor in einen bestimmten Dokumentbereich hineingezoomt und gescrollt haben, liegt das neu eingefügte Element häufig außerhalb des aktuell sichtbaren Ausschnitts oder ist im Verhältnis zum stark vergrößerten Kartenausschnitt überdimensioniert.
+## 1. Drei-Punkte-Menü Aktualisierung (`MobileReaderTopBar.tsx`)
+- **Entfernen:** Der Menüeintrag „Seiten organisieren“ wird aus dem Overflow-Menü entfernt.
+- **Hinzufügen:**
+  - **Datei öffnen:** Ermöglicht das direkte Auswählen und Öffnen einer neuen PDF-Datei (unter Berücksichtigung von ungespeicherten Änderungen).
+  - **Verlauf zeigen:** Öffnet die Liste der zuletzt geöffneten Dokumente (`RecentDocumentsModal`).
+- Icons: `FolderOpen` für „Datei öffnen“ und `History` / `Clock` für „Verlauf zeigen“.
 
-Ziel dieser Erweiterung ist es, neue Unterschriften und Texte exakt im **Zentrum des aktuell sichtbaren PDF-Ausschnitts (Viewport)** zu platzieren, ihre Anfangsgröße bei starkem Zoom automatisch an den sichtbaren Ausschnitt anzupassen und bei mehreren nacheinander eingefügten Elementen ohne Zwischenscrollen einen leichten Versatz anzuwenden.
+## 2. Undo & Redo in der mobilen Top-Bar
+- Platzierung: Direkt neben dem Such-Icon in der oberen Leiste für bequemen Einhand-Zugriff.
+- Verhalten:
+  - `Undo2`- und `Redo2`-Icons mit optischem Feedback (deaktiviert bei `!canUndo` bzw. `!canRedo`).
+  - Direkte Ausführung der History-Schritte inklusive automatischer Navigation zur betroffenen Seite.
+  - Weiterleitung der Props `canUndo`, `canRedo`, `onUndo`, `onRedo` von `App.tsx` über `PdfViewer` an `MobileReaderTopBar`.
 
----
+## 3. Performance-Optimierung der Seitenübersicht (`MobilePageGridBottomSheet.tsx`)
+- **Ursache der Verzögerung:** Bisher wurden beim Öffnen des Bottom-Sheets sämtliche Seiten gleichzeitig und ungepuffert per Canvas gerendert. Bei Dokumenten mit 20–100 Seiten blockierten dutzende parallele PDF.js-Worker den JavaScript-Event-Loop.
+- **Lösung:**
+  - Umstellung auf echtes **Lazy Loading mit `IntersectionObserver`** (Pre-Fetching mit `rootMargin: '200px'`).
+  - Nur die im Smartphone-Viewport sichtbaren Seitenkacheln (ca. 6–9 Stück) fordern ein Thumbnail an.
+  - Sofortige Freigabe von Ressourcen beim Verlassen des sichtbaren Bereichs.
+  - Sofortige Öffnungszeit des Bottom-Sheets ohne Ruckler oder Wartezeiten.
 
-## 2. Geometrie & Platzierungslogik
+## 4. Beschleunigung beim Öffnen größerer PDF-Dateien
+- **Ursache:** Beim Laden wurden schwere Zusatzoperationen (AcroForm-Feldextraktion, Generierung des hochauflösenden Verlaufs-Thumbnails und CMaps-Verarbeitung) synchron im Haupt-Thread gebündelt.
+- **Lösung:**
+  - Die Erstellung des Verlaufs-Thumbnails wird in den Hintergrund verschoben (`requestIdleCallback` bzw. `setTimeout`), sodass die erste Seite für den Nutzer augenblicklich gerendert wird.
+  - Optimierung des CMaps- und Font-Preloads, um unnötige Ladeblockaden zu vermeiden.
 
-```
-+-------------------------------------------------------------------+
-| Gesamte PDF-Seite (100% x 100%)                                   |
-|                                                                   |
-|        +-----------------------------------------+                |
-|        | Aktuell sichtbarer Viewport-Ausschnitt  |                |
-|        | (visibleLeft..Right, visibleTop..Bottom)|                |
-|        |                                         |                |
-|        |          +-------------------+          |                |
-|        |          | Neues Element     |          |                |
-|        |          | (x%, y%, width%)  |          |                |
-|        |          |         *         | <-- Viewport-Mittelpunkt  |
-|        |          +-------------------+     (centerX%, centerY%)  |
-|        |             +--> [2. Element leicht versetzt (+Δx, +Δy)] |
-|        +-----------------------------------------+                |
-|                                                                   |
-+-------------------------------------------------------------------+
-```
-
-### 2.1 Ermittlung des sichtbaren Seitenbereichs
-- Der PDF-Viewer ermittelt über die Bounding-Box des scrollbaren Containers und der gerenderten Seiten-Container, welche PDF-Seite sich aktuell im Mittelpunkt des sichtbaren Viewports befindet (analog zur bestehenden Zoom-Anker-Berechnung).
-- Für diese Zielseite werden ermittelt:
-  - **Sichtbarer Mittelpunkt (`centerXPercent`, `centerYPercent`)**: Die Seitenkoordinaten (`0..100%`), die exakt unter der Mitte des sichtbaren Scroll-Containers liegen.
-  - **Sichtbarer Seitenanteil (`visibleWidthRatio`, `visibleHeightRatio`)**: Das Verhältnis zwischen sichtbarer Breite/Höhe der Seite im Viewport und der gesamten gerenderten Seitenbreite/-höhe (`0 < ratio <= 1`).
-  - **Sichtbare Begrenzung (`visibleMinXPercent` bis `visibleMaxXPercent`, `visibleMinYPercent` bis `visibleMaxYPercent`)**: Der aktuell auf dem Bildschirm sichtbare Bereich der Seite in Prozentkoordinaten.
-
-### 2.2 Zoom-adaptive Anfangsgröße
-- **Unterschriften**:
-  - Standardbreite bei normaler Ganzseitenansicht bleibt `28%` der Seitenbreite.
-  - Wenn stark hineingezoomt ist (`visibleWidthRatio < 1`), wird die Anfangsbreite proportional auf ca. `40%` der aktuell sichtbaren Ausschnittsbreite begrenzt (`Math.min(defaultWidthPercent, visibleWidthPercent * 0.42)`), mit einer sinnvollen Untergrenze (z. B. `6%` der Seitenbreite), damit die Unterschrift sofort angenehm im sichtbaren Bereich sitzt und die Ziehpunkte (Resize-Handles) direkt erreichbar bleiben.
-  - Aus dem Seitenverhältnis (`aspectRatio`) der Unterschrift und den Seitenabmessungen wird zudem die prozentuale Höhe (`heightPercent`) abgeleitet, sodass das Element nicht über seinem oberen linken Eckpunkt, sondern über seinem **tatsächlichen optischen Mittelpunkt** zentriert wird:
-    - `xPercent = centerXPercent - widthPercent / 2`
-    - `yPercent = centerYPercent - heightPercent / 2`
-- **Textfelder**:
-  - Standardbreite orientiert sich ebenfalls am sichtbaren Ausschnitt (begrenzt auf maximal `25%` der Seitenbreite bzw. `45%` des sichtbaren Ausschnitts, mindestens `10%`), und wird vertikal wie horizontal um die geschätzte initiale Textfeldgröße im sichtbaren Mittelpunkt zentriert.
-
-### 2.3 Kaskadierender Versatz bei Mehrfacheinfügung
-- Werden mehrere Unterschriften oder Texte direkt nacheinander eingefügt, ohne dass der Nutzer den sichtbaren Ausschnitt verschoben hat, prüft die Platzierungslogik alle bereits auf derselben Seite vorhandenen Elemente.
-- Liegt an der berechneten Zielposition bereits ein Element (innerhalb einer kleinen Toleranzschwelle), wird das neue Element schrittweise leicht nach rechts unten versetzt (`+2.5% * visibleWidthRatio` horizontal und `+2.5% * visibleHeightRatio` vertikal pro Kollisionsstufe).
-- Abschließend werden `xPercent` und `yPercent` sicher innerhalb des sichtbaren Seitenbereichs (sowie innerhalb der Seitenränder `2% .. 98%`) begrenzt (Clamping), damit das Element niemals aus dem sichtbaren Bereich oder über den Seitenrand hinausragt.
-
----
-
-## 3. Verifikation & Qualitätssicherung
-- **Unit-Tests**: Reine Berechnungsfunktionen für Mittelpunkt-Berechnung, Zoom-Größenanpassung, Rand-Clamping und Kaskadierungs-Versatz werden durch gezielte Unit-Tests abgedeckt.
-- **Bestehende Funktionen**: Verschieben, Skalieren, Drehen, Undo/Redo-Verlauf sowie die Koordinatenumrechnung beim PDF-Export bleiben vollständig unverändert und kompatibel.
+## 5. Verifikation
+- Überprüfung mit `lint_applet` (Typensicherheit) und `compile_applet`.
+- Funktions- und Performance-Check im mobilen Viewport (< 768px).

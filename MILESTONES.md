@@ -139,4 +139,42 @@ git checkout v1.0.0-gold-offline-binary-refactor
    - Gehärteter Android-`save_as`-Dialog (`ACTION_CREATE_DOCUMENT`) mit `requestId`-Korrelation, 120s-Timeout, Parallelitätssperre und `onSaveInstanceState`-Wiederherstellung bei Activity-Neustarts.
    - 13 automatisierte Test-Suiten in `test/`.
 
+---
+
+## 🏆 Meilenstein 4: Version 2.1 (`2.1.0`) – Immersives Mobile-UI, Thumb-Zone, CVE-Härtung & Performance-Optimierungen
+
+- **Datum**: 26. Oktober 2026
+- **Version**: `2.1.0` (CI-Schema: `2.1.<github.run_number>`)
+- **Empfohlener Git-Tag**: `v2.1.0`
+
+### Warum dieser Stand so wichtig ist:
+Dieser Meilenstein transformiert PatricksPDF auf Smartphones und in der Android-APK von einem desktop-zentrierten Tool zu einem modernen, immersiven Mobile-Reader mit maximaler nutzbarer Bildschirmfläche und ergonomischer Daumenbedienung (Thumb-Zone), während die Desktop-PWA-Erfahrung vollkommen stabil und unverändert bleibt.
+
+### Kernarchitektur & Neuerungen von Version 2.1:
+
+1. **Sicherheits-Härtung (CVE-2026-16633 Mitigation)**:
+   - Explizite Deaktivierung von PDF-Skripting (`enableScripting: false`) in allen PDF.js-Initialisierungspfaden (`src/utils/pdfDocumentLifecycle.ts`), kombiniert mit `isEvalSupported: false` und restriktiver CSP in `index.html`.
+   - Schützt deterministisch vor willkürlicher Script-Ausführung bei manipulierten Fremd-PDFs.
+
+2. **Immersiver Lesemodus & Auto-Hide-Navigation (`src/hooks/useImmersiveNavigation.ts`, `src/components/PdfViewer.tsx`)**:
+   - Automatisches sanftes Ausblenden von Top-Bar und Bottom-Bar beim Scrollen (`transform: translateY`, `opacity: 0`).
+   - Einzeltap auf das Dokument blendet die Steuerelemente sanft wieder ein.
+   - Wenn ein Werkzeug aktiv ist (z. B. Signatur platzieren oder Textoverlay bearbeiten), bleiben alle Bedienelemente fixiert eingeblendet.
+
+3. **Moderne mobile Komponenten-Architektur (`src/components/mobile/`)**:
+   - `MobileReaderTopBar`: Frosted Glass (`backdrop-blur-md bg-white/80`), Zurück-Button, Dokumenttitel, kompakter Metadaten-Badge, Undo & Redo direkt erreichbar, Suche, Schnellzugriff auf Seitenraster und Drei-Punkte-Menü mit „Datei öffnen“ und „Verlauf zeigen“.
+   - `MobileFloatingPill`: Schwebende, zentrierte Kapsel über dem Dokumentenrand für schnelles Blättern (`< 1 / X >`) und 1-Tap-Zoom-Modi („Breite anpassen“ / „Original“).
+   - `MobileBottomBar`: Ergonomische Thumb-Zone für **Seiten** (mit dynamischem Seitenanzahl-Badge), **Text**, **Signieren** (hervorgehobener primärer Aktions-Button `#2563EB`) und **Speichern/Exportieren**, mit nativer `safe-area-inset-bottom`-Unterstützung.
+   - `MobilePageGridBottomSheet`: Kompaktes Bottom-Sheet für schnelle Einhand-Seitenwechsel.
+
+4. **Performance-Optimierungen bei großen Dokumenten & schnellem Öffnen**:
+   - `IntersectionObserver` Lazy Thumbnail Rendering in `MobilePageGridBottomSheet.tsx`: Verhindert blockierendes Vorab-Rendern aller Seitenvorschauen und spart Arbeitsspeicher.
+   - WeakMap-Caching und parallele 10er-Batch-Auflösung in `getPageInfoList()` (`src/utils/pdfEngine.ts`).
+   - Nicht-blockierende Hintergrund-Generierung von Dokument-Thumbnails via `requestIdleCallback` (`src/App.tsx`).
+
+5. **Desktop-Schutz & Testabdeckung**:
+   - Desktop-PWA-Oberfläche (>= 768px) bleibt 100 % unberührt.
+   - Vollständige automatisierte Testabdeckung inklusive Versionskonsistenz, CSP-Prüfung, Scripting-Härtung und Mobile-Komponenten-Integrität.
+
+
 
