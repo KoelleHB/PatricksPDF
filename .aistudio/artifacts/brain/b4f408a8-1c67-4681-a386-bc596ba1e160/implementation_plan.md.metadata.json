@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan für iFrame-sicheren Vollbildmodus, transparentere Seitenblätter-Pille und echten systemweiten Android-APK-Vollbildmodus via NativePdfBridge",
-  "updatedAt":  "2026-10-26T14:58:35.436710827Z",
+  "summary":  "Implementierungsplan für Version 2.3 (2.3.0): Erhalt von manuellem Zoom & Leseanker im Vollbildmodus, bestätigter System-Vollbildstatus, Bereinigung von totem Navigations-Code, exakte Live-Dateigröße, vollständige Build-/APK-Versionsanzeige in Info/Diagnose sowie Korrektur der xs:-Tailwind-Breakpoints.",
+  "updatedAt":  "2026-10-26T19:16:04.641525501Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

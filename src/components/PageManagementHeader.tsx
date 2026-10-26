@@ -78,6 +78,7 @@ export const PageManagementHeader: React.FC<Props> = ({
         disabled={pageCount === 0 || isApplying}
         className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs font-medium shadow-2xs transition cursor-pointer"
         title="Alle Seiten um 90° im Uhrzeigersinn drehen"
+        aria-label="Alle Seiten um 90° im Uhrzeigersinn drehen"
       >
         <RotateCw className="w-3.5 h-3.5 text-blue-600 shrink-0" />
         <span className="hidden md:inline">Alle drehen</span>
@@ -91,6 +92,7 @@ export const PageManagementHeader: React.FC<Props> = ({
         disabled={isApplying}
         className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
         title="Leere Seite hinzufügen"
+        aria-label="Leere Seite hinzufügen"
       >
         <FilePlus2 className="w-4 h-4 text-emerald-600 shrink-0" />
         <span className="hidden sm:inline">Leere Seite</span>
@@ -104,6 +106,7 @@ export const PageManagementHeader: React.FC<Props> = ({
         disabled={isApplying || isImporting}
         className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
         title="Seiten aus einer anderen PDF importieren"
+        aria-label="Seiten aus einer anderen PDF importieren"
       >
         {isImporting ? (
           <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />

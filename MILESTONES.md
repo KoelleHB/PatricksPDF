@@ -201,6 +201,30 @@ Dieser Meilenstein transformiert PatricksPDF auf Smartphones und in der Android-
 4. **Perfekt zentriertes Dokument-Öffnen in Zoomstufe „Ganze Seite“**:
    - Beim Öffnen eines Dokuments (sowohl mobil als auch auf dem Desktop) wird die erste Seite zentriert und ohne vertikalen/horizontalen Versatz in der Zoomstufe „Ganze Seite“ eingepasst.
 
+---
 
+## 🏆 Meilenstein 6: Version 2.3 (`2.3.0`) – Zoom- & Leseanker-Erhalt im Vollbildmodus, bestätigter Fullscreen-Status & APK-Build-Diagnose
 
+- **Datum**: 26. Oktober 2026
+- **Version**: `2.3.0` (CI-Schema: `2.3.<github.run_number>`)
+- **Empfohlener Git-Tag**: `v2.3.0`
 
+### Zusammenfassung der Kernarchitektur:
+
+1. **Erhalt von manuellem Zoom & Leseanker beim Vollbildwechsel (`src/components/PdfViewer.tsx`)**:
+   - Strikte Trennung zwischen automatischen Fit-Modi (`isFitPageMode`, `isFitWidthMode`) und manuell gewähltem Zoom (`250%`, Pinch-to-Zoom, Presets).
+   - Beim Wechsel in oder aus dem Vollbildmodus sowie bei Fenstergrößenänderungen bleiben manuelle Zoomstufen und die exakte Leseposition (`captureZoomAnchor`) vollständig erhalten.
+
+2. **Bestätigter Erfolgsstatus für Vollbildmodus (`src/utils/nativeBridge.ts`, `MainActivity.java`)**:
+   - `setSystemFullscreen(enabled)` gibt einen verifizierten `Promise<boolean>`-Status zurück (`document.fullscreenElement` im Web/PWA bzw. native Bestätigung in der Android-APK).
+   - App-Leisten werden nur dann ausgeblendet, wenn der Vollbildmodus vom System/Browser tatsächlich aktiviert wurde.
+
+3. **Code-Hygiene & Entfernung toter Hooks**:
+   - Der durch dauerhaft sichtbare Leisten abgelöste Hook `useImmersiveNavigation.ts` sowie das ungenutzte `isToolActive`-Prop wurden entfernt.
+
+4. **Live-Buffer-Dateigröße & vollständige APK-Build-Diagnose**:
+   - `MobileReaderTopBar` zeigt vorrangig die aktuelle Puffergröße (`pdfState.arrayBuffer.byteLength`), sodass Seitenänderungen sofort sichtbar sind.
+   - `MainActivity.java` liefert über `getAppBuildInfo()` die exakte APK-Version (`versionName (Code versionCode)`), die jederzeit über „Info & Diagnose“ im 3-Punkte-Menü oder über den `v2.3`-Badge im Header abrufbar ist.
+
+5. **Tailwind-`xs:`-Breakpoint & Barrierefreiheit**:
+   - Definition von `--breakpoint-xs: 22.5rem;` in `src/index.css` sowie durchgängige `aria-label`-Attribute und sichtbare „Verwalten“-Beschriftung in der mobilen Seitenübersicht.

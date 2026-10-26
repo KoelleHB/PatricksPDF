@@ -201,9 +201,11 @@ export const MobilePageGridBottomSheet: React.FC<MobilePageGridBottomSheetProps>
                   onOpenFullPageManager();
                 }}
                 className="text-xs font-medium text-blue-600 hover:text-blue-700 active:bg-blue-50 px-2 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                title="Seiten verwalten"
+                aria-label="Seiten verwalten"
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span className="hidden xs:inline">Verwalten</span>
+                <span>Verwalten</span>
               </button>
             )}
 

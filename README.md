@@ -1,17 +1,17 @@
 # PatricksPDF
 
-Privater PDF-Editor und -Reader (**Version 2.2 / `2.2.0`**) als **Web-App/PWA** sowie **Android-App (Capacitor)**. Die eigentliche PDF-Verarbeitung erfolgt vollständig im Client. PatricksPDF kann PDFs lesen, durchsuchen, markieren bzw. Text kopieren, im aktuell sichtbaren Zoom-Ausschnitt unterschreiben und mit Text ergänzen, Formularfelder ausfüllen, Seiten verwalten sowie Dateien und Seiten-Teilmengen datenschutzsicher speichern, teilen und drucken.
+Privater PDF-Editor und -Reader (**Version 2.3 / `2.3.0`**) als **Web-App/PWA** sowie **Android-App (Capacitor)**. Die eigentliche PDF-Verarbeitung erfolgt vollständig im Client. PatricksPDF kann PDFs lesen, durchsuchen, markieren bzw. Text kopieren, im aktuell sichtbaren Zoom-Ausschnitt unterschreiben und mit Text ergänzen, Formularfelder ausfüllen, Seiten verwalten sowie Dateien und Seiten-Teilmengen datenschutzsicher speichern, teilen und drucken.
 
-**Dokumentationsstand:** 26. Oktober 2026 – **Version 2.2 (`2.2.0`)**. Diese Dokumentation beschreibt den vollständigen Code- und Architekturzustand von Version 2.2.
+**Dokumentationsstand:** 26. Oktober 2026 – **Version 2.3 (`2.3.0`)**. Diese Dokumentation beschreibt den vollständigen Code- und Architekturzustand von Version 2.3.
 
 ## Funktionen
 
-- **Immersiver Mobile-Reader & Ergonomie (Android APK & Viewports < 768px):**
-  - **Auto-Hide Navigation:** Beim Scrollen im Dokument faden Top-Bar und Werkzeugleiste sanft aus (`transform: translateY`, `opacity: 0`), sodass Smartphones die maximale Bildfläche nutzen. Ein Einzeltap auf das Dokument blendet die Steuerelemente sanft wieder ein. Bei aktiven Werkzeugen (Text, Signatur) bleiben alle Bedienelemente dauerhaft fixiert sichtbar.
-  - **Kompakte Top-Bar (`MobileReaderTopBar`):** Frosted Glass (`backdrop-blur-md bg-white/80`), Zurück-Button, Dokumenttitel, Metadaten-Badge, Undo & Redo direkt erreichbar, Suche und aufgeräumtes Drei-Punkte-Menü (`⋮`) mit „Datei öffnen“, „Verlauf zeigen“ und „Seitenübersicht“.
-  - **Schwebende Floating-Pill (`MobileFloatingPill`):** Unten zentrierte Kapsel für schnelles Blättern (`<` `1 / 5` `>`), kontinuierliche **Zoom-Prozentanzeige** (z. B. `100%`) und 1-Klick-Rückkehr zu **„Ganze Seite“**, ohne Pinch-to-Zoom zu behindern.
-  - **Ergonomische Bottom Action Bar (`MobileBottomBar`):** Daumengerechte Thumb-Zone für **Seiten** (mit dynamischem Seitenanzahl-Badge), **Text** (Stift), **Signieren** (hervorgehobener primärer Aktions-Button `#2563EB`) und **Speichern / Exportieren** (Teilen/Download-Icon), mit voller Unterstützung von `env(safe-area-inset-bottom)`.
-  - **Intelligente Seitenübersicht (`MobilePageGridBottomSheet`):** Öffnet automatisch zentriert auf der aktuell gelesenen Seite; mit Button **„An den Anfang“** (`ArrowUpToLine`) für sofortigen Sprung zu Seite 1 und `IntersectionObserver` Lazy Thumbnail Rendering.
+- **Überdeckungsfreier Mobile-Reader & System-Fullscreen (Android APK & Viewports < 768px):**
+  - **Fixe, überdeckungsfreie Leisten & bestätigter Vollbildmodus:** Obere Kopfzeile (`sticky top-0 shrink-0`) und untere Aktionsleiste (`shrink-0`) bleiben im regulären Betrieb stabil sichtbar, ohne den oberen Dokumentrand zu verdecken. Über den Vollbild-Button in der Seitenblätterpille wird ein **bestätigter systemweiter Vollbildmodus** geschaltet (`setSystemFullscreen`), der manuell gewählte Zoomstufen (z. B. `250%`) und den Leseanker exakt beibehält und App-Leisten nur dann ausblendet, wenn das System/der Browser den Vollbildmodus tatsächlich aktiviert hat.
+  - **Kompakte Top-Bar (`MobileReaderTopBar`):** Frosted Glass (`backdrop-blur-md bg-white/90`), Zurück-Button, Dokumenttitel, Live-Dateigröße des aktuellen Dokument-Buffers (`pdfState.arrayBuffer.byteLength`), Undo & Redo direkt erreichbar, Suche und aufgeräumtes Drei-Punkte-Menü (`⋮`) mit „Datei öffnen“, „Verlauf zeigen“, „Seitenübersicht“ und „Info & Diagnose“.
+  - **Schwebende Floating-Pill (`MobileFloatingPill`):** Leicht transparente Kapsel (`bg-white/75 backdrop-blur-md`) für schnelles Blättern (`<` `1 / 5` `>`), kontinuierliche **Zoom-Prozentanzeige** (z. B. `100%`), 1-Klick-Rückkehr zu **„Ganze Seite“** und Vollbild-Umschalter.
+  - **Ergonomische Bottom Action Bar (`MobileBottomBar`):** Ruhig-helle, einheitliche Daumenzone (`bg-slate-50`) für **Seiten** (mit dynamischem Seitenanzahl-Badge), **Text**, **Signieren** und **Speichern / Exportieren**, mit voller Unterstützung von `env(safe-area-inset-bottom)`.
+  - **Intelligente Seitenübersicht (`MobilePageGridBottomSheet`):** Öffnet automatisch zentriert auf der aktuell gelesenen Seite; mit Button **„An den Anfang“** (`ArrowUpToLine`), sichtbarem **„Verwalten“**-Button (`aria-label="Seiten verwalten"`) und `IntersectionObserver` Lazy Thumbnail Rendering.
   - **Seitenverwaltung mit Direktsprung (`PageManagementModal`):** Öffnet auf der aktuellen Seite und bietet in der Kopfleiste den Button **„An den Anfang“**.
 - **Perfekt zentriertes Dokument-Öffnen in Zoomstufe „Ganze Seite“:**
   - Beim Öffnen eines Dokuments (sowohl mobil als auch auf dem Desktop) wird die erste Seite zentriert und ohne vertikalen/horizontalen Versatz in der Zoomstufe „Ganze Seite“ eingepasst.
@@ -28,7 +28,7 @@ Privater PDF-Editor und -Reader (**Version 2.2 / `2.2.0`**) als **Web-App/PWA** 
 - **Speicherfreundliche Versionierung & Speicherstatus:** Undo/Redo arbeitet mit kompakten Änderungsoperationen und deduplizierten Dokument-Revisionen (max. 50 Einträge); der „Gespeichert“-Status wird deterministisch aus der Zustands-Signatur abgeleitet.
 - **Ausgabe & Exporteinstellungen:** Vollständiges PDF oder ausgewählte Seiten/Seitenbereiche speichern, teilen und drucken – inklusive dauerhaft gespeicherter Dateinamens-Vorlagen (Suffix, Datum, Originalname) und Formular-Flattening-Vorgabe. Unter Android stehen sowohl das schnelle Speichern in `Downloads` als auch ein gegen Activity-Neustarts, Timeouts und Parallelaufrufe abgesicherter System-Ordnerdialog (`ACTION_CREATE_DOCUMENT`) zur Verfügung.
 - **Zuletzt geöffnet & Performance:** lokale Historie über IndexedDB v2 mit getrennten Stores für leichte Metadaten (`recent_docs_meta`) und abrufbasierte PDF-Binärdaten (`recent_docs_blobs`) sowie kollisionssicherem SHA-256-Inhalts-Fingerprint. Nicht-blockierende Thumbnail-Generierung im Hintergrund via `requestIdleCallback` und WeakMap-gecachte 10-Seiten-Parallelauflösung.
-- **Einheitliche Fehlerdiagnose:** Strukturiertes `AppError`-Fehlermodell (`v2.2.0`) mit technischer Diagnose-Ansicht und Kopierfunktion (`ErrorDiagnosticsModal`).
+- **App-Info, APK-Build-Version & Fehlerdiagnose:** Strukturiertes `AppError`-Fehlermodell (`v2.3.0`) und jederzeit über das Drei-Punkte-Menü bzw. den `v2.3`-Header-Badge erreichbare „Info & Diagnose“-Ansicht (`ErrorDiagnosticsModal`) inklusive vollständiger Android-APK-Build-Version (`getAppBuildInfo()`).
 
 ## Wichtige Grenzen
 
@@ -42,7 +42,7 @@ Privater PDF-Editor und -Reader (**Version 2.2 / `2.2.0`**) als **Web-App/PWA** 
 | Teil | Technik | Relevante Dateien |
 | --- | --- | --- |
 | UI, State & Fehlerdiagnose | React 19, TypeScript, Vite 6, Tailwind CSS 4 | `src/App.tsx`, `src/components/`, `src/hooks/useDocumentHistory.ts`, `src/utils/appError.ts` |
-| Immersives Mobile-UI | Überdeckungsfreies Layout, Fullscreen-Modus, Floating Pill mit Zoom-%, Thumb-Zone | `src/components/mobile/`, `src/hooks/useImmersiveNavigation.ts`, `src/components/PdfViewer.tsx` |
+| Mobiles Reader-UI | Überdeckungsfreies Layout, bestätigter Fullscreen-Modus, Floating Pill mit Zoom-%, Thumb-Zone | `src/components/mobile/`, `src/components/PdfViewer.tsx` |
 | Anzeige, Text und Links | `pdfjs-dist` **6.4.299** (Scripting deaktiviert), Mozilla `TextLayerBuilder` | `src/utils/pdfWorker.ts`, `src/utils/pdfEngine.ts`, `src/utils/pdfDocumentLifecycle.ts` |
 | PDF-Export, Teil-Export & Seitenoperationen | `pdf-lib` **1.17.1**, `@pdf-lib/fontkit`, physische Objekt-Isolation | `src/utils/pdfExportEngine.ts`, `src/components/SaveModal.tsx`, `src/components/PageManagementModal.tsx`, `src/utils/exportSettings.ts` |
 | Viewport-Platzierung | Zoom- und ausschnittabhängige Koordinatenberechnung + Kaskadierung | `src/utils/pdfPlacement.ts`, `src/components/PdfViewer.tsx` |
@@ -85,12 +85,12 @@ cd android
 
 Die erzeugte Debug-APK liegt regulär unter `android/app/build/outputs/apk/debug/`. Für Windows ist die Gradle-Wrapper-Datei `gradlew.bat` vorgesehen. Für ein *signiertes Release* die GitHub-Action verwenden; keine privaten Keystore-Daten einchecken.
 
-## CI, Builds und Versionsnummern (Version 2.0)
+## CI, Builds und Versionsnummern (Version 2.3)
 
 Die Workflow-Datei [`build-apk.yml`](.github/workflows/build-apk.yml) führt auf den unterstützten Events `npm ci`, TypeScript-Prüfung, sämtliche Unit- und Architektur-Regressionstests (`npm test`), einen Browser-Smoke-Test mit einer **synthetischen verschlüsselten PDF**, den Web-Build, die Capacitor-Synchronisierung und den Android-Build aus.
 
-- **Version 2.0 (`2.0.0`):** Sowohl `package.json` als auch der lokale Android-Fallback in `android/app/build.gradle` und die Fehlerdiagnose (`APP_VERSION`) sind einheitlich auf **`2.0.0`** gesetzt.
-- Die APK-Version im CI-Workflow folgt dem Schema **`2.0.<github.run_number>`** (Artefaktname `PatricksPDF-release-v2.0.<run_number>` bzw. `PatricksPDF-debug-v2.0.<run_number>`).
+- **Version 2.3 (`2.3.0`):** Sowohl `package.json` als auch der lokale Android-Fallback in `android/app/build.gradle` und die Fehlerdiagnose (`APP_VERSION`) sind einheitlich auf **`2.3.0`** gesetzt.
+- Die APK-Version im CI-Workflow folgt dem Schema **`2.3.<github.run_number>`** (Artefaktname `PatricksPDF-release-v2.3.<run_number>` bzw. `PatricksPDF-debug-v2.3.<run_number>`).
 - Ein signiertes APK-Artefakt wird erzeugt, wenn die vier erforderlichen GitHub-Actions-Secrets eingerichtet sind; sonst baut die Action ein Debug-APK.
 - Signing-Secrets: `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_STORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`, `ANDROID_RELEASE_KEY_PASSWORD`.
 - CI-Artefakte sind zeitlich begrenzt (Release-APK derzeit **30 Tage**). Sie sind nicht mit permanenten GitHub Releases gleichzusetzen.
@@ -109,10 +109,10 @@ Vertrauliche PDFs, Keystores, Anmeldedaten und reproduzierbare Fehlerbeispiele m
 
 ## Dokumentation und Tests
 
-- [CHANGELOG.md](CHANGELOG.md) – fachliche Änderungen und dokumentierter Stand bis Version 2.0.
+- [CHANGELOG.md](CHANGELOG.md) – fachliche Änderungen und dokumentierter Stand bis Version 2.3.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) – Datenfluss, State, Teil-Export-Isolation, Plattformgrenzen, Builds und Persistenz.
 - [docs/PDF-RENDERING.md](docs/PDF-RENDERING.md) – Rendering, Link-Regression nach PDF.js 6, Android-Schriftmetriken, Tests und Troubleshooting.
-- [MILESTONES.md](MILESTONES.md) – Projekt-Meilensteine von v1.0 bis v2.0.
+- [MILESTONES.md](MILESTONES.md) – Projekt-Meilensteine von v1.0 bis v2.3.
 - [ANDROID_RELEASE_SIGNING.md](ANDROID_RELEASE_SIGNING.md) – Anleitung für signierte Android-Releases.
 - [CI_MAINTENANCE.md](CI_MAINTENANCE.md) – CI- und Gradle-Wartungshinweise.
 

@@ -53,12 +53,31 @@ export function createAppError(
   };
 }
 
-export const APP_VERSION = '2.2.0';
+import { getRuntimeVersionInfo } from './nativeBridge';
 
-export function formatAppErrorReport(err: AppError): string {
+export const APP_VERSION = '2.3.0';
+
+export function formatAppErrorReport(err?: AppError | null): string {
+  const runtimeInfo = getRuntimeVersionInfo(APP_VERSION);
+  const buildLabel = runtimeInfo.apkBuildVersion
+    ? `${APP_VERSION} / APK ${runtimeInfo.apkBuildVersion}`
+    : `${APP_VERSION} (Web / PWA)`;
+
+  if (!err) {
+    return [
+      `=== PatricksPDF v${APP_VERSION} Info & Diagnose ===`,
+      `Zeitpunkt: ${new Date().toISOString()}`,
+      `Build-Version: ${buildLabel}`,
+      `Umgebung: ${runtimeInfo.runtimeEnvironment}`,
+      `Status: Keine aktiven Laufzeitfehler protokolliert.`,
+    ].join('\n');
+  }
+
   const lines = [
     `=== PatricksPDF v${APP_VERSION} Fehlerdiagnose ===`,
     `Zeitpunkt: ${err.timestamp}`,
+    `Build-Version: ${buildLabel}`,
+    `Umgebung: ${runtimeInfo.runtimeEnvironment}`,
     `Code: ${err.code}`,
     `Titel: ${err.title}`,
     `Meldung: ${err.userMessage}`,

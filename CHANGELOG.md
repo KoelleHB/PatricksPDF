@@ -2,7 +2,38 @@
 
 Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilensteine von PatricksPDF.
 
-> **Versionskonvention (ab Version 2.2):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.2.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.2.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.2.<run_number>`). Der Header zeigt den Badge **`v2.2`**.
+> **Versionskonvention (ab Version 2.3):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.3.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.3.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.3.<run_number>`). Der Header zeigt den Badge **`v2.3`**.
+
+## 26.10.2026 – Version 2.3 (`2.3.0`) – Zoom-Erhalt im Vollbildmodus, bestätigter Fullscreen-Status, APK-Build-Diagnose & Code-Hygiene
+
+### 1. Erhalt von manuellem Zoom & Leseanker beim Vollbildwechsel
+- **Trennung von Fit-Modi und manuellem Zoom (`src/components/PdfViewer.tsx`):**
+  - Expliziter State `isFitPageMode` neben `isFitWidthMode` eingeführt.
+  - Jede manuelle Zoom-Aktion (`+`/`-`, Preset-Auswahl, Pinch-to-Zoom, Ctrl+Mausrad, Doppeltipp/Doppelklick auf `250%`) deaktiviert beide automatischen Fit-Modi (`isFitPageMode = false`, `isFitWidthMode = false`).
+  - Beim Ein- oder Ausschalten des Vollbildmodus sowie bei Größenänderungen des Fensters werden nur aktive automatische Fit-Modi neu berechnet; ein manuell gewählter Zoom (z. B. `250%`) und der aktuelle Leseanker (`captureZoomAnchor`) bleiben exakt erhalten.
+
+### 2. Bestätigter Erfolgsstatus für Vollbildmodus
+- **Synchronisation zwischen Browser/OS und App-Leisten (`src/utils/nativeBridge.ts`, `src/components/PdfViewer.tsx`, `MainActivity.java`):**
+  - `setSystemFullscreen(enabled: boolean): Promise<boolean>` liefert nun einen verifizierten Erfolgsstatus zurück (`true` bei bestätigter Android-Bridge-Ausführung bzw. `Boolean(document.fullscreenElement) === enabled` im Web/PWA; `false` in eingebetteten iFrames oder bei Ablehnung durch den Browser).
+  - `PdfViewer` blendet die regulären App-Leisten (`isMobileFullscreen = true`) nur dann aus, wenn `setSystemFullscreen(true)` tatsächlich `true` bestätigt hat.
+
+### 3. Entfernung des deaktivierten `useImmersiveNavigation`-Hooks
+- **Code-Bereinigung (`src/components/PdfViewer.tsx`, `src/App.tsx`):**
+  - Da die App-Leisten im Normalmodus dauerhaft sichtbar sind und nur im bestätigten Vollbildmodus ausgeblendet werden, wurden der obsolet gewordene Hook `src/hooks/useImmersiveNavigation.ts` sowie das ungenutzte Property `isToolActive` vollständig entfernt.
+
+### 4. Live-Dateigröße in der mobilen Kopfzeile
+- **Aktueller Dokument-Buffer vor Originaldatei (`src/components/mobile/MobileReaderTopBar.tsx`):**
+  - Die Größenanzeige verwendet vorrangig `pdfState.arrayBuffer?.byteLength ?? pdfState.file?.size ?? 0`, sodass strukturelle Seitenänderungen (Löschen, Hinzufügen, Importieren, Drehen) sofort mit der aktuellen Puffergröße angezeigt werden.
+
+### 5. Vollständige APK-/Build-Version in „Info & Diagnose“
+- **Jederzeit abrufbare Build- & Versionsinformationen (`MainActivity.java`, `src/utils/nativeBridge.ts`, `src/utils/appError.ts`, `src/components/ErrorDiagnosticsModal.tsx`, `src/components/Header.tsx`, `src/App.tsx`):**
+  - `MainActivity.java` stellt über `@JavascriptInterface public String getAppBuildInfo()` die konkrete Android-Paketversion (`versionName (Code versionCode)`) bereit.
+  - `ErrorDiagnosticsModal` ist nun jederzeit (auch ohne aktiven Fehler) über **„Info & Diagnose“** im mobilen 3-Punkte-Menü sowie über Klick auf den **`v2.3`**-Badge im Desktop-Header erreichbar und zeigt App-Version, APK-/Build-Version und Laufzeitumgebung an.
+
+### 6. Tailwind-`xs:`-Breakpoint & Barrierefreiheit
+- **Sichtbare Beschriftung & `aria-label` (`src/index.css`, `src/components/mobile/MobilePageGridBottomSheet.tsx`, `src/components/PageManagementHeader.tsx`, `src/components/HandwrittenSignaturePad.tsx`):**
+  - `--breakpoint-xs: 22.5rem;` in `src/index.css` (`@theme`) ergänzt.
+  - In `MobilePageGridBottomSheet.tsx` ist die Beschriftung **„Verwalten“** direkt sichtbar und der Button mit `aria-label="Seiten verwalten"` sowie `title="Seiten verwalten"` ausgestattet.
 
 ## 26.10.2026 – Version 2.2 (`2.2.0`) – Intelligenter Seitenfokus, Ganze-Seite-Zentrierung & Mobile-TopBar-Bereinigung
 

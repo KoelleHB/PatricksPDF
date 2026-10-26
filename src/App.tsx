@@ -160,20 +160,6 @@ export default function App() {
   const isMobile = useIsMobile();
   const [isMobileBottomBarVisible, setIsMobileBottomBarVisible] = useState(true);
 
-  // Pin controls if an interactive tool/modal is open or an overlay is selected
-  const isToolActive = Boolean(
-    isSignatureModalOpen ||
-    isTextModalOpen ||
-    isSaveModalOpen ||
-    isPageManagerOpen ||
-    isRecentModalOpen ||
-    isPasswordModalOpen ||
-    isUnsavedModalOpen ||
-    showDiagnosticsModal ||
-    selectedSignatureId !== null ||
-    selectedTextId !== null
-  );
-
   // Load a user-selected PDF file with robust error handling and password detection
   const handleFileSelect = async (file: File, password?: string) => {
     setIsLoadingPdf(true);
@@ -1032,6 +1018,7 @@ export default function App() {
           onQuickShare={handleQuickShare}
           onFileSelect={handleRequestFileSelect}
           onCloseDocument={handleRequestCloseDocument}
+          onOpenDiagnostics={() => setShowDiagnosticsModal(true)}
         />
       )}
 
@@ -1180,16 +1167,13 @@ export default function App() {
             onToggleReaderMode={setIsReaderMode}
             onRegisterViewportSnapshotGetter={handleRegisterViewportSnapshotGetter}
             isMobile={isMobile}
-            isToolActive={isToolActive}
             isSaved={isSaved}
             onBack={handleRequestCloseDocument}
             onQuickPrint={handleQuickPrint}
             onQuickShare={handleQuickShare}
             onOpenFile={() => manualFileInputRef.current?.click()}
             onOpenRecent={() => setIsRecentModalOpen(true)}
-            onOpenDiagnostics={
-              activeAppError || shareIssueNotice ? () => setShowDiagnosticsModal(true) : undefined
-            }
+            onOpenDiagnostics={() => setShowDiagnosticsModal(true)}
             onControlsVisibilityChange={setIsMobileBottomBarVisible}
           />
         )}
@@ -1357,20 +1341,22 @@ export default function App() {
         }}
       />
 
-      {/* Unified Technical Error Diagnostics Modal */}
-      {showDiagnosticsModal && (activeAppError || shareIssueNotice) && (
+      {/* Unified App Info & Technical Error Diagnostics Modal */}
+      {showDiagnosticsModal && (
         <ErrorDiagnosticsModal
           error={
             activeAppError ||
-            createAppError(
-              'ANDROID_SHARE_FAILED',
-              shareIssueNotice?.title || 'Android Share Technical Diagnostic',
-              shareIssueNotice?.message || 'PDF konnte nicht über das Share-Target geladen werden.',
-              shareIssueNotice?.details,
-              shareIssueNotice?.attemptedFile
-                ? { attemptedFile: shareIssueNotice.attemptedFile }
-                : undefined
-            )
+            (shareIssueNotice
+              ? createAppError(
+                  'ANDROID_SHARE_FAILED',
+                  shareIssueNotice.title || 'Android Share Technical Diagnostic',
+                  shareIssueNotice.message || 'PDF konnte nicht über das Share-Target geladen werden.',
+                  shareIssueNotice.details,
+                  shareIssueNotice.attemptedFile
+                    ? { attemptedFile: shareIssueNotice.attemptedFile }
+                    : undefined
+                )
+              : null)
           }
           onClose={() => setShowDiagnosticsModal(false)}
         />

@@ -18,7 +18,7 @@ import {
   applyPageModifications,
   buildStagedPageExportSnapshot,
 } from '../src/utils/pdfExportEngine';
-import { savePdfDocumentAs } from '../src/utils/nativeBridge';
+import { savePdfDocumentAs, setSystemFullscreen, getRuntimeVersionInfo } from '../src/utils/nativeBridge';
 import { createAppError, formatAppErrorReport } from '../src/utils/appError';
 
 /**
@@ -564,7 +564,7 @@ test('savePdfDocumentAs enforces requestId correlation, concurrency lock, timeou
   }
 });
 
-test('createAppError and formatAppErrorReport generate structured v2.2.0 diagnostics', () => {
+test('createAppError and formatAppErrorReport generate structured v2.3.0 diagnostics and info reports', () => {
   const err = createAppError(
     'PDF_EXPORT_FAILED',
     'Export fehlgeschlagen',
@@ -573,10 +573,15 @@ test('createAppError and formatAppErrorReport generate structured v2.2.0 diagnos
     { pages: 4 }
   );
   const report = formatAppErrorReport(err);
-  assert.match(report, /PatricksPDF v2\.2\.0 Fehlerdiagnose/);
+  assert.match(report, /PatricksPDF v2\.3\.0 Fehlerdiagnose/);
+  assert.match(report, /Build-Version:/);
   assert.match(report, /PDF_EXPORT_FAILED/);
   assert.match(report, /Test stack error/);
   assert.match(report, /"pages":4/);
+
+  const infoOnlyReport = formatAppErrorReport(null);
+  assert.match(infoOnlyReport, /PatricksPDF v2\.3\.0 Info & Diagnose/);
+  assert.match(infoOnlyReport, /Keine aktiven Laufzeitfehler protokolliert/);
 });
 
 test('applyPageModifications explicitly rejects encrypted PDFs instead of using ignoreEncryption: true', async () => {
@@ -697,31 +702,37 @@ test('PDF.js loader enforces enableScripting: false, isEvalSupported: false and 
   assert.match(indexHtml, /base-uri\s+'self'/);
 });
 
-test('Version 2.2.0 is strictly consistent across package.json, Header.tsx, appError.ts, build.gradle and CI workflow', () => {
+test('Version 2.3.0 is strictly consistent across package.json, Header.tsx, appError.ts, build.gradle and CI workflow', () => {
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
-  assert.equal(pkgJson.version, '2.2.0', 'package.json version must be 2.2.0');
+  assert.equal(pkgJson.version, '2.3.0', 'package.json version must be 2.3.0');
 
   const pkgLock = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package-lock.json'), 'utf8'));
-  assert.equal(pkgLock.version, '2.2.0', 'package-lock.json version must be 2.2.0');
-  assert.equal(pkgLock.packages[''].version, '2.2.0', 'package-lock.json root package version must be 2.2.0');
+  assert.equal(pkgLock.version, '2.3.0', 'package-lock.json version must be 2.3.0');
+  assert.equal(pkgLock.packages[''].version, '2.3.0', 'package-lock.json root package version must be 2.3.0');
 
   const headerSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/Header.tsx'), 'utf8');
-  assert.match(headerSource, /v2\.2/, 'Header.tsx must display v2.2 badge');
+  assert.match(headerSource, /v2\.3/, 'Header.tsx must display v2.3 badge');
 
   const appErrorSource = fs.readFileSync(path.resolve(process.cwd(), 'src/utils/appError.ts'), 'utf8');
-  assert.match(appErrorSource, /export\s+const\s+APP_VERSION\s*=\s*'2\.2\.0';/, 'APP_VERSION must be 2.2.0');
+  assert.match(appErrorSource, /export\s+const\s+APP_VERSION\s*=\s*'2\.3\.0';/, 'APP_VERSION must be 2.3.0');
 
   const gradleSource = fs.readFileSync(path.resolve(process.cwd(), 'android/app/build.gradle'), 'utf8');
-  assert.match(gradleSource, /versionName\s*=\s*System\.getenv\("PATRICKSPDF_VERSION_NAME"\)\s*\?:\s*"2\.2\.0"/);
+  assert.match(gradleSource, /versionName\s*=\s*System\.getenv\("PATRICKSPDF_VERSION_NAME"\)\s*\?:\s*"2\.3\.0"/);
 
   const workflowSource = fs.readFileSync(path.resolve(process.cwd(), '.github/workflows/build-apk.yml'), 'utf8');
-  assert.match(workflowSource, /PATRICKSPDF_VERSION_NAME:\s*2\.2\.\$\{\{\s*github\.run_number\s*\}\}/);
-  assert.match(workflowSource, /PatricksPDF-release-v2\.2\.\$\{\{\s*github\.run_number\s*\}\}/);
+  assert.match(workflowSource, /PATRICKSPDF_VERSION_NAME:\s*2\.3\.\$\{\{\s*github\.run_number\s*\}\}/);
+  assert.match(workflowSource, /PatricksPDF-release-v2\.3\.\$\{\{\s*github\.run_number\s*\}\}/);
 });
 
-test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons are cleanly implemented', () => {
+test('Mobile UI components, confirmed fullscreen, manual zoom preservation, live buffer size, and APK build info', async () => {
   const topBarSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileReaderTopBar.tsx'), 'utf8');
   assert.match(topBarSource, /export (const|function) MobileReaderTopBar/);
+  // Live document buffer size takes precedence over original file size:
+  assert.match(
+    topBarSource,
+    /const\s+sizeBytes\s*=\s*pdfState\.arrayBuffer\?\.byteLength\s*\?\?\s*pdfState\.file\?\.size\s*\?\?\s*0;/,
+    'MobileReaderTopBar must prioritize pdfState.arrayBuffer?.byteLength over pdfState.file?.size'
+  );
   // Undo & Redo in top bar:
   assert.match(topBarSource, /Undo2/);
   assert.match(topBarSource, /Redo2/);
@@ -729,6 +740,7 @@ test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons 
   assert.match(topBarSource, /Datei öffnen/);
   assert.match(topBarSource, /Verlauf/);
   assert.match(topBarSource, /Seitenübersicht/);
+  assert.match(topBarSource, /Info & Diagnose/);
   assert.doesNotMatch(topBarSource, /Seiten organisieren/);
 
   const floatingPillSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileFloatingPill.tsx'), 'utf8');
@@ -741,17 +753,37 @@ test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons 
 
   const nativeBridgeSource = fs.readFileSync(path.resolve(process.cwd(), 'src/utils/nativeBridge.ts'), 'utf8');
   assert.match(nativeBridgeSource, /export\s+function\s+isRunningInIframe/, 'nativeBridge must provide iframe detection');
-  assert.match(nativeBridgeSource, /export\s+async\s+function\s+setSystemFullscreen/, 'nativeBridge must provide safe setSystemFullscreen');
-  assert.match(nativeBridgeSource, /setImmersiveFullscreen/, 'setSystemFullscreen must call Android setImmersiveFullscreen');
+  assert.match(nativeBridgeSource, /export\s+async\s+function\s+setSystemFullscreen\(enabled:\s*boolean\):\s*Promise<boolean>/, 'setSystemFullscreen must return Promise<boolean>');
+  assert.match(nativeBridgeSource, /export\s+function\s+getRuntimeVersionInfo/, 'nativeBridge must provide getRuntimeVersionInfo');
 
   const mainActivitySource = fs.readFileSync(path.resolve(process.cwd(), 'android/app/src/main/java/com/patrickspdf/app/MainActivity.java'), 'utf8');
   assert.match(mainActivitySource, /public\s+boolean\s+setImmersiveFullscreen/, 'MainActivity must expose setImmersiveFullscreen on NativePdfBridge');
+  assert.match(mainActivitySource, /public\s+String\s+getAppBuildInfo/, 'MainActivity must expose getAppBuildInfo on NativePdfBridge');
   assert.match(mainActivitySource, /WindowInsetsControllerCompat/, 'MainActivity must use WindowInsetsControllerCompat for system-wide fullscreen');
   assert.match(mainActivitySource, /WindowCompat\.setDecorFitsSystemWindows/, 'MainActivity must use WindowCompat.setDecorFitsSystemWindows');
+
+  // Verify dead useImmersiveNavigation hook is deleted and PdfViewer preserves manual zoom on fullscreen toggle
+  assert.equal(
+    fs.existsSync(path.resolve(process.cwd(), 'src/hooks/useImmersiveNavigation.ts')),
+    false,
+    'Dead useImmersiveNavigation.ts hook must be removed'
+  );
+  const viewerSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/PdfViewer.tsx'), 'utf8');
+  assert.doesNotMatch(viewerSource, /useImmersiveNavigation/);
+  assert.doesNotMatch(viewerSource, /isToolActive/);
+  assert.match(viewerSource, /isFitPageMode/, 'PdfViewer must explicitly track isFitPageMode vs manual zoom');
+  assert.match(viewerSource, /syncViewportAfterFullscreenChange/, 'PdfViewer must preserve manual zoom and reading anchor on fullscreen change');
+  assert.match(viewerSource, /const\s+confirmed\s*=\s*await\s+setSystemFullscreen\(next\)/, 'PdfViewer must await confirmed fullscreen status');
+
+  // Verify Tailwind v4 --breakpoint-xs and Verwalten button accessibility
+  const indexCssSource = fs.readFileSync(path.resolve(process.cwd(), 'src/index.css'), 'utf8');
+  assert.match(indexCssSource, /--breakpoint-xs:\s*22\.5rem;/, 'index.css must define --breakpoint-xs in @theme');
 
   const bottomSheetSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobilePageGridBottomSheet.tsx'), 'utf8');
   assert.match(bottomSheetSource, /export (const|function) MobilePageGridBottomSheet/);
   assert.match(bottomSheetSource, /An den Anfang/, 'Bottom sheet must have an An den Anfang button');
+  assert.match(bottomSheetSource, /aria-label="Seiten verwalten"/, 'Verwalten button must have explicit aria-label');
+  assert.match(bottomSheetSource, /<span>Verwalten<\/span>/, 'Verwalten label must be visible');
   assert.match(bottomSheetSource, /scrollIntoView/, 'Bottom sheet must scroll to active page');
 
   const pageHeaderSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/PageManagementHeader.tsx'), 'utf8');
@@ -760,12 +792,39 @@ test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons 
   const bottomBarSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileBottomBar.tsx'), 'utf8');
   assert.match(bottomBarSource, /export (const|function) MobileBottomBar/);
   assert.match(bottomBarSource, /safe-area-inset-bottom/, 'Mobile bottom bar must respect safe-area-inset-bottom');
-  // Unified calm light buttons:
   assert.doesNotMatch(bottomBarSource, /bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white/, 'Sign button must be unified calm light');
   assert.doesNotMatch(bottomBarSource, /bg-slate-900 hover:bg-slate-800 active:bg-black text-white/, 'Save button must be unified calm light');
-
-  // Verify non-overlapping top bar layout:
   assert.match(topBarSource, /sticky\s+top-0\s+inset-x-0\s+shrink-0/, 'Mobile top bar must be sticky and shrink-0 to prevent document overlap');
+
+  // Runtime unit test of setSystemFullscreen and getRuntimeVersionInfo
+  const origWindow = (globalThis as any).window;
+  const origDocument = (globalThis as any).document;
+  try {
+    // 1. Embedded iframe environment: entering fullscreen must return false
+    const topWindow = {};
+    (globalThis as any).window = { self: {}, top: topWindow };
+    (globalThis as any).document = {};
+    assert.equal(await setSystemFullscreen(true), false, 'Embedded iframe must return false when requesting fullscreen');
+    assert.equal(await setSystemFullscreen(false), true, 'Embedded iframe must return true when exiting fullscreen');
+
+    // 2. Native Android environment: returns confirmed boolean from NativePdfBridge
+    const selfWindow: any = {
+      NativePdfBridge: {
+        setImmersiveFullscreen: (enabled: boolean) => enabled,
+        getAppBuildInfo: () => '2.3.78 (Code 78)',
+      },
+    };
+    selfWindow.self = selfWindow;
+    selfWindow.top = selfWindow;
+    (globalThis as any).window = selfWindow;
+    assert.equal(await setSystemFullscreen(true), true, 'Native Android bridge returning true must resolve true');
+    const vInfo = getRuntimeVersionInfo('2.3.0');
+    assert.equal(vInfo.apkBuildVersion, '2.3.78 (Code 78)');
+    assert.match(vInfo.runtimeEnvironment, /Android APK/);
+  } finally {
+    (globalThis as any).window = origWindow;
+    (globalThis as any).document = origDocument;
+  }
 });
 
 test('disposePdfJsResources safely disposes documents and tasks without throwing TypeError: destroy is not a function', () => {

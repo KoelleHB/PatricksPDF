@@ -25,33 +25,34 @@ export function isRunningInIframe(): boolean {
 }
 
 /**
- * Toggles system-wide immersive fullscreen mode safely across environments:
+ * Toggles system-wide immersive fullscreen mode safely across environments and returns
+ * a confirmed boolean status indicating whether the requested fullscreen state is active:
  * - On Native Android APK: hides/shows Android status and navigation bars via NativePdfBridge.setImmersiveFullscreen.
- * - In embedded iframes (AI Studio preview): skips browser Fullscreen API to prevent preview frame detachment/crashes.
- * - On standalone Web / PWA: uses the standard Fullscreen API when supported and allowed.
+ * - In embedded iframes (AI Studio preview): skips browser Fullscreen API to prevent preview frame detachment/crashes and returns false when entering fullscreen.
+ * - On standalone Web / PWA: uses the standard Fullscreen API and verifies Boolean(document.fullscreenElement) === enabled.
  */
-export async function setSystemFullscreen(enabled: boolean): Promise<void> {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+export async function setSystemFullscreen(enabled: boolean): Promise<boolean> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
 
   // 1. Native Android APK: toggle true system-wide immersive mode (status + navigation bars)
   if (isNativeAndroid()) {
     try {
       const native = window.NativePdfBridge as any;
       if (typeof native?.setImmersiveFullscreen === 'function') {
-        native.setImmersiveFullscreen(enabled);
+        return native.setImmersiveFullscreen(enabled) === true;
       }
     } catch (err) {
       console.warn('Android native fullscreen toggle warning:', err);
     }
-    return;
+    return false;
   }
 
   // 2. Embedded Preview iFrame (e.g. AI Studio): never invoke requestFullscreen on the iframe document
   if (isRunningInIframe()) {
-    return;
+    return !enabled;
   }
 
-  // 3. Standalone Web / PWA: use standard Fullscreen API safely
+  // 3. Standalone Web / PWA: use standard Fullscreen API safely and verify document.fullscreenElement
   try {
     if (enabled) {
       if (document.fullscreenEnabled && !document.fullscreenElement && document.documentElement?.requestFullscreen) {
@@ -65,6 +66,53 @@ export async function setSystemFullscreen(enabled: boolean): Promise<void> {
   } catch {
     // Ignore Fullscreen API rejection
   }
+
+  return Boolean(document.fullscreenElement) === enabled;
+}
+
+export interface RuntimeVersionInfo {
+  appVersion: string;
+  apkBuildVersion: string | null;
+  runtimeEnvironment: string;
+}
+
+/**
+ * Resolves full runtime version & build diagnostics for the "Info & Diagnose" view.
+ */
+export function getRuntimeVersionInfo(appVersion: string): RuntimeVersionInfo {
+  if (isNativeAndroid()) {
+    let apkBuild: string | null = null;
+    try {
+      const native = window.NativePdfBridge;
+      if (typeof native?.getAppBuildInfo === 'function') {
+        const info = native.getAppBuildInfo();
+        if (info && info.trim().length > 0) {
+          apkBuild = info.trim();
+        }
+      }
+    } catch {
+      // Ignore bridge lookup errors
+    }
+    return {
+      appVersion,
+      apkBuildVersion: apkBuild || `${appVersion} (Android APK)`,
+      runtimeEnvironment: 'Android APK (Capacitor Native)',
+    };
+  }
+
+  if (isRunningInIframe()) {
+    return {
+      appVersion,
+      apkBuildVersion: null,
+      runtimeEnvironment: 'Web / Vorschau (Eingebettetes iFrame)',
+    };
+  }
+
+  return {
+    appVersion,
+    apkBuildVersion: null,
+    runtimeEnvironment: 'Standalone Web / PWA',
+  };
 }
 
 /**

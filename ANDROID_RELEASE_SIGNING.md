@@ -34,11 +34,11 @@ Bei Systemen ohne `-w`: `base64 patrickspdf-release.jks | tr -d '\\n'`.
 
 Unter GitHub → Actions → **Build Android APK** → **Run workflow**. Alternativ wird die Action bei einem Push auf `main` ausgeführt.
 
-Bei vollständig vorhandenen Secrets entsteht das Artefakt `PatricksPDF-release-v2.2.<run_number>`. Die Action überprüft die Signatur und die Android-Paketkennung automatisch mit den Android SDK Build Tools.
+Bei vollständig vorhandenen Secrets entsteht das Artefakt `PatricksPDF-release-v2.3.<run_number>`. Die Action überprüft die Signatur und die Android-Paketkennung automatisch mit den Android SDK Build Tools.
 
 ## 4. Updates und Versionierung
 
-`applicationId = com.patrickspdf.app` bleibt erhalten. `versionCode` wird aus `github.run_number` abgeleitet; `versionName` lautet `2.2.<run_number>` (lokaler Standard-Fallback in `build.gradle` und `package.json`: `2.2.0`). Der Zähler steigt bei weiteren Ausführungen **dieser Workflow-Datei**. Workflow nicht löschen und neu anlegen, ohne das Nummerierungsschema vorher anzupassen.
+`applicationId = com.patrickspdf.app` bleibt erhalten. `versionCode` wird aus `github.run_number` abgeleitet; `versionName` lautet `2.3.<run_number>` (lokaler Standard-Fallback in `build.gradle` und `package.json`: `2.3.0`). Der Zähler steigt bei weiteren Ausführungen **dieser Workflow-Datei**. Workflow nicht löschen und neu anlegen, ohne das Nummerierungsschema vorher anzupassen.
 
 Release-Versionen lassen sich über eine bestehende Release-Installation aktualisieren, sofern dieselbe `applicationId`, dasselbe Signaturzertifikat und ein höherer `versionCode` verwendet werden.
 

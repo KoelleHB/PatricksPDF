@@ -315,6 +315,7 @@ export const HandwrittenSignaturePad: React.FC<HandwrittenSignaturePadProps> = (
             onClick={handleUndo}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 disabled:opacity-40 disabled:pointer-events-none transition text-xs font-medium"
             title="Undo Last Stroke"
+            aria-label="Undo Last Stroke"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span className="hidden xs:inline">Undo</span>

@@ -26,6 +26,7 @@ interface HeaderProps {
   onQuickShare?: () => void;
   onFileSelect?: (file: File) => void;
   onCloseDocument?: () => void;
+  onOpenDiagnostics?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -43,6 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
   onQuickShare,
   onFileSelect,
   onCloseDocument,
+  onOpenDiagnostics,
 }) => {
   const handleSaveClick = onOpenSave || onOpenExport;
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -81,9 +83,15 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight truncate">
                 PatricksPDF
               </h1>
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                v2.2
-              </span>
+              <button
+                type="button"
+                onClick={onOpenDiagnostics}
+                title="App-Info & Build-Version anzeigen"
+                aria-label="App-Info & Build-Version anzeigen"
+                className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
+              >
+                v2.3
+              </button>
               <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                 100% Client-Side Local
               </span>

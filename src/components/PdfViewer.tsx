@@ -46,7 +46,6 @@ import { extractViewportPageSnapshot, type ViewportPageSnapshot } from '../utils
 import { MobileReaderTopBar } from './mobile/MobileReaderTopBar';
 import { MobileFloatingPill } from './mobile/MobileFloatingPill';
 import { MobilePageGridBottomSheet } from './mobile/MobilePageGridBottomSheet';
-import { useImmersiveNavigation } from '../hooks/useImmersiveNavigation';
 
 interface PdfViewerProps {
   pdfState: PdfDocumentState;
@@ -84,7 +83,6 @@ interface PdfViewerProps {
   onToggleReaderMode?: (enabled: boolean) => void;
   onRegisterViewportSnapshotGetter?: (getter: (() => ViewportPageSnapshot | null) | null) => void;
   isMobile?: boolean;
-  isToolActive?: boolean;
   isSaved?: boolean;
   onBack?: () => void;
   onQuickPrint?: () => void;
@@ -131,7 +129,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onToggleReaderMode,
   onRegisterViewportSnapshotGetter,
   isMobile = false,
-  isToolActive = false,
   isSaved = true,
   onBack,
   onQuickPrint,
@@ -242,6 +239,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   // Always open in "fit page" (Ganze Seite) mode by default, centered on page 1
   const [isFitWidthMode, setIsFitWidthMode] = useState<boolean>(false);
+  const [isFitPageMode, setIsFitPageMode] = useState<boolean>(true);
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState<boolean>(false);
   const zoomMenuRef = useRef<HTMLDivElement>(null);
 
@@ -451,6 +449,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     if (lastOpenedDocRef.current !== docId) {
       lastOpenedDocRef.current = docId;
       setIsFitWidthMode(false);
+      setIsFitPageMode(true);
 
       if (pdfState.pageWidth && pdfState.pageHeight) {
         setRenderedDimensions({
@@ -502,9 +501,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     setZoomLevel(fitZoom);
   }, [isFitWidthMode, isReflowMode, pdfState.currentPage, calculateFitWidthZoom, captureZoomAnchor, hasNativePdfSelection]);
 
-  // Keep view fitted to width on screen resize or mobile rotation if fit-width mode is active
+  // Keep view fitted on screen resize or mobile rotation only when an automatic fit mode is active
   useEffect(() => {
-    if (!isFitWidthMode) return;
+    if (!isFitWidthMode && !isFitPageMode) return;
 
     const handleResize = () => {
       // Android selection handles can cause visualViewport/layout fluctuations.
@@ -515,13 +514,16 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         const centerY = containerRef.current.clientHeight / 2;
         pendingZoomAnchorRef.current = captureZoomAnchor(centerX, centerY);
       }
-      const fitZoom = calculateFitWidthZoom();
-      setZoomLevel(fitZoom);
+      if (isFitWidthMode) {
+        setZoomLevel(calculateFitWidthZoom());
+      } else if (isFitPageMode) {
+        setZoomLevel(calculateFitPageZoom());
+      }
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [isFitWidthMode, calculateFitWidthZoom, captureZoomAnchor, hasNativePdfSelection]);
+  }, [isFitWidthMode, isFitPageMode, calculateFitWidthZoom, calculateFitPageZoom, captureZoomAnchor, hasNativePdfSelection]);
 
   // Close zoom preset dropdown when clicking outside or pressing Escape
   useEffect(() => {
@@ -864,9 +866,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
             if (zoomLevelRef.current < 180) {
               setIsFitWidthMode(false);
+              setIsFitPageMode(false);
               setZoomLevel(250);
             } else {
               setIsFitWidthMode(true);
+              setIsFitPageMode(false);
               const fitZoom = calculateFitWidthZoom();
               setZoomLevel(fitZoom);
             }
@@ -993,6 +997,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
         if (Math.abs(finalZoom - startZoom) >= 2 && anchor) {
           setIsFitWidthMode(false);
+          setIsFitPageMode(false);
           // Set the pending anchor with pan offset so useLayoutEffect restores position exactly
           pendingZoomAnchorRef.current = {
             ...anchor,
@@ -1023,6 +1028,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         const newZoom = Math.min(500, Math.max(35, Math.round(currentZoom + factor)));
         if (newZoom !== currentZoom) {
           setIsFitWidthMode(false);
+          setIsFitPageMode(false);
           const rect = container.getBoundingClientRect();
           const mouseX = e.clientX - rect.left;
           const mouseY = e.clientY - rect.top;
@@ -1086,6 +1092,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         );
         if (Math.abs(finalZoom - pinchRef.current.startZoom) >= 2 && pinchRef.current.anchor) {
           setIsFitWidthMode(false);
+          setIsFitPageMode(false);
           pendingZoomAnchorRef.current = pinchRef.current.anchor;
           setZoomLevel(finalZoom);
         } else {
@@ -1231,6 +1238,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Zoom helpers
   const handleZoomIn = () => {
     setIsFitWidthMode(false);
+    setIsFitPageMode(false);
     if (containerRef.current) {
       const centerX = containerRef.current.clientWidth / 2;
       const centerY = containerRef.current.clientHeight / 2;
@@ -1241,6 +1249,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleZoomOut = () => {
     setIsFitWidthMode(false);
+    setIsFitPageMode(false);
     if (containerRef.current) {
       const centerX = containerRef.current.clientWidth / 2;
       const centerY = containerRef.current.clientHeight / 2;
@@ -1251,6 +1260,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleResetZoom = () => {
     setIsFitWidthMode(false);
+    setIsFitPageMode(false);
     if (containerRef.current) {
       const centerX = containerRef.current.clientWidth / 2;
       const centerY = containerRef.current.clientHeight / 2;
@@ -1261,6 +1271,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleSelectZoomPreset = (targetZoom: number) => {
     setIsFitWidthMode(false);
+    setIsFitPageMode(false);
     if (containerRef.current) {
       const centerX = containerRef.current.clientWidth / 2;
       const centerY = containerRef.current.clientHeight / 2;
@@ -1295,9 +1306,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     if (zoomLevel < 180) {
       setIsFitWidthMode(false);
+      setIsFitPageMode(false);
       setZoomLevel(250);
     } else {
       setIsFitWidthMode(true);
+      setIsFitPageMode(false);
       const fitZoom = calculateFitWidthZoom();
       setZoomLevel(fitZoom);
     }
@@ -1305,6 +1318,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleFitWidth = () => {
     setIsFitWidthMode(true);
+    setIsFitPageMode(false);
     if (containerRef.current) {
       const centerX = containerRef.current.clientWidth / 2;
       const centerY = containerRef.current.clientHeight / 2;
@@ -1316,6 +1330,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleFitPage = useCallback(() => {
     setIsFitWidthMode(false);
+    setIsFitPageMode(true);
     if (!containerRef.current) return;
     const centerX = containerRef.current.clientWidth / 2;
     const centerY = containerRef.current.clientHeight / 2;
@@ -1331,8 +1346,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Mobile Page Grid Bottom Sheet state
   const [isMobilePageGridOpen, setIsMobilePageGridOpen] = useState(false);
 
-  // Determine whether tools/modals or internal overlays are currently active to pin controls
-  // Mobile Fullscreen Mode state
+  // Mobile Fullscreen Mode state (only active when confirmed by OS/Browser)
   const [isMobileFullscreen, setIsMobileFullscreen] = useState(false);
 
   // Sync parent bottom bar visibility cleanly outside React state updater
@@ -1348,27 +1362,75 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [onControlsVisibilityChange]);
 
-  const handleToggleMobileFullscreen = useCallback(() => {
-    const next = !isMobileFullscreen;
-    setIsMobileFullscreen(next);
-    void setSystemFullscreen(next);
-    setTimeout(() => {
-      if (!isFitWidthMode) {
+  // Helper to preserve manual zoom & reading anchor or recalculate active fit modes after viewport changes
+  const syncViewportAfterFullscreenChange = useCallback(
+    (anchorBeforeChange: ZoomAnchor | null) => {
+      if (isFitWidthMode) {
+        if (anchorBeforeChange) pendingZoomAnchorRef.current = anchorBeforeChange;
+        setZoomLevel(calculateFitWidthZoom());
+      } else if (isFitPageMode) {
         handleFitPage();
+      } else if (anchorBeforeChange && containerRef.current) {
+        // Manual zoom (e.g. 250%): keep zoomLevel untouched and restore exact reading position
+        const targetEl = pageContainersRef.current[anchorBeforeChange.pageNumber];
+        const container = containerRef.current;
+        if (targetEl) {
+          const containerRect = container.getBoundingClientRect();
+          const pageRect = targetEl.getBoundingClientRect();
+          const currentAnchorScreenX = pageRect.left + anchorBeforeChange.pctX * pageRect.width;
+          const currentAnchorScreenY = pageRect.top + anchorBeforeChange.pctY * pageRect.height;
+          const desiredAnchorScreenX = containerRect.left + container.clientWidth / 2;
+          const desiredAnchorScreenY = containerRect.top + container.clientHeight / 2;
+          container.scrollLeft = Math.max(
+            0,
+            Math.round(container.scrollLeft + (currentAnchorScreenX - desiredAnchorScreenX))
+          );
+          container.scrollTop = Math.max(
+            0,
+            Math.round(container.scrollTop + (currentAnchorScreenY - desiredAnchorScreenY))
+          );
+        }
       }
+    },
+    [isFitWidthMode, isFitPageMode, calculateFitWidthZoom, handleFitPage]
+  );
+
+  const handleToggleMobileFullscreen = useCallback(async () => {
+    const next = !isMobileFullscreen;
+    const anchorBeforeToggle = containerRef.current
+      ? captureZoomAnchor(
+          containerRef.current.clientWidth / 2,
+          containerRef.current.clientHeight / 2
+        )
+      : null;
+
+    const confirmed = await setSystemFullscreen(next);
+    if (next && !confirmed) {
+      // OS/Browser or embedded preview rejected fullscreen: keep regular app bars visible
+      setIsMobileFullscreen(false);
+      return;
+    }
+
+    setIsMobileFullscreen(next);
+    setTimeout(() => {
+      syncViewportAfterFullscreenChange(anchorBeforeToggle);
     }, 120);
-  }, [isMobileFullscreen, isFitWidthMode, handleFitPage]);
+  }, [isMobileFullscreen, captureZoomAnchor, syncViewportAfterFullscreenChange]);
 
   // Sync with document fullscreenchange on standalone Web/PWA (e.g. user exits via Esc)
   useEffect(() => {
     if (isNativeAndroid()) return;
     const handleFullscreenChange = () => {
       if (!document.fullscreenElement && isMobileFullscreen) {
+        const anchorBeforeExit = containerRef.current
+          ? captureZoomAnchor(
+              containerRef.current.clientWidth / 2,
+              containerRef.current.clientHeight / 2
+            )
+          : null;
         setIsMobileFullscreen(false);
         setTimeout(() => {
-          if (!isFitWidthMode) {
-            handleFitPage();
-          }
+          syncViewportAfterFullscreenChange(anchorBeforeExit);
         }, 120);
       }
     };
@@ -1376,16 +1438,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [isMobileFullscreen, isFitWidthMode, handleFitPage]);
+  }, [isMobileFullscreen, captureZoomAnchor, syncViewportAfterFullscreenChange]);
 
-  // All navigation bars stay fundamentally fixed; hide only in Fullscreen Mode
-  const isPinned = true;
-
-  const { handleDocumentTap } = useImmersiveNavigation({
-    isPinned,
-    scrollElement: containerRef.current,
-  });
-
+  // Navigation bars stay permanently visible in normal mode and hide only in confirmed fullscreen mode
   const isControlsVisible = !isMobileFullscreen;
 
   const handleContainerClick = (e: React.MouseEvent) => {
@@ -1403,7 +1458,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     if (!isInteractive) {
       onSelectSignature(null);
       if (onSelectText) onSelectText(null);
-      handleDocumentTap();
     }
   };
 
@@ -1515,9 +1569,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                         handleFitPage();
                         setIsZoomMenuOpen(false);
                       }}
-                      className="w-full px-2.5 py-1.5 text-left flex items-center justify-between hover:bg-slate-100 text-slate-700 transition cursor-pointer"
+                      className={`w-full px-2.5 py-1.5 text-left flex items-center justify-between hover:bg-slate-100 transition cursor-pointer ${
+                        isFitPageMode ? 'text-blue-600 font-semibold bg-blue-50/70' : 'text-slate-700'
+                      }`}
                     >
                       <span>Fit Page</span>
+                      {isFitPageMode && <Check className="w-3.5 h-3.5 text-blue-600" />}
                     </button>
                   </div>
 
@@ -1531,13 +1588,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                         type="button"
                         onClick={() => handleSelectZoomPreset(preset)}
                         className={`w-full px-2.5 py-1 text-left flex items-center justify-between hover:bg-slate-100 transition cursor-pointer ${
-                          zoomLevel === preset && !isFitWidthMode
+                          zoomLevel === preset && !isFitWidthMode && !isFitPageMode
                             ? 'text-blue-600 font-semibold bg-blue-50/70'
                             : 'text-slate-700'
                         }`}
                       >
                         <span className="font-mono">{preset}%</span>
-                        {zoomLevel === preset && !isFitWidthMode && (
+                        {zoomLevel === preset && !isFitWidthMode && !isFitPageMode && (
                           <Check className="w-3.5 h-3.5 text-blue-600" />
                         )}
                       </button>

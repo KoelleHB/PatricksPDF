@@ -25,7 +25,9 @@ import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.widget.Toast;
 
+import android.content.pm.PackageInfo;
 import androidx.core.content.FileProvider;
+import androidx.core.content.pm.PackageInfoCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -142,8 +144,24 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public String getAppBuildInfo() {
+            try {
+                PackageInfo pInfo = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
+                String vName = pInfo.versionName != null ? pInfo.versionName : "2.3.0";
+                long vCode = PackageInfoCompat.getLongVersionCode(pInfo);
+                return vName + " (Code " + vCode + ")";
+            } catch (Exception e) {
+                Log.w(TAG, "Could not resolve PackageInfo build info", e);
+                return "2.3.0";
+            }
+        }
+
+        @JavascriptInterface
         public boolean setImmersiveFullscreen(final boolean enabled) {
             try {
+                if (activity == null || activity.isFinishing() || activity.getWindow() == null) {
+                    return false;
+                }
                 activity.runOnUiThread(() -> activity.applyImmersiveFullscreen(enabled));
                 return true;
             } catch (Exception e) {
