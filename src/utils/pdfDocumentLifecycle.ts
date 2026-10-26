@@ -24,10 +24,37 @@ export async function disposePdfJsResources(): Promise<void> {
   activeDocuments.clear();
   pendingTasks.clear();
   pdfDocCache = new WeakMap();
+
   for (const task of oldTasks) {
-    try { await task.destroy(); } catch { /* already settled */ }
+    try {
+      if (typeof task?.destroy === 'function') {
+        await task.destroy();
+      }
+    } catch {
+      /* already settled or cancelled */
+    }
   }
-  await Promise.allSettled(oldDocuments.map(doc => doc.destroy()));
+
+  await Promise.allSettled(
+    oldDocuments.map(async (doc) => {
+      try {
+        if (typeof doc?.cleanup === 'function') {
+          doc.cleanup();
+        }
+      } catch {
+        // ignore cleanup errors
+      }
+      try {
+        if (typeof doc?.destroy === 'function') {
+          await doc.destroy();
+        } else if (typeof doc?.loadingTask?.destroy === 'function') {
+          await doc.loadingTask.destroy();
+        }
+      } catch {
+        // ignore destruction errors
+      }
+    })
+  );
 }
 
 // Track active render pipeline per canvas element to cancel overlapping renders safely

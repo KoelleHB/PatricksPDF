@@ -32,6 +32,8 @@ Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilenstein
 - **Initialer Anzeigemodus (`src/components/PdfViewer.tsx`):**
   - Beim Öffnen eines Dokuments (sowohl mobil als auch auf dem Desktop) wird die erste Seite zentriert und exakt auf **„Ganze Seite“** eingepasst, ohne visuellen Versatz oder unvollständige Ränder.
   - Horizontale und vertikale Scrollpositionen werden deterministisch auf `0` gesetzt.
+- **Ressourcenbereinigung beim Dokumentwechsel (`src/utils/pdfDocumentLifecycle.ts`, `src/App.tsx`):**
+  - Behebt `TypeError: destroy is not a function`, wenn ein Dokument geöffnet wird während bereits ein anderes Dokument geladen ist: `PDFDocumentProxy` besitzt in PDF.js kein `.destroy()`, sondern `.cleanup()` und `.loadingTask.destroy()`. Die Ressourcenfreigabe prüft Typen nun defensiv ab und fängt Fehler isoliert ab, sodass ein Dokumentwechsel immer zuverlässig gelingt.
 
 ## 26.10.2026 – Version 2.1 (`2.1.0`) – Immersives Mobile-UI, Thumb-Zone & Performance-Optimierungen
 

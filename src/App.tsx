@@ -189,7 +189,11 @@ export default function App() {
 
       if (pdfState?.arrayBuffer && pdfState.file !== file) {
         clearThumbnailCache();
-        await disposePdfJsResources();
+        try {
+          await disposePdfJsResources();
+        } catch (disposeErr) {
+          console.warn('PDF resource disposal warning:', disposeErr);
+        }
       }
       const pdfJsDoc = await loadPdfJsDoc(arrayBuffer, password);
       const page1 = await pdfJsDoc.getPage(1);
@@ -762,7 +766,9 @@ export default function App() {
 
   const handleClearDocument = () => {
     clearThumbnailCache();
-    void disposePdfJsResources();
+    void disposePdfJsResources().catch((err) => {
+      console.warn('PDF resource disposal warning on clear:', err);
+    });
     setPdfState(null);
     resetHistory({
       signatures: [],

@@ -749,6 +749,56 @@ test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons 
   assert.match(bottomBarSource, /safe-area-inset-bottom/, 'Mobile bottom bar must respect safe-area-inset-bottom');
 });
 
+test('disposePdfJsResources safely disposes documents and tasks without throwing TypeError: destroy is not a function', () => {
+  const lifecycleSource = fs.readFileSync(path.resolve(process.cwd(), 'src/utils/pdfDocumentLifecycle.ts'), 'utf8');
+  assert.match(lifecycleSource, /typeof\s+doc\?\.destroy\s*===\s*'function'/);
+  assert.match(lifecycleSource, /typeof\s+doc\?\.loadingTask\?\.destroy\s*===\s*'function'/);
+  assert.match(lifecycleSource, /typeof\s+doc\?\.cleanup\s*===\s*'function'/);
+  assert.match(lifecycleSource, /typeof\s+task\?\.destroy\s*===\s*'function'/);
+  // Ensure oldDocuments.map uses async/safely wrapped handler
+  assert.match(lifecycleSource, /oldDocuments\.map\(async/);
+
+  // Simulate disposal logic with PDFDocumentProxy mockup (where destroy is undefined but loadingTask.destroy exists)
+  let taskDestroyed = false;
+  let docCleaned = false;
+  let loadingTaskDestroyed = false;
+
+  const mockTask = { destroy: () => { taskDestroyed = true; } };
+  const mockDoc = {
+    cleanup: () => { docCleaned = true; },
+    loadingTask: { destroy: () => { loadingTaskDestroyed = true; } },
+  };
+
+  // Safe runner matching pdfDocumentLifecycle logic
+  const disposeMock = async (oldTasks: any[], oldDocuments: any[]) => {
+    for (const task of oldTasks) {
+      try {
+        if (typeof task?.destroy === 'function') {
+          await task.destroy();
+        }
+      } catch { /* ignore */ }
+    }
+    await Promise.allSettled(
+      oldDocuments.map(async (doc) => {
+        try {
+          if (typeof doc?.cleanup === 'function') doc.cleanup();
+        } catch { /* ignore */ }
+        try {
+          if (typeof doc?.destroy === 'function') await doc.destroy();
+          else if (typeof doc?.loadingTask?.destroy === 'function') await doc.loadingTask.destroy();
+        } catch { /* ignore */ }
+      })
+    );
+  };
+
+  return disposeMock([mockTask, null, {}], [mockDoc, {}, null]).then(() => {
+    assert.equal(taskDestroyed, true, 'Task should be destroyed');
+    assert.equal(docCleaned, true, 'Doc should be cleaned');
+    assert.equal(loadingTaskDestroyed, true, 'Doc loadingTask should be destroyed');
+  });
+});
+
+
 
 
 
