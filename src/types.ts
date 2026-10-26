@@ -168,6 +168,7 @@ declare global {
       sharePdf?: (fileName: string, base64Data: string) => boolean;
       printPdf?: (documentName: string, base64Data: string) => boolean;
       savePdf?: (fileName: string, base64Data: string) => boolean;
+      setImmersiveFullscreen?: (enabled: boolean) => boolean;
     };
     onNativePdfReceived?: (data: { name: string; base64: string }) => void;
   }

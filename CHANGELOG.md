@@ -33,10 +33,10 @@ Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilenstein
   - Die obere Titelleiste und die untere Werkzeugleiste sind nun fest im Flex-Layout verankert (`sticky top-0 shrink-0` bzw. `shrink-0` am Fuß), anstatt als schwebende Overlays über dem Dokumenten-Canvas zu liegen.
   - Das Dokumenten-Viewport füllt exakt den Raum dazwischen aus: Beim Öffnen ist der Kopf der ersten Seite zu 100 % sichtbar und wird nicht mehr durch die Titelleiste verdeckt.
   - Kein störendes Auto-Hide beim Scrollen mehr: Die Leisten bleiben standardmäßig fixiert und stabil stehen.
-- **Echter Fullscreen-Modus in der Floating-Pill (`src/components/mobile/MobileFloatingPill.tsx`):**
-  - Neuer Vollbild-Umschaltbutton (`Maximize2` / `Minimize2`) direkt in der schwebenden Seitenblätterpille.
-  - Im Fullscreen-Modus blenden sich Top-Bar und Bottom-Bar aus, sodass das Dokument den gesamten Bildschirm einnimmt; die Pille bleibt dezent bei `bottom-6` positioniert, um jederzeit 1-Klick-Rückkehr zu ermöglichen.
-  - Synchronisation mit der Browser-Fullscreen-API und automatische Anpassung bei Hardware-Gesten.
+- **Echter systemweiter Fullscreen-Modus & iFrame-Schutz (`src/components/mobile/MobileFloatingPill.tsx`, `src/utils/nativeBridge.ts`, `android/app/src/main/java/com/patrickspdf/app/MainActivity.java`):**
+  - Neuer Vollbild-Umschaltbutton (`Maximize2` / `Minimize2`) direkt in der schwebenden Seitenblätterpille, die nun mit erhöhter Transparenz (`bg-white/75 backdrop-blur-md`) dezent über dem Dokument schwebt.
+  - **Android-APK System-Fullscreen:** Über `NativePdfBridge.setImmersiveFullscreen(enabled)` schaltet `MainActivity.java` mittels `WindowCompat.setDecorFitsSystemWindows` und `WindowInsetsControllerCompat` (`hide(WindowInsetsCompat.Type.systemBars())` mit `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`) die Android-Statusleiste und -Navigationsleiste systemweit aus bzw. beim Verlassen wieder ein.
+  - **iFrame-Preview-Schutz:** `isRunningInIframe()` erkennt eingebettete Vorschau-Umgebungen (wie AI Studio Preview) und schaltet dort rein das App-Layout auf Vollbild, ohne `requestFullscreen()` im Cross-Origin-iFrame auszulösen. Zudem wurden Parent-State-Updates (`onControlsVisibilityChange`) sauber in einen `useEffect` entkoppelt.
 - **Beruhigte, einheitlich helle Bottom-Bar-Buttons (`src/components/mobile/MobileBottomBar.tsx`):**
   - Alle vier Buttons (Seiten, Text, Signieren, Speichern) nutzen ein einheitlich ruhiges, helles Farbschema (`bg-slate-50`, feiner Rahmen `border-slate-200/80`, dunkle Schrift `text-slate-700`).
   - Grelle Farben (knallblaues Signieren, pechschwarzes Speichern) wurden durch dezente, harmonische Icon-Farbakzente ersetzt.

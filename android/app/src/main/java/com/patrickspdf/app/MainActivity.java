@@ -20,10 +20,15 @@ import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Base64;
 import android.util.Log;
+import android.view.Window;
+import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 import org.json.JSONObject;
@@ -134,6 +139,17 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public boolean isNativeBridge() {
             return true;
+        }
+
+        @JavascriptInterface
+        public boolean setImmersiveFullscreen(final boolean enabled) {
+            try {
+                activity.runOnUiThread(() -> activity.applyImmersiveFullscreen(enabled));
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to toggle Android immersive fullscreen", e);
+                return false;
+            }
         }
 
         /**
@@ -614,6 +630,32 @@ public class MainActivity extends BridgeActivity {
                 Log.e(TAG, "Error in printPdf: " + e.getMessage(), e);
                 return false;
             }
+        }
+    }
+
+    public void applyImmersiveFullscreen(boolean enabled) {
+        Window window = getWindow();
+        if (window == null) return;
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
+        if (controller == null) return;
+
+        if (enabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                WindowManager.LayoutParams lp = window.getAttributes();
+                lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                window.setAttributes(lp);
+            }
+            WindowCompat.setDecorFitsSystemWindows(window, false);
+            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            controller.hide(WindowInsetsCompat.Type.systemBars());
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                WindowManager.LayoutParams lp = window.getAttributes();
+                lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+                window.setAttributes(lp);
+            }
+            WindowCompat.setDecorFitsSystemWindows(window, true);
+            controller.show(WindowInsetsCompat.Type.systemBars());
         }
     }
 

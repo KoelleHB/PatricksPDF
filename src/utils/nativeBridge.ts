@@ -13,6 +13,61 @@ export function isNativeAndroid(): boolean {
 }
 
 /**
+ * Returns true if the application is running inside an embedded iframe (e.g. AI Studio preview).
+ */
+export function isRunningInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Toggles system-wide immersive fullscreen mode safely across environments:
+ * - On Native Android APK: hides/shows Android status and navigation bars via NativePdfBridge.setImmersiveFullscreen.
+ * - In embedded iframes (AI Studio preview): skips browser Fullscreen API to prevent preview frame detachment/crashes.
+ * - On standalone Web / PWA: uses the standard Fullscreen API when supported and allowed.
+ */
+export async function setSystemFullscreen(enabled: boolean): Promise<void> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  // 1. Native Android APK: toggle true system-wide immersive mode (status + navigation bars)
+  if (isNativeAndroid()) {
+    try {
+      const native = window.NativePdfBridge as any;
+      if (typeof native?.setImmersiveFullscreen === 'function') {
+        native.setImmersiveFullscreen(enabled);
+      }
+    } catch (err) {
+      console.warn('Android native fullscreen toggle warning:', err);
+    }
+    return;
+  }
+
+  // 2. Embedded Preview iFrame (e.g. AI Studio): never invoke requestFullscreen on the iframe document
+  if (isRunningInIframe()) {
+    return;
+  }
+
+  // 3. Standalone Web / PWA: use standard Fullscreen API safely
+  try {
+    if (enabled) {
+      if (document.fullscreenEnabled && !document.fullscreenElement && document.documentElement?.requestFullscreen) {
+        await document.documentElement.requestFullscreen();
+      }
+    } else {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        await document.exitFullscreen();
+      }
+    }
+  } catch {
+    // Ignore Fullscreen API rejection
+  }
+}
+
+/**
  * Open a PDF's external URL in Android's default browser (ACTION_VIEW), not
  * a WebView popup. Desktop retains the anchor's normal target="_blank".
  * Never permit javascript:, file:, content: or data: URLs from annotations.

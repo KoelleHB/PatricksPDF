@@ -38,7 +38,7 @@ import { PdfPageView } from './PdfPageView';
 import { TableOfContentsDrawer } from './TableOfContentsDrawer';
 import { TextSelectionToolbar } from './TextSelectionToolbar';
 import { PdfSearchPanel } from './PdfSearchPanel';
-import { isNativeAndroid } from '../utils/nativeBridge';
+import { isNativeAndroid, setSystemFullscreen } from '../utils/nativeBridge';
 import { computeFitWidthZoom } from '../utils/pdfZoom';
 import { selectionTouchesPdfTextLayer } from '../utils/pdfSelection';
 import type { PdfSearchHit } from '../utils/pdfSearch';
@@ -1335,48 +1335,48 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Mobile Fullscreen Mode state
   const [isMobileFullscreen, setIsMobileFullscreen] = useState(false);
 
-  const handleToggleMobileFullscreen = useCallback(() => {
-    setIsMobileFullscreen((prev) => {
-      const next = !prev;
-      onControlsVisibilityChange?.(!next);
-      if (typeof document !== 'undefined') {
-        if (next) {
-          if (document.documentElement.requestFullscreen) {
-            document.documentElement.requestFullscreen().catch(() => {});
-          }
-        } else {
-          if (document.fullscreenElement && document.exitFullscreen) {
-            document.exitFullscreen().catch(() => {});
-          }
-        }
-      }
-      setTimeout(() => {
-        if (!isFitWidthMode) {
-          handleFitPage();
-        }
-      }, 100);
-      return next;
-    });
-  }, [onControlsVisibilityChange, isFitWidthMode, handleFitPage]);
-
-  // Sync with document fullscreenchange (e.g. user exits via hardware gesture)
+  // Sync parent bottom bar visibility cleanly outside React state updater
   useEffect(() => {
+    onControlsVisibilityChange?.(!isMobileFullscreen);
+  }, [isMobileFullscreen, onControlsVisibilityChange]);
+
+  // Restore system bars and parent controls if viewer unmounts while in fullscreen
+  useEffect(() => {
+    return () => {
+      void setSystemFullscreen(false);
+      onControlsVisibilityChange?.(true);
+    };
+  }, [onControlsVisibilityChange]);
+
+  const handleToggleMobileFullscreen = useCallback(() => {
+    const next = !isMobileFullscreen;
+    setIsMobileFullscreen(next);
+    void setSystemFullscreen(next);
+    setTimeout(() => {
+      if (!isFitWidthMode) {
+        handleFitPage();
+      }
+    }, 120);
+  }, [isMobileFullscreen, isFitWidthMode, handleFitPage]);
+
+  // Sync with document fullscreenchange on standalone Web/PWA (e.g. user exits via Esc)
+  useEffect(() => {
+    if (isNativeAndroid()) return;
     const handleFullscreenChange = () => {
       if (!document.fullscreenElement && isMobileFullscreen) {
         setIsMobileFullscreen(false);
-        onControlsVisibilityChange?.(true);
         setTimeout(() => {
           if (!isFitWidthMode) {
             handleFitPage();
           }
-        }, 100);
+        }, 120);
       }
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [isMobileFullscreen, onControlsVisibilityChange, isFitWidthMode, handleFitPage]);
+  }, [isMobileFullscreen, isFitWidthMode, handleFitPage]);
 
   // All navigation bars stay fundamentally fixed; hide only in Fullscreen Mode
   const isPinned = true;
@@ -1384,7 +1384,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const { handleDocumentTap } = useImmersiveNavigation({
     isPinned,
     scrollElement: containerRef.current,
-    onVisibilityChange: onControlsVisibilityChange,
   });
 
   const isControlsVisible = !isMobileFullscreen;

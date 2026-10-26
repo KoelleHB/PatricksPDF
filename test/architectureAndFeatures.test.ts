@@ -737,6 +737,17 @@ test('Mobile UI components, zoom percentage pill, and jump-to-beginning buttons 
   assert.match(floatingPillSource, /onResetToFitPage/);
   assert.match(floatingPillSource, /onToggleFullscreen/, 'Floating pill must support fullscreen toggle');
   assert.match(floatingPillSource, /mobile-fullscreen-btn/, 'Floating pill must have fullscreen button');
+  assert.match(floatingPillSource, /bg-white\/75/, 'Floating pill must use translucent bg-white/75');
+
+  const nativeBridgeSource = fs.readFileSync(path.resolve(process.cwd(), 'src/utils/nativeBridge.ts'), 'utf8');
+  assert.match(nativeBridgeSource, /export\s+function\s+isRunningInIframe/, 'nativeBridge must provide iframe detection');
+  assert.match(nativeBridgeSource, /export\s+async\s+function\s+setSystemFullscreen/, 'nativeBridge must provide safe setSystemFullscreen');
+  assert.match(nativeBridgeSource, /setImmersiveFullscreen/, 'setSystemFullscreen must call Android setImmersiveFullscreen');
+
+  const mainActivitySource = fs.readFileSync(path.resolve(process.cwd(), 'android/app/src/main/java/com/patrickspdf/app/MainActivity.java'), 'utf8');
+  assert.match(mainActivitySource, /public\s+boolean\s+setImmersiveFullscreen/, 'MainActivity must expose setImmersiveFullscreen on NativePdfBridge');
+  assert.match(mainActivitySource, /WindowInsetsControllerCompat/, 'MainActivity must use WindowInsetsControllerCompat for system-wide fullscreen');
+  assert.match(mainActivitySource, /WindowCompat\.setDecorFitsSystemWindows/, 'MainActivity must use WindowCompat.setDecorFitsSystemWindows');
 
   const bottomSheetSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobilePageGridBottomSheet.tsx'), 'utf8');
   assert.match(bottomSheetSource, /export (const|function) MobilePageGridBottomSheet/);
