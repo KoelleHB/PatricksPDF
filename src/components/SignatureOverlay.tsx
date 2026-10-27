@@ -336,6 +336,8 @@ export const SignatureOverlay: React.FC<SignatureOverlayProps> = ({
           <div
             className="absolute -top-10 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-slate-900 text-white px-2 py-1 rounded-lg shadow-xl text-xs z-30 whitespace-nowrap"
             onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
           >
             <span className="font-semibold text-[11px] text-blue-300">
               {Math.round(signature.widthPercent)}% width
@@ -370,6 +372,8 @@ export const SignatureOverlay: React.FC<SignatureOverlayProps> = ({
             <div
               className="absolute -bottom-28 sm:-bottom-24 left-1/2 -translate-x-1/2 bg-white text-slate-900 p-2 rounded-xl shadow-2xl border border-slate-200 z-40 flex flex-col gap-1.5 w-64 animate-in fade-in zoom-in duration-100"
               onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 border-b border-slate-100 pb-1">
                 <span>Precision Controls</span>

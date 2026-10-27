@@ -25,6 +25,19 @@ interface TextOverlayProps {
   onDuplicate: (item: TextOverlayItem) => void;
 }
 
+export function isTextToolbarEventTarget(target: EventTarget | null): boolean {
+  if (!target || typeof (target as HTMLElement).closest !== 'function') {
+    return false;
+  }
+  const el = target as HTMLElement;
+  return Boolean(
+    el.closest('[data-text-tools]') ||
+      el.closest('button') ||
+      el.closest('textarea') ||
+      el.closest('input')
+  );
+}
+
 export const TextOverlay: React.FC<TextOverlayProps> = ({
   item,
   isSelected,
@@ -45,6 +58,11 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   const latestItemRef = useRef<TextOverlayItem>(item);
   latestItemRef.current = item;
   const initialItemRef = useRef<TextOverlayItem | null>(null);
+  const lastTextTapRef = useRef<{ time: number; x: number; y: number }>({
+    time: 0,
+    x: 0,
+    y: 0,
+  });
 
   // Dragging tracking
   const dragRef = useRef<{
@@ -161,6 +179,7 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
         xPercent: Math.max(0, Math.min(99, Math.round((latestItemRef.current.xPercent + dx) * 100) / 100)),
         yPercent: Math.max(0, Math.min(99, Math.round((latestItemRef.current.yPercent + dy) * 100) / 100)),
       };
+      latestItemRef.current = updated;
       onUpdate(updated);
       if (onCommitUpdate) {
         onCommitUpdate(updated, 'Nudge Text');
@@ -182,20 +201,34 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isEditing) return;
 
-    const target = e.target as HTMLElement;
-    if (
-      target.closest('[data-text-tools]') ||
-      target.closest('button') ||
-      target.closest('textarea') ||
-      target.closest('input')
-    ) {
+    if (isTextToolbarEventTarget(e.target)) {
       return;
     }
 
     e.stopPropagation();
     onSelect(item.id);
 
-    initialItemRef.current = { ...item };
+    // Detect intentional double-tap directly on the text box content for touch devices
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      const now = Date.now();
+      const dt = now - lastTextTapRef.current.time;
+      const dist = Math.hypot(
+        e.clientX - lastTextTapRef.current.x,
+        e.clientY - lastTextTapRef.current.y
+      );
+      lastTextTapRef.current = { time: now, x: e.clientX, y: e.clientY };
+
+      if (dt > 0 && dt < 320 && dist < 16) {
+        lastTextTapRef.current = { time: 0, x: 0, y: 0 };
+        dragRef.current.isDragging = false;
+        window.removeEventListener('pointermove', handleWindowPointerMove);
+        window.removeEventListener('pointerup', handleWindowPointerUp);
+        setIsEditing(true);
+        return;
+      }
+    }
+
+    initialItemRef.current = { ...latestItemRef.current };
 
     dragRef.current = {
       isDragging: true,
@@ -211,11 +244,13 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
 
   // Nudge functions for micro-adjustments
   const nudge = (dxP: number, dyP: number) => {
+    const current = latestItemRef.current;
     const updated = {
-      ...item,
-      xPercent: Math.max(0, Math.min(99, Math.round((item.xPercent + dxP) * 100) / 100)),
-      yPercent: Math.max(0, Math.min(99, Math.round((item.yPercent + dyP) * 100) / 100)),
+      ...current,
+      xPercent: Math.max(0, Math.min(99, Math.round((current.xPercent + dxP) * 100) / 100)),
+      yPercent: Math.max(0, Math.min(99, Math.round((current.yPercent + dyP) * 100) / 100)),
     };
+    latestItemRef.current = updated;
     onUpdate(updated);
     if (onCommitUpdate) {
       onCommitUpdate(updated, 'Nudge Text');
@@ -223,10 +258,12 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   };
 
   const centerHorizontally = () => {
+    const current = latestItemRef.current;
     const updated = {
-      ...item,
+      ...current,
       xPercent: 40,
     };
+    latestItemRef.current = updated;
     onUpdate(updated);
     if (onCommitUpdate) {
       onCommitUpdate(updated, 'Center Text');
@@ -236,29 +273,43 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
   // Quick font toggles
   const toggleFont = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    const newFont = item.fontFamily === 'standard' ? 'script' : 'standard';
-    const updated = { ...item, fontFamily: newFont as any };
+    const current = latestItemRef.current;
+    const newFont = current.fontFamily === 'standard' ? 'script' : 'standard';
+    const updated = { ...current, fontFamily: newFont as any };
+    latestItemRef.current = updated;
     onUpdate(updated);
     if (onCommitUpdate) onCommitUpdate(updated, 'Change Font');
   };
 
   const toggleColor = (e?: React.MouseEvent) => {
     e?.stopPropagation();
+    const current = latestItemRef.current;
     let newColor: TextColor = 'black';
-    if (item.color === 'black') newColor = 'blue';
-    else if (item.color === 'blue') newColor = 'red';
+    if (current.color === 'black') newColor = 'blue';
+    else if (current.color === 'blue') newColor = 'red';
     else newColor = 'black';
-    const updated = { ...item, color: newColor };
+    const updated = { ...current, color: newColor };
+    latestItemRef.current = updated;
     onUpdate(updated);
     if (onCommitUpdate) onCommitUpdate(updated, 'Change Color');
   };
 
   const changeFontSize = (delta: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newSize = Math.max(8, Math.min(60, item.fontSize + delta));
-    const updated = { ...item, fontSize: newSize };
+    const current = latestItemRef.current;
+    const newSize = Math.max(8, Math.min(60, current.fontSize + delta));
+    const updated = { ...current, fontSize: newSize };
+    latestItemRef.current = updated;
     onUpdate(updated);
     if (onCommitUpdate) onCommitUpdate(updated, 'Resize Font');
+  };
+
+  const handleTextSurfaceDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isTextToolbarEventTarget(e.target)) {
+      return;
+    }
+    setIsEditing(true);
   };
 
   // Color & font styling classes
@@ -281,12 +332,11 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
       data-text-overlay="true"
       onClick={(e) => {
         e.stopPropagation();
-        onSelect(item.id);
+        if (!isTextToolbarEventTarget(e.target)) {
+          onSelect(item.id);
+        }
       }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        setIsEditing(true);
-      }}
+      onDoubleClick={handleTextSurfaceDoubleClick}
       onPointerDown={handlePointerDown}
       style={{
         left: `${pixelX}px`,
@@ -304,6 +354,11 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
         <div
           data-text-tools="true"
           onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+          }}
           className={`absolute ${toolbarPositionClass} left-0 flex items-center gap-1 bg-slate-900/95 text-white p-1 rounded-xl shadow-xl border border-slate-700/80 backdrop-blur z-50 text-xs whitespace-nowrap animate-in fade-in zoom-in-95 duration-100 pointer-events-auto`}
         >
           {/* Edit text button */}
@@ -448,6 +503,11 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
         <div
           data-text-tools="true"
           onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+          }}
           className="absolute -bottom-24 left-0 bg-white text-slate-900 p-2 rounded-xl shadow-2xl border border-slate-200 z-50 flex flex-col gap-1.5 w-60 animate-in fade-in zoom-in duration-100"
         >
           <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 border-b border-slate-100 pb-1">
@@ -512,6 +572,11 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
           <div
             data-text-tools="true"
             onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+            }}
             className="absolute top-0 left-0 flex flex-col gap-1.5 bg-white p-2.5 rounded-xl shadow-2xl border-2 border-blue-600 z-50 pointer-events-auto min-w-[260px] sm:min-w-[320px] animate-in fade-in zoom-in-95 duration-100"
           >
             <div className="flex items-center justify-between text-xs font-semibold text-slate-500 border-b border-slate-100 pb-1">
@@ -523,7 +588,9 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
               value={item.text}
               onChange={(e) => {
                 const val = e.target.value;
-                onUpdate({ ...latestItemRef.current, text: val });
+                const updated = { ...latestItemRef.current, text: val };
+                latestItemRef.current = updated;
+                onUpdate(updated);
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -587,6 +654,8 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
           </div>
         ) : (
           <div
+            data-text-content="true"
+            onDoubleClick={handleTextSurfaceDoubleClick}
             style={{
               fontSize: `${scaledFontSize}px`,
               lineHeight: 1.25,

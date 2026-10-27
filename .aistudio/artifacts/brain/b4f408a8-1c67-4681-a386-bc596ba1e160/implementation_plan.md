@@ -1,80 +1,73 @@
-# Implementation Plan: Background Auto-Save & Working Draft Persistence
+# Isolate Text Overlay Double-Tap & Toolbar Event Handling
 
-## 1. Architecture & Storage Strategy (`PatricksPDFRecentDB` v3 + Emergency Lifecycle Flush)
+Prevent rapid clicks or double-taps on the floating text action bar (such as `A+` / `A-` font size buttons, font/color toggles, or precision nudge controls) from bubbling up and accidentally opening the inline text editor.
 
-To ensure edits survive a force-close of the PWA or Android APK while keeping all placed elements (signatures, text annotations, form fields) fully editable upon reopening, we separate the **Original PDF Blob** from the **Working Draft Snapshot**:
+## User Review & Critical Decisions
 
-1. **IndexedDB Schema Upgrade (`DB_VERSION = 3` in `src/utils/recentDocuments.ts`)**:
-   - `recent_docs_meta`: Stores lightweight `RecentDocumentRecord` metadata, extended with draft status fields:
-     - `hasDraft?: boolean` (true when unsaved working edits exist)
-     - `hasWorkingCopy?: boolean` (true when editable overlays/page edits exist, even after export)
-     - `draftUpdatedAt?: number` (timestamp of last background save)
-     - `formEditCount?: number` (number of modified form fields)
-     - `hasPageModifications?: boolean` (whether pages were rotated, deleted, or reordered)
-   - `recent_docs_blobs`: Continues to store the **unmodified original `pdfBuffer`** (`{ id, pdfBuffer }`) keyed by the original document's deterministic fingerprint (`docId`), guaranteeing we can always reset back to the pristine original PDF.
-   - `recent_docs_drafts` (New Object Store, `keyPath: 'id'`): Stores the structured `DocumentDraftRecord` for `docId`:
-     - `id: string` (matches original `docId`)
-     - `updatedAt: number`
-     - `isUnsavedDraft: boolean` (true if modified since last explicit Save/Export; cleared to `false` on Save/Export while keeping the editable elements intact)
-     - `currentPage: number`
-     - `hasPageModifications: boolean`
-     - `modifiedPdfBuffer?: ArrayBuffer` (only stored when structural page changes like rotation/reordering/deletion were applied; omitted otherwise to save space and write speed)
-     - `signatures: SignatureItem[]` (serialized with `Uint8Array` & `transparentDataUrl`)
-     - `textOverlays: TextOverlayItem[]`
-     - `formValues: FormValuesState`
+> [!IMPORTANT]
+> No open questions require clarification—the root cause is event bubbling from the floating toolbar into the parent text container's double-click handler.
 
-2. **Two-Tier Background Persistence & Emergency Lifecycle Flush**:
-   - **Debounced Background Save (~450 ms):** Whenever `signatures`, `textOverlays`, `formValues`, `hasPageModifications`, or `currentPage` change on an active document, a debounced writer persists the `DocumentDraftRecord` to IndexedDB and updates `recent_docs_meta`.
-   - **Immediate Lifecycle Flush (`visibilitychange`, `pagehide`, `beforeunload`):** Before a user can swipe away the Android APK or close a browser tab, the document transitions to `document.visibilityState === 'hidden'`. We flush any pending form-field debounce immediately, trigger an immediate IndexedDB write, and synchronously write a compact JSON backup of the overlay state (`signatures` metadata/dataURLs, `textOverlays`, `formValues`, `docId`, `currentPage`) to `localStorage` (`patricks_pdf_emergency_draft_v1`).
-   - **Startup Recovery Reconciliation:** On app launch, if `localStorage` contains an emergency draft snapshot newer than the IndexedDB draft record (e.g., if the OS killed the process mid-transaction), it is automatically reconciled into IndexedDB before loading `recentDocs`.
+- **Confirmed Scope**: Double-clicking or double-tapping **only** on the placed text box itself will open the inline text editor. Rapidly tapping `A+`, `A-`, or any other area of the dark floating toolbar or nudge popover will strictly execute the button action without triggering edit mode.
 
 ---
 
-## 2. User Experience & Workflow Details (All UI in English)
+## 1. Overview & Core Concept
 
-### A. Start Screen (`EmptyState.tsx`) — Resume Draft Banner
-- When the app starts on the home screen (`!pdfState`) and a recent document has an active unsaved draft (`hasDraft === true`), a prominent **"Unfinished Draft Available"** banner is displayed at the top of `EmptyState`:
-  - Shows document name, relative timestamp (`Edited 2 min ago`), and a summary of edits (e.g., `2 signatures · 1 text · Page 3`).
-  - Primary button: **Resume Editing** (loads the document with its full working state and jumps straight to the last active page).
-  - Secondary action: **Reset to Original** (discards the draft and restores the original unmodified PDF).
-
-### B. Recent Documents History (`RecentDocumentsModal.tsx` & `EmptyState.tsx`)
-- Entries in `RecentDocumentsModal` and the "Recently Opened" list on `EmptyState` clearly display their state:
-  - **Unsaved Drafts (`hasDraft === true`):** Highlighted with an amber `Draft • Unsaved edits` indicator, edit counts (`Signatures`, `Text`, `Form fields`, `Page edits`), and a **Discard Draft / Reset** action button next to Open/Print/Share so the user can revert to the original PDF at any time.
-  - **Saved Working Copies (`hasWorkingCopy === true && !hasDraft`):** Shows a subtle `Editable items` indicator so the user knows their placed signatures/texts remain movable when reopened.
-- **Print & Share from Recent Documents:** If a document in history has a working draft or saved overlays, clicking **Print** or **Share** directly in `RecentDocumentsModal` or `EmptyState` compiles the composite PDF (including the draft's signatures, texts, and form values) rather than printing/sharing the blank original.
-
-### C. Editor Header, Reset-to-Original & Save Behavior (`App.tsx`, `Header.tsx`, `PdfViewer.tsx`)
-- **Seamless Reopening:** Opening a document (either via Recent Documents, the Resume Banner, or selecting the same PDF file from disk) checks for an existing `DocumentDraftRecord` by `docId`. If found, it restores `signatures`, `textOverlays`, `formValues`, `modifiedPdfBuffer` (if pages were modified), and `currentPage`.
-  - If `isUnsavedDraft` is `true`, the document opens in the **Unsaved (`Draft saved locally`)** state so the user can see it hasn't been exported yet, while `resetHistory` is initialized so the restored working state can be edited or reset.
-- **Reset to Original Option:** When a document has active edits or a restored draft, the user can trigger **Reset to Original** (available in `RecentDocumentsModal`, the start screen Resume Banner, and the editor menu) to wipe the draft and reload the pristine `originalPdfBuffer`.
-- **Save / Export Behavior (`SaveModal`):** When the user exports/saves the full document via `SaveModal`:
-  - `markCurrentStateSaved()` is called.
-  - The draft record in IndexedDB is updated with `isUnsavedDraft: false` (clearing the "Unsaved Draft" warning badge while keeping all signatures, texts, and form fields editable for future sessions).
-- **Closing or Switching Documents:** Because all changes are now automatically persisted as a local draft in IndexedDB, `UnsavedChangesModal` is updated to inform the user that their draft is safely stored in Recent Documents, offering:
-  - **Save / Export PDF** (to export a final PDF file to device storage)
-  - **Close & Keep Draft** (closes the editor while preserving the draft in history & start screen)
-  - **Discard Draft & Revert** (deletes the draft and reverts to the original PDF)
+- **What It Does**: Decouples the floating action toolbar and precision nudge popover from the text box's double-click / double-tap edit trigger.
+- **Target Audience / Persona**: Mobile (PWA / Android APK) and desktop users who rapidly tap `A+` or `A-` to adjust text size from `14pt` up to `60pt` or quickly cycle through colors and fonts.
+- **Key Value**: Eliminates accidental transitions into the multiline text input modal when adjusting styling or position via the floating toolbar.
 
 ---
 
-## 3. Planned File Changes
+## 2. User Experience & Visual Design
 
-1. **`src/types.ts`**:
-   - Extend `RecentDocumentRecord` with `hasDraft?: boolean`, `hasWorkingCopy?: boolean`, `draftUpdatedAt?: number`, `formEditCount?: number`, `hasPageModifications?: boolean`, `lastPage?: number`.
-   - Add `DocumentDraftRecord` interface.
-2. **`src/utils/recentDocuments.ts`**:
-   - Upgrade IndexedDB to `DB_VERSION = 3`, adding `recent_docs_drafts` object store.
-   - Add `saveDocumentDraft()`, `getDocumentDraft()`, `discardDocumentDraft()`, `markDocumentDraftSaved()`, and `reconcileEmergencyDraftFromLocalStorage()` + `writeEmergencyDraftToLocalStorage()`.
-   - Add helper `compileRecentDocumentPdfBytes()` so Print/Share from Recent Documents includes draft overlays when present.
-3. **`src/App.tsx`**:
-   - Track `currentDocId` (computed via `computePdfFingerprint` on the original PDF buffer).
-   - Wire debounced background draft persistence + immediate flush on `visibilitychange` (`hidden`) / `pagehide` / `beforeunload`.
-   - Restore draft state automatically when opening a document with an existing draft, and wire `handleDiscardDraft` / `handleResetToOriginal`.
-   - Update `SaveModal` `onSaveSuccess` and `UnsavedChangesModal` actions to integrate with draft persistence.
-4. **`src/components/EmptyState.tsx` & `src/components/RecentDocumentsModal.tsx` & `src/components/UnsavedChangesModal.tsx`**:
-   - Add the **Resume Unfinished Draft** banner to `EmptyState.tsx`.
-   - Add Draft status indicators, edit summaries, and **Reset to Original** button to `RecentDocumentsModal.tsx` and `EmptyState.tsx`.
-   - Update `UnsavedChangesModal.tsx` to support keeping the local draft vs. discarding it.
-5. **Unit Tests (`src/utils/__tests__/recentDocumentsDrafts.test.ts`)**:
-   - Add tests verifying draft creation, restoration of `Uint8Array` signature bytes/text overlays/form values, emergency `localStorage` reconciliation, marking drafts as saved while keeping overlays editable, and resetting back to the original PDF buffer.
+- **Key User Flows**:
+  1. **Rapid Font Size / Style Adjustments**: Selecting a text box and rapidly clicking or tapping `A+`, `A-`, `Script`, `Black`, or `Nudge` smoothly updates the text overlay in place without ever switching to the text input editor.
+  2. **Intentional Double-Tap / Double-Click to Edit**: Double-clicking (desktop) or double-tapping (touch devices) directly on the rendered text box content opens the inline text editor as expected, alongside the explicit `Edit` button in the toolbar.
+- **Visual Identity & Theme**:
+  - Preserves the existing high-contrast dark floating toolbar (`bg-slate-900/95`) and blue selection ring (`ring-blue-500`) without visual layout changes.
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Scope Double-Click / Double-Tap Strictly to the Text Content Box + Stop Toolbar Bubbling**
+  - *Chosen Approach*:
+    1. Guard the double-click handler so any event originating inside `[data-text-tools]`, `button`, `input`, or `textarea` is immediately ignored.
+    2. Attach explicit `onDoubleClick` and `onClick` propagation stops on both floating toolbars (the dark Selection Action Toolbar and the Precision Nudge Panel).
+    3. Bind the double-click and touch double-tap detector directly to the rendered text preview element rather than the outer wrapper that encloses the floating toolbars.
+  - *Why*: In React's synthetic event tree, child toolbars rendered inside the positioned overlay wrapper bubble `dblclick` events up to the parent container whenever a button like `A+` is pressed twice within ~300 ms. Stopping propagation at the toolbar boundary and scoping the edit trigger to the text surface eliminates the bug completely across mouse, stylus, and touch inputs.
+  - *Alternatives Considered*: Adding a debounce to `A+`/`A-` was rejected because users intentionally tap `A+`/`A-` rapidly to change font sizes in 2pt steps.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+### Architecture & Event Isolation Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ Outer Positioned Text Overlay Wrapper                                │
+│  • Handles drag start (ignores [data-text-tools] & buttons)          │
+├──────────────────────────────────────────────────────────────────────┤
+│  ├─► Dark Selection Action Toolbar ([data-text-tools="true"])        │
+│  │    • Stops propagation: onPointerDown, onClick, onDoubleClick     │
+│  │    • Controls: [Edit] [Script] [Color] [A- / A+] [Nudge] [Copy]   │
+│  │                                                                   │
+│  ├─► Extended Precision Nudge Panel ([data-text-tools="true"])       │
+│  │    • Stops propagation: onPointerDown, onClick, onDoubleClick     │
+│  │    • Controls: Directional arrows & horizontal center             │
+│  │                                                                   │
+│  └─► Rendered Text Surface                                           │
+│       • Triggers setIsEditing(true) on double-click / double-tap     │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Interactive Component & State Mapping
+
+- **Floating Toolbar & Precision Panel (`[data-text-tools="true"]`)**:
+  - Intercepts and halts `onPointerDown`, `onClick`, and `onDoubleClick` bubbling so rapid button taps only invoke their respective handler (`changeFontSize`, `toggleFont`, `toggleColor`, `nudge`).
+- **Rendered Text Surface**:
+  - Handles `onDoubleClick` (desktop/mouse) and a lightweight touch double-tap check (for mobile touch screens where `touch-action: none` is active) to transition `isEditing` to `true` only when the user double-taps the actual text box.
+- **Automated Verification**:
+  - Add a dedicated unit test verifying that rapid double-clicks on `A+`, `A-`, and the floating toolbar adjust font size without entering edit mode, while double-clicking the text surface opens edit mode.

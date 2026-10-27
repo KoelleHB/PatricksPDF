@@ -1041,8 +1041,58 @@ test('Background draft persistence, emergency localStorage force-close recovery,
   assert.equal(docsAfterReset[0].fileSize, origBuf.byteLength);
 });
 
+test('TextOverlay isolates floating toolbar and A+/A- buttons from double-tap / double-click text edit trigger', async () => {
+  const { isTextToolbarEventTarget } = await import('../src/components/TextOverlay');
 
+  // Mock target inside [data-text-tools] or button (e.g., A+ / A- button or dark toolbar background)
+  const toolbarButtonTarget = {
+    closest: (selector: string) =>
+      selector === 'button' || selector === '[data-text-tools]' ? {} : null,
+  } as unknown as EventTarget;
+  assert.equal(
+    isTextToolbarEventTarget(toolbarButtonTarget),
+    true,
+    'Events from A+/A- buttons or [data-text-tools] must be recognized as toolbar targets and ignored by edit trigger'
+  );
 
+  const toolbarBackgroundTarget = {
+    closest: (selector: string) => (selector === '[data-text-tools]' ? {} : null),
+  } as unknown as EventTarget;
+  assert.equal(
+    isTextToolbarEventTarget(toolbarBackgroundTarget),
+    true,
+    'Events on the dark floating toolbar background must be ignored by edit trigger'
+  );
 
+  // Mock target on the rendered text surface ([data-text-content])
+  const textSurfaceTarget = {
+    closest: (selector: string) => (selector === '[data-text-content]' ? {} : null),
+  } as unknown as EventTarget;
+  assert.equal(
+    isTextToolbarEventTarget(textSurfaceTarget),
+    false,
+    'Events on the rendered text surface itself must be allowed to trigger double-tap / double-click edit mode'
+  );
+
+  const textOverlaySource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/TextOverlay.tsx'),
+    'utf8'
+  );
+  assert.match(
+    textOverlaySource,
+    /const\s+handleTextSurfaceDoubleClick\s*=\s*\(e:\s*React\.MouseEvent\)\s*=>\s*\{\s*e\.stopPropagation\(\);\s*if\s*\(isTextToolbarEventTarget\(e\.target\)\)\s*\{\s*return;\s*\}\s*setIsEditing\(true\);/,
+    'handleTextSurfaceDoubleClick must guard against toolbar targets before calling setIsEditing(true)'
+  );
+  const toolbarStopMatches = [
+    ...textOverlaySource.matchAll(
+      /data-text-tools="true"[\s\S]*?onPointerDown=\{\(e\)\s*=>\s*e\.stopPropagation\(\)\}[\s\S]*?onClick=\{\(e\)\s*=>\s*e\.stopPropagation\(\)\}[\s\S]*?onDoubleClick=\{\(e\)\s*=>\s*\{\s*e\.stopPropagation\(\);/g
+    ),
+  ];
+  assert.equal(
+    toolbarStopMatches.length,
+    3,
+    'All 3 [data-text-tools="true"] panels must stop propagation of pointerdown, click, and dblclick'
+  );
+});
 
 
