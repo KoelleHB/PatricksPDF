@@ -46,7 +46,7 @@ export function createAppError(
     code,
     title,
     userMessage,
-    technicalDetails: detailStr || 'Keine weiteren technischen Details verfügbar.',
+    technicalDetails: detailStr || 'No additional technical details available.',
     timestamp: new Date().toISOString(),
     recoverable,
     context,
@@ -65,25 +65,25 @@ export function formatAppErrorReport(err?: AppError | null): string {
 
   if (!err) {
     return [
-      `=== PatricksPDF v${APP_VERSION} Info & Diagnose ===`,
-      `Zeitpunkt: ${new Date().toISOString()}`,
-      `Build-Version: ${buildLabel}`,
-      `Umgebung: ${runtimeInfo.runtimeEnvironment}`,
-      `Status: Keine aktiven Laufzeitfehler protokolliert.`,
+      `=== PatricksPDF v${APP_VERSION} Info & Diagnostics ===`,
+      `Timestamp: ${new Date().toISOString()}`,
+      `Build Version: ${buildLabel}`,
+      `Environment: ${runtimeInfo.runtimeEnvironment}`,
+      `Status: No active runtime errors logged.`,
     ].join('\n');
   }
 
   const lines = [
-    `=== PatricksPDF v${APP_VERSION} Fehlerdiagnose ===`,
-    `Zeitpunkt: ${err.timestamp}`,
-    `Build-Version: ${buildLabel}`,
-    `Umgebung: ${runtimeInfo.runtimeEnvironment}`,
+    `=== PatricksPDF v${APP_VERSION} Error Diagnostics ===`,
+    `Timestamp: ${err.timestamp}`,
+    `Build Version: ${buildLabel}`,
+    `Environment: ${runtimeInfo.runtimeEnvironment}`,
     `Code: ${err.code}`,
-    `Titel: ${err.title}`,
-    `Meldung: ${err.userMessage}`,
+    `Title: ${err.title}`,
+    `Message: ${err.userMessage}`,
   ];
   if (err.context && Object.keys(err.context).length > 0) {
-    lines.push(`Kontext: ${JSON.stringify(err.context)}`);
+    lines.push(`Context: ${JSON.stringify(err.context)}`);
   }
   lines.push(`Details:\n${err.technicalDetails}`);
   return lines.join('\n');

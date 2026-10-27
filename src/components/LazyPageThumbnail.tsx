@@ -62,13 +62,13 @@ export const LazyPageThumbnail: React.FC<LazyPageThumbnailProps> = ({
       {displayUrl ? (
         <img
           src={displayUrl}
-          alt={`Vorschau Seite ${pageNumber}`}
+          alt={`Preview Page ${pageNumber}`}
           className="max-h-[170px] max-w-[130px] sm:max-h-[190px] sm:max-w-[150px] object-contain rounded-sm shadow-xs border border-slate-200 bg-white"
         />
       ) : (
         <div className="h-36 w-24 rounded border border-dashed border-slate-300 flex flex-col items-center justify-center bg-white text-slate-400 gap-1">
           {visible && page.source !== 'blank' && <Loader2 className="w-5 h-5 animate-spin text-blue-500" />}
-          <span className="text-[10px]">{visible ? 'Vorschau...' : `Seite ${pageNumber}`}</span>
+          <span className="text-[10px]">{visible ? 'Preview...' : `Page ${pageNumber}`}</span>
         </div>
       )}
     </div>

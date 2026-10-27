@@ -24,7 +24,7 @@ async function getScriptFontBytes(): Promise<ArrayBuffer> {
     return cachedScriptFontBytes;
   } catch {
     throw new Error(
-      'Lokale Schriftdatei Caveat-Regular.ttf konnte nicht geladen werden. Bitte die App neu installieren oder den PWA-Cache aktualisieren.'
+      'Could not load local font file Caveat-Regular.ttf. Please reinstall the app or refresh the PWA cache.'
     );
   }
 }
@@ -387,7 +387,7 @@ export async function embedSignaturesIntoPdf(
   options: ExportPdfOptions = {}
 ): Promise<Uint8Array> {
   if (!originalPdfBytes || originalPdfBytes.byteLength === 0) {
-    throw new Error('Die PDF-Quelldaten sind leer oder ungültig.');
+    throw new Error('The PDF source data is empty or invalid.');
   }
 
   const copy = originalPdfBytes.slice(0);
@@ -403,7 +403,7 @@ export async function embedSignaturesIntoPdf(
   } catch (err: any) {
     if (err?.name === 'EncryptedPDFError' || /encrypt/i.test(String(err?.message || ''))) {
       throw new Error(
-        'Diese PDF ist verschlüsselt oder bearbeitungsgeschützt. PatricksPDF kann sie anzeigen, aber mit pdf-lib nicht sicher bearbeiten oder neu speichern. Bitte verwende eine vom Rechteinhaber zur Bearbeitung freigegebene, unverschlüsselte PDF.'
+        'This PDF is encrypted or protected against editing. PatricksPDF can view it, but cannot safely modify or re-save it with pdf-lib. Please use an unencrypted PDF authorized for editing by the rights holder.'
       );
     }
     throw err;
@@ -423,7 +423,7 @@ export async function embedSignaturesIntoPdf(
     ).sort((a, b) => a - b);
 
     if (valid.length === 0) {
-      throw new Error('Keine gültigen Seiten für den Teil-Export ausgewählt.');
+      throw new Error('No valid pages selected for partial export.');
     }
     if (valid.length < totalPages) {
       selectedPagesList = valid;
@@ -501,7 +501,7 @@ export async function embedSignaturesIntoPdf(
           val !== '' && val !== false && !(Array.isArray(val) && val.length === 0);
         if (isNonEmptyValue) {
           throw new Error(
-            `Formularfeld "${name}" konnte beim Export nicht im PDF gefunden werden.`
+            `Form field "${name}" could not be found in the PDF during export.`
           );
         }
         continue;
@@ -544,7 +544,7 @@ export async function embedSignaturesIntoPdf(
               (field as any).select(val);
             } else {
               throw new Error(
-                `Die Option "${val}" ist im Auswahlfeld "${name}" nicht vorhanden.`
+                `Option "${val}" does not exist in selection field "${name}".`
               );
             }
           } else if (Array.isArray(val) && val.length > 0) {
@@ -552,7 +552,7 @@ export async function embedSignaturesIntoPdf(
               const invalid = val.filter((v) => !availableOptions.includes(v));
               if (invalid.length > 0) {
                 throw new Error(
-                  `Ungültige Auswahl (${invalid.join(', ')}) für Formularfeld "${name}".`
+                  `Invalid selection (${invalid.join(', ')}) for form field "${name}".`
                 );
               }
             }
@@ -561,7 +561,7 @@ export async function embedSignaturesIntoPdf(
         }
       } catch (fieldErr: any) {
         throw new Error(
-          `Formularfeld "${name}" konnte beim Export nicht gesetzt werden: ${
+          `Could not set form field "${name}" during export: ${
             fieldErr?.message || String(fieldErr)
           }`
         );
@@ -574,7 +574,7 @@ export async function embedSignaturesIntoPdf(
         form.updateFieldAppearances(appearanceFont);
       } catch (appearanceErr: any) {
         throw new Error(
-          `Formulardarstellung konnte beim Export nicht aktualisiert werden: ${
+          `Could not update form field appearances during export: ${
             appearanceErr?.message || String(appearanceErr)
           }`
         );
@@ -586,7 +586,7 @@ export async function embedSignaturesIntoPdf(
         form.flatten();
       } catch (flattenErr: any) {
         throw new Error(
-          `Formularfelder konnten beim Export nicht abgeflacht (flattened) werden: ${
+          `Could not flatten form fields during export: ${
             flattenErr?.message || String(flattenErr)
           }`
         );
@@ -783,7 +783,7 @@ async function loadUnencryptedPdfForModification(bytes: ArrayBuffer): Promise<PD
   } catch (err: any) {
     if (err?.name === 'EncryptedPDFError' || /encrypt/i.test(String(err?.message || ''))) {
       throw new Error(
-        'Diese PDF ist verschlüsselt oder bearbeitungsgeschützt. PatricksPDF kann sie anzeigen, aber mit pdf-lib nicht sicher bearbeiten oder neu speichern. Bitte verwende eine vom Rechteinhaber zur Bearbeitung freigegebene, unverschlüsselte PDF.'
+        'This PDF is encrypted or protected against editing. PatricksPDF can view it, but cannot safely modify or re-save it with pdf-lib. Please use an unencrypted PDF authorized for editing by the rights holder.'
       );
     }
     throw err;

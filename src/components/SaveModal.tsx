@@ -199,7 +199,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     const sessionId = ++activeSessionRef.current;
 
     if (!pdfState?.arrayBuffer) {
-      setErrorMessage('Keine Dokumentdaten vorhanden.');
+      setErrorMessage('No document data available.');
       setPdfBlob(null);
       setPdfUrl(null);
       return;
@@ -329,8 +329,8 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       if (res.success) {
         const feedback =
           res.method === 'native-android'
-            ? 'In Downloads gespeichert!'
-            : 'Erfolgreich gespeichert!';
+            ? 'Saved to Downloads!'
+            : 'Saved successfully!';
         setSaveSuccessMsg(feedback);
         notifySuccess(isSubsetExport);
         setTimeout(() => {
@@ -339,7 +339,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       }
     } catch (err: any) {
       console.error('Save error:', err);
-      setErrorMessage(err?.message || 'PDF konnte nicht gespeichert werden.');
+      setErrorMessage(err?.message || 'Failed to save PDF.');
     } finally {
       setIsSaving(false);
     }
@@ -353,7 +353,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       const targetName = fileName.trim() || 'signed-document.pdf';
       const res = await savePdfDocumentAs(targetName, pdfBlob);
       if (res.success) {
-        setSaveSuccessMsg('Am gewählten Speicherort gespeichert!');
+        setSaveSuccessMsg('Saved to selected location!');
         notifySuccess(isSubsetExport);
         setTimeout(() => {
           onClose();
@@ -361,7 +361,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       }
     } catch (err: any) {
       console.error('Save As error:', err);
-      setErrorMessage(err?.message || 'Speicherort-Dialog konnte nicht geöffnet werden.');
+      setErrorMessage(err?.message || 'Could not open save location dialog.');
     } finally {
       setIsSavingAs(false);
     }
@@ -428,7 +428,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
           {pdfState.numPages > 1 && (
             <div className="space-y-2">
               <label className="block text-xs font-semibold text-slate-700">
-                Seitenauswahl für Export
+                Page Selection for Export
               </label>
               <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs">
                 <button
@@ -440,7 +440,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Alle ({pdfState.numPages})
+                  All ({pdfState.numPages})
                 </button>
                 <button
                   type="button"
@@ -451,7 +451,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Aktuelle (S. {pdfState.currentPage})
+                  Current (p. {pdfState.currentPage})
                 </button>
                 <button
                   type="button"
@@ -462,7 +462,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Seitenbereich
+                  Page Range
                 </button>
               </div>
 
@@ -472,11 +472,11 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                     type="text"
                     value={customPageRangeInput}
                     onChange={(e) => setCustomPageRangeInput(e.target.value)}
-                    placeholder={`z. B. 1-3, 5 (max. ${pdfState.numPages})`}
+                    placeholder={`e.g. 1-3, 5 (max. ${pdfState.numPages})`}
                     className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Einzelne Seiten oder Bereiche getrennt durch Komma (z. B. 1-3, 5). Das geöffnete Dokument bleibt unverändert.
+                    Single pages or ranges separated by commas (e.g. 1-3, 5). The open document remains unchanged.
                   </p>
                 </div>
               )}
@@ -557,9 +557,9 @@ export const SaveModal: React.FC<SaveModalProps> = ({
               {hasFormFields && (
                 <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200 flex items-center justify-between gap-3">
                   <div className="text-xs">
-                    <p className="font-bold text-blue-900">Flatten Form Fields (Standard merken)</p>
+                    <p className="font-bold text-blue-900">Flatten Form Fields (Remember as default)</p>
                     <p className="text-blue-700 text-[11px]">
-                      Formularwerte dauerhaft und schreibgeschützt einbetten
+                      Embed form values permanently as read-only content
                     </p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -579,16 +579,16 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1">
                     <Settings2 className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Dateinamens-Vorlage (wird gespeichert)</span>
+                    <span>Filename Template (Saved automatically)</span>
                   </label>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px]">
                   {(
                     [
-                      { id: 'signed', label: '_unterschrieben' },
-                      { id: 'date_prefix', label: 'JJJJ-MM-TT_' },
-                      { id: 'custom_suffix', label: 'Eigenes Suffix' },
-                      { id: 'original', label: 'Originalname' },
+                      { id: 'signed', label: '_signed' },
+                      { id: 'date_prefix', label: 'YYYY-MM-DD_' },
+                      { id: 'custom_suffix', label: 'Custom Suffix' },
+                      { id: 'original', label: 'Original Name' },
                     ] as const
                   ).map((p) => (
                     <button
@@ -613,7 +613,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                       type="text"
                       value={exportSettings.customSuffix}
                       onChange={(e) => handleUpdateCustomSuffix(e.target.value)}
-                      placeholder="_bearbeitet"
+                      placeholder="_edited"
                       className="flex-1 px-2.5 py-1 text-xs rounded-lg border border-slate-300 font-mono"
                     />
                   </div>
@@ -659,10 +659,10 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                   )}
                   <span>
                     {isSaving
-                      ? 'Wird gespeichert...'
+                      ? 'Saving...'
                       : isAndroid
-                      ? 'In Downloads speichern'
-                      : 'PDF speichern / Download'}
+                      ? 'Save to Downloads'
+                      : 'Save PDF / Download'}
                   </span>
                 </button>
 
@@ -679,7 +679,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                     ) : (
                       <FolderOpen className="w-4 h-4 text-blue-700" />
                     )}
-                    <span>Speicherort wählen… (Ordner-Dialog)</span>
+                    <span>Choose Save Location… (Folder Dialog)</span>
                   </button>
                 )}
 
@@ -696,7 +696,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                     ) : (
                       <Share2 className="w-4 h-4 text-emerald-400" />
                     )}
-                    <span>{isAndroid ? 'Android Share' : 'Teilen'}</span>
+                    <span>{isAndroid ? 'Android Share' : 'Share'}</span>
                   </button>
 
                   <button
@@ -711,7 +711,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                     ) : (
                       <Printer className="w-4 h-4 text-blue-600" />
                     )}
-                    <span>{isAndroid ? 'Android Print' : 'Drucken'}</span>
+                    <span>{isAndroid ? 'Android Print' : 'Print'}</span>
                   </button>
                 </div>
 
@@ -723,7 +723,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                     className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-medium transition"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                    <span>In neuem Tab prüfen</span>
+                    <span>Preview in new tab</span>
                   </a>
                 )}
               </div>

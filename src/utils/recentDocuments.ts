@@ -379,7 +379,7 @@ async function pruneOldDocuments(): Promise<void> {
 }
 
 /**
- * Formats a timestamp into friendly German relative time ("Gerade eben", "Vor 5 Min.", "Heute", "Gestern", etc.)
+ * Formats a timestamp into friendly English relative time ("Just now", "5 min ago", "Today", "Yesterday", etc.)
  */
 export function formatRelativeTime(timestamp: number): string {
   const now = Date.now();
@@ -388,25 +388,25 @@ export function formatRelativeTime(timestamp: number): string {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffMinutes < 1) return 'Gerade eben';
-  if (diffMinutes < 60) return `Vor ${diffMinutes} Min.`;
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
   if (diffHours < 24) {
     const date = new Date(timestamp);
     const today = new Date();
     if (date.getDate() === today.getDate()) {
-      return `Heute, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      return `Today, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     }
-    return `Vor ${diffHours} Std.`;
+    return `${diffHours} hr ago`;
   }
   if (diffDays === 1) {
     const date = new Date(timestamp);
-    return `Gestern, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    return `Yesterday, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   }
-  if (diffDays < 7) return `Vor ${diffDays} Tagen`;
+  if (diffDays < 7) return `${diffDays} days ago`;
 
-  return new Date(timestamp).toLocaleDateString('de-DE', {
+  return new Date(timestamp).toLocaleDateString('en-US', {
     day: '2-digit',
-    month: '2-digit',
+    month: 'short',
     year: 'numeric',
   });
 }

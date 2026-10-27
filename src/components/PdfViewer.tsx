@@ -1640,12 +1640,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               type="button"
               onClick={() => isSearchOpen ? closeSearch() : setIsSearchOpen(true)}
               className={`px-1.5 sm:px-2 py-0.5 rounded-md text-[11px] font-medium hover:bg-white hover:text-blue-600 transition flex items-center gap-1 cursor-pointer ${isSearchOpen ? 'text-blue-600 bg-blue-50' : 'text-slate-700'}`}
-              title="Im gesamten PDF suchen (Strg+F)"
-              aria-label="PDF durchsuchen"
+              title="Search entire PDF (Ctrl+F)"
+              aria-label="Search PDF"
               aria-expanded={isSearchOpen}
             >
               <Search className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Suchen</span>
+              <span className="hidden sm:inline">Search</span>
             </button>
 
             {/* Table of Contents Button */}
@@ -1836,8 +1836,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           <button
             onClick={() => isSearchOpen ? closeSearch() : setIsSearchOpen(true)}
             className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-slate-300 hover:text-white hover:bg-white/15"
-            title="PDF durchsuchen (Strg+F)"
-            aria-label="PDF durchsuchen"
+            title="Search PDF (Ctrl+F)"
+            aria-label="Search PDF"
           >
             <Search className="w-3.5 h-3.5" />
           </button>

@@ -45,7 +45,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'draw' | 'library'>('upload');
   const [rawImageSrc, setRawImageSrc] = useState<string>('');
-  const [signatureName, setSignatureName] = useState<string>('Unterschrift');
+  const [signatureName, setSignatureName] = useState<string>('Signature');
   const [saveToLibraryOnInsert, setSaveToLibraryOnInsert] = useState<boolean>(true);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processedResult, setProcessedResult] = useState<ProcessedImageResult | null>(null);
@@ -126,7 +126,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       if (typeof event.target?.result === 'string') {
         const dataUrl = event.target.result;
         setRawImageSrc(dataUrl);
-        setSignatureName(file.name.replace(/\.[^/.]+$/, '') || 'Unterschrift');
+        setSignatureName(file.name.replace(/\.[^/.]+$/, '') || 'Signature');
         setActiveTab('upload');
 
         const hasTrans = await detectImageHasTransparency(dataUrl);
@@ -147,7 +147,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     if (!activeResult) return;
     const label =
       signatureName.trim() ||
-      (activeTab === 'draw' ? `Unterschrift ${savedTemplates.length + 1}` : 'Signatur-Vorlage');
+      (activeTab === 'draw' ? `Signature ${savedTemplates.length + 1}` : 'Signature Template');
     try {
       const bytesBuffer = activeResult.pngBytes.buffer.slice(
         activeResult.pngBytes.byteOffset,
@@ -162,7 +162,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
       const updated = await getSavedSignatures();
       setSavedTemplates(updated);
       setSaveToLibraryOnInsert(false);
-      showLibraryToast(`Vorlage „${label}“ gespeichert.`);
+      showLibraryToast(`Template "${label}" saved.`);
     } catch (err) {
       console.warn('Could not save signature template:', err);
     }
@@ -172,7 +172,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     if (!activeResult) return;
 
     const finalLabel =
-      signatureName.trim() || (activeTab === 'draw' ? 'Handschriftliche Signatur' : 'Unterschrift');
+      signatureName.trim() || (activeTab === 'draw' ? 'Handwritten Signature' : 'Signature');
 
     if (saveToLibraryOnInsert) {
       try {
@@ -240,7 +240,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
     await deleteSignatureTemplate(id);
     const updated = await getSavedSignatures();
     setSavedTemplates(updated);
-    showLibraryToast('Vorlage entfernt.');
+    showLibraryToast('Template removed.');
   };
 
   return (
@@ -257,7 +257,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 Add Signature
               </h2>
               <p className="text-xs text-slate-500">
-                Gespeicherte Vorlagen nutzen, Bild/Foto freistellen oder direkt unterschreiben
+                Use saved templates, remove paper background from a photo, or draw directly
               </p>
             </div>
           </div>
@@ -305,7 +305,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             }`}
           >
             <Bookmark className="w-3.5 h-3.5" />
-            <span>Vorlagen-Bibliothek</span>
+            <span>Template Library</span>
             {savedTemplates.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
                 {savedTemplates.length}
@@ -329,14 +329,14 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-slate-700 flex items-center gap-1.5">
                   <Bookmark className="w-3.5 h-3.5 text-blue-600" />
-                  Gespeicherte Unterschriften (Direkt einfügen)
+                  Saved Signatures (Tap to insert)
                 </span>
                 <button
                   type="button"
                   onClick={() => setActiveTab('library')}
                   className="text-blue-600 hover:underline font-medium text-[11px]"
                 >
-                  Alle verwalten ({savedTemplates.length})
+                  Manage all ({savedTemplates.length})
                 </button>
               </div>
               <div className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -346,7 +346,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                     type="button"
                     onClick={() => handleInsertSavedTemplate(tpl)}
                     className="group flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-blue-500 hover:bg-blue-50/30 transition shrink-0 text-left shadow-2xs"
-                    title={`„${tpl.label}“ auf Seite ${currentPage} platzieren`}
+                    title={`Place "${tpl.label}" on page ${currentPage}`}
                   >
                     <img
                       src={tpl.transparentDataUrl}
@@ -369,10 +369,10 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 <div className="py-10 px-4 text-center rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                   <Bookmark className="w-8 h-8 text-slate-300 mx-auto" />
                   <p className="text-sm font-semibold text-slate-700">
-                    Noch keine gespeicherten Unterschriften
+                    No saved signatures yet
                   </p>
                   <p className="text-xs text-slate-500 max-w-md mx-auto">
-                    Lade ein Bild hoch oder zeichne deine Unterschrift und aktiviere „In Bibliothek speichern“, um wiederverwendbare Vorlagen (z. B. „Paraphe“, „Vollständige Unterschrift“, „Firmenstempel“) anzulegen.
+                    Upload an image or draw your signature and enable "Save to Library" to create reusable templates (e.g. "Initials", "Full Signature", "Company Stamp").
                   </p>
                   <div className="pt-2 flex items-center justify-center gap-2">
                     <button
@@ -380,14 +380,14 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                       onClick={() => setActiveTab('draw')}
                       className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition"
                     >
-                      Jetzt zeichnen
+                      Draw Now
                     </button>
                     <button
                       type="button"
                       onClick={() => setActiveTab('upload')}
                       className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-100 transition"
                     >
-                      Bild auswählen
+                      Choose Image
                     </button>
                   </div>
                 </div>
@@ -436,7 +436,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                             <button
                               type="submit"
                               className="p-1 rounded bg-blue-600 text-white hover:bg-blue-700"
-                              title="Speichern"
+                              title="Save"
                             >
                               <Check className="w-3.5 h-3.5" />
                             </button>
@@ -447,7 +447,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                               {tpl.label}
                             </p>
                             <p className="text-[10px] text-slate-400">
-                              Klicken zum Einfügen auf Seite {currentPage}
+                              Tap to insert on page {currentPage}
                             </p>
                           </div>
                         )}
@@ -457,7 +457,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                             type="button"
                             onClick={(e) => handleStartRename(tpl, e)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
-                            title="Bezeichnung ändern"
+                            title="Rename template"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
@@ -465,7 +465,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                             type="button"
                             onClick={(e) => handleDeleteTemplate(tpl.id, e)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
-                            title="Vorlage löschen"
+                            title="Delete template"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -811,13 +811,13 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <label className="text-xs font-semibold text-slate-700 shrink-0">
-                  Bezeichnung:
+                  Label:
                 </label>
                 <input
                   type="text"
                   value={signatureName}
                   onChange={(e) => setSignatureName(e.target.value)}
-                  placeholder="z. B. Unterschrift, Paraphe, Stempel"
+                  placeholder="e.g. Signature, Initials, Stamp"
                   className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -829,16 +829,16 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                     onChange={(e) => setSaveToLibraryOnInsert(e.target.checked)}
                     className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
-                  <span>In Bibliothek speichern</span>
+                  <span>Save to Library</span>
                 </label>
                 <button
                   type="button"
                   onClick={handleSaveCurrentToLibraryOnly}
                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold transition"
-                  title="Direkt als Vorlage in der Bibliothek ablegen"
+                  title="Save directly as a template in the library"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Nur merken</span>
+                  <span>Save Only</span>
                 </button>
               </div>
             </div>

@@ -15,7 +15,7 @@ const MAX_TEMPLATES = 25;
 function openSignatureDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB ist in dieser Umgebung nicht verfügbar.'));
+      reject(new Error('IndexedDB is not available in this environment.'));
       return;
     }
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -72,7 +72,7 @@ export async function saveSignatureTemplate(input: {
       const existing = ((getAllReq.result as SavedSignatureTemplate[]) || []).sort(
         (a, b) => b.createdAt - a.createdAt
       );
-      const cleanLabel = input.label.trim() || `Unterschrift ${existing.length + 1}`;
+      const cleanLabel = input.label.trim() || `Signature ${existing.length + 1}`;
       savedRecord = {
         id: `sig-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         label: cleanLabel,
@@ -98,16 +98,16 @@ export async function saveSignatureTemplate(input: {
       if (savedRecord) {
         resolve(savedRecord);
       } else {
-        reject(new Error('Signatur-Vorlage konnte nicht erstellt werden.'));
+        reject(new Error('Could not create signature template.'));
       }
     };
     tx.onerror = () => {
       db.close();
-      reject(tx.error || new Error('Fehler beim Speichern der Signatur-Vorlage.'));
+      reject(tx.error || new Error('Failed to save signature template.'));
     };
     tx.onabort = () => {
       db.close();
-      reject(tx.error || new Error('Transaktion abgebrochen.'));
+      reject(tx.error || new Error('Transaction aborted.'));
     };
   });
 }

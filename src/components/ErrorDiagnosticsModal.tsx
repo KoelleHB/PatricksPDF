@@ -20,7 +20,7 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
   const fullReport = React.useMemo(() => {
     const base = formatAppErrorReport(error);
     if (extraLogs.length === 0) return base;
-    return `${base}\n\n=== Native / System-Logs ===\n${extraLogs.join('\n')}`;
+    return `${base}\n\n=== Native / System Logs ===\n${extraLogs.join('\n')}`;
   }, [error, extraLogs]);
 
   const handleCopy = async () => {
@@ -69,7 +69,7 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
             </div>
             <div className="min-w-0">
               <h2 id="error-diagnostics-title" className="text-base font-bold text-slate-900 truncate">
-                {error ? error.title : 'PatricksPDF Info & Diagnose'}
+                {error ? error.title : 'PatricksPDF Info & Diagnostics'}
               </h2>
               <p
                 className={`text-xs font-mono truncate ${
@@ -83,7 +83,7 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white/70 transition-colors cursor-pointer"
-            aria-label="Diagnose schließen"
+            aria-label="Close diagnostics"
           >
             <X size={20} />
           </button>
@@ -93,18 +93,18 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
           {/* Always-visible Build & APK Version Info Card */}
           <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200/80">
             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              App-Info & Build-Version
+              App Info & Build Version
             </div>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-              <dt className="text-slate-500 font-medium">App-Version:</dt>
+              <dt className="text-slate-500 font-medium">App Version:</dt>
               <dd className="text-slate-900 font-mono font-semibold">v{runtimeInfo.appVersion}</dd>
 
-              <dt className="text-slate-500 font-medium">APK / Build-Version:</dt>
+              <dt className="text-slate-500 font-medium">APK / Build Version:</dt>
               <dd className="text-slate-900 font-mono font-semibold truncate">
                 {runtimeInfo.apkBuildVersion || `v${runtimeInfo.appVersion} (Web / PWA)`}
               </dd>
 
-              <dt className="text-slate-500 font-medium">Laufzeitumgebung:</dt>
+              <dt className="text-slate-500 font-medium">Runtime Environment:</dt>
               <dd className="text-slate-800 font-mono truncate">{runtimeInfo.runtimeEnvironment}</dd>
             </dl>
           </div>
@@ -114,14 +114,14 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
               <div>
                 <p className="text-slate-700 leading-relaxed font-medium">{error.userMessage}</p>
                 <p className="text-xs text-slate-400 mt-1">
-                  Aufgetreten am {new Date(error.timestamp).toLocaleString('de-DE')}
+                  Occurred on {new Date(error.timestamp).toLocaleString('en-US')}
                 </p>
               </div>
 
               {error.context && Object.keys(error.context).length > 0 && (
                 <div className="bg-slate-50 rounded-xl p-3 border border-slate-200/80">
                   <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Kontextdaten
+                    Context Data
                   </div>
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                     {Object.entries(error.context).map(([k, v]) => (
@@ -137,7 +137,7 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
               <div>
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
                   <Terminal size={13} />
-                  <span>Technische Diagnose & Stacktrace</span>
+                  <span>Technical Diagnostics & Stack Trace</span>
                 </div>
                 <pre className="bg-slate-900 text-slate-100 rounded-xl p-3.5 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-52 leading-relaxed">
                   {error.technicalDetails}
@@ -147,14 +147,14 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
           ) : (
             <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200/80 text-emerald-800 text-xs font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Keine aktiven Laufzeitfehler protokolliert. Alle lokalen PDF-Dienste sind bereit.</span>
+              <span>No active runtime errors logged. All local PDF services are ready.</span>
             </div>
           )}
 
           {extraLogs.length > 0 && (
             <div>
               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                System- / Share-Protokoll ({extraLogs.length})
+                System / Share Log ({extraLogs.length})
               </div>
               <pre className="bg-slate-900 text-amber-200 rounded-xl p-3.5 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 leading-relaxed">
                 {extraLogs.join('\n')}
@@ -172,12 +172,12 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
             {copied ? (
               <>
                 <Check size={15} className="text-emerald-600" />
-                <span className="text-emerald-700">Diagnose kopiert</span>
+                <span className="text-emerald-700">Diagnostics Copied</span>
               </>
             ) : (
               <>
                 <Copy size={15} />
-                <span>Diagnosebericht kopieren</span>
+                <span>Copy Diagnostic Report</span>
               </>
             )}
           </button>
@@ -186,7 +186,7 @@ export const ErrorDiagnosticsModal: React.FC<ErrorDiagnosticsModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            Schließen
+            Close
           </button>
         </div>
       </div>

@@ -46,10 +46,10 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-800">
-                {this.props.fallbackTitle || 'Ein Fehler ist aufgetreten'}
+                {this.props.fallbackTitle || 'An error occurred'}
               </h2>
               <p className="text-sm text-slate-500 mt-1">
-                {this.state.error?.message || 'Unerwarteter Anwendungsfehler. Bitte versuche es erneut.'}
+                {this.state.error?.message || 'Unexpected application error. Please try again.'}
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 pt-2">
@@ -57,14 +57,14 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={this.handleReset}
                 className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-sm font-semibold transition cursor-pointer"
               >
-                Zurück zur App
+                Back to App
               </button>
               <button
                 onClick={this.handleReload}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition cursor-pointer"
               >
                 <RefreshCw className="w-4 h-4" />
-                <span>Neu laden</span>
+                <span>Reload</span>
               </button>
             </div>
           </div>

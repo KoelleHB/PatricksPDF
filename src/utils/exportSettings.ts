@@ -10,7 +10,7 @@ const STORAGE_KEY = 'patrickspdf_export_settings_v1';
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   namingPreset: 'signed',
-  customSuffix: '_bearbeitet',
+  customSuffix: '_edited',
   defaultFlattenForms: false,
 };
 
@@ -67,7 +67,7 @@ export function buildExportFileName(
   dateOverride?: Date
 ): string {
   const rawBase = originalPdfName.replace(/\.pdf$/i, '');
-  const baseName = sanitizeFileNamePart(rawBase) || 'Dokument';
+  const baseName = sanitizeFileNamePart(rawBase) || 'Document';
   const subsetTag = pageSubsetSuffix ? `_${sanitizeFileNamePart(pageSubsetSuffix)}` : '';
 
   switch (settings.namingPreset) {
@@ -81,14 +81,14 @@ export function buildExportFileName(
       return `${yyyy}-${mm}-${dd}_${baseName}${subsetTag}`;
     }
     case 'custom_suffix': {
-      const rawSuffix = sanitizeFileNamePart(settings.customSuffix) || '_bearbeitet';
+      const rawSuffix = sanitizeFileNamePart(settings.customSuffix) || '_edited';
       const normalizedSuffix =
         rawSuffix.startsWith('_') || rawSuffix.startsWith('-') ? rawSuffix : `_${rawSuffix}`;
       return `${baseName}${subsetTag}${normalizedSuffix}`;
     }
     case 'signed':
     default:
-      return `${baseName}${subsetTag}_unterschrieben`;
+      return `${baseName}${subsetTag}_signed`;
   }
 }
 
@@ -103,12 +103,12 @@ export function parsePageRangeInput(
 ): { pages: number[]; error: string | null } {
   const trimmed = input.trim();
   if (!trimmed) {
-    return { pages: [], error: 'Bitte mindestens eine Seite oder einen Bereich eingeben (z. B. 1-3, 5).' };
+    return { pages: [], error: 'Please enter at least one page or range (e.g. 1-3, 5).' };
   }
 
   const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) {
-    return { pages: [], error: 'Ungültige Seitenangabe.' };
+    return { pages: [], error: 'Invalid page specification.' };
   }
 
   const selected = new Set<number>();
@@ -119,7 +119,7 @@ export function parsePageRangeInput(
       if (pageNum < 1 || pageNum > maxPages) {
         return {
           pages: [],
-          error: `Seite ${pageNum} liegt außerhalb des gültigen Bereichs (1–${maxPages}).`,
+          error: `Page ${pageNum} is outside the valid range (1–${maxPages}).`,
         };
       }
       selected.add(pageNum);
@@ -130,13 +130,13 @@ export function parsePageRangeInput(
       if (start < 1 || end < 1 || start > maxPages || end > maxPages) {
         return {
           pages: [],
-          error: `Bereich ${start}–${end} liegt außerhalb des gültigen Bereichs (1–${maxPages}).`,
+          error: `Range ${start}–${end} is outside the valid range (1–${maxPages}).`,
         };
       }
       if (start > end) {
         return {
           pages: [],
-          error: `Ungültiger Bereich ${start}–${end}: Startseite ist größer als Endseite.`,
+          error: `Invalid range ${start}–${end}: start page is greater than end page.`,
         };
       }
       for (let p = start; p <= end; p++) {
@@ -145,7 +145,7 @@ export function parsePageRangeInput(
     } else {
       return {
         pages: [],
-        error: `Ungültiges Format „${part}“. Erlaubt sind Zahlen und Bereiche wie 1-3, 5.`,
+        error: `Invalid format "${part}". Allowed are numbers and ranges like 1-3, 5.`,
       };
     }
   }

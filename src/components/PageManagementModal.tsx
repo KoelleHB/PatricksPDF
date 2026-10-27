@@ -243,7 +243,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
   const handleBatchDelete = () => {
     if (selectedPageIds.size === 0) return;
     if (selectedPageIds.size >= pages.length) {
-      setErrorMessage('Mindestens eine Seite muss im Dokument verbleiben. Es können nicht alle Seiten gelöscht werden.');
+      setErrorMessage('At least one page must remain in the document. Cannot delete all pages.');
       return;
     }
     setErrorMessage(null);
@@ -268,7 +268,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
     }
 
     if (selectedIndices.length === 0) {
-      setErrorMessage('Bitte wähle mindestens eine Seite für den Teil-Export aus.');
+      setErrorMessage('Please select at least one page for subset export.');
       return;
     }
 
@@ -280,7 +280,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
       await onExportSelectedPages(selectedIndices, isDirty ? pages : undefined);
     } catch (err: any) {
       setErrorMessage(
-        err?.message || 'Teil-Export konnte nicht vorbereitet werden.'
+        err?.message || 'Could not prepare subset export.'
       );
     } finally {
       setIsApplying(false);
@@ -626,12 +626,12 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                   {selectedPageIds.size === pages.length ? (
                     <>
                       <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Auswahl aufheben</span>
+                      <span>Deselect All</span>
                     </>
                   ) : (
                     <>
                       <Square className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Alle auswählen</span>
+                      <span>Select All</span>
                     </>
                   )}
                 </button>
@@ -642,14 +642,14 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                     onClick={handleInvertSelection}
                     className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 font-medium transition cursor-pointer"
                   >
-                    Umkehren
+                    Invert
                   </button>
                 )}
 
                 <span className="text-slate-600 font-medium ml-1">
                   {hasMultiSelection
-                    ? `${selectedPageIds.size} von ${pages.length} markiert`
-                    : 'Tipp: Checkbox oder Shift+Klick für Mehrfachauswahl'}
+                    ? `${selectedPageIds.size} of ${pages.length} selected`
+                    : 'Tip: Use checkboxes or Shift+Click for multi-select'}
                 </span>
               </div>
 
@@ -659,7 +659,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                     type="button"
                     onClick={() => handleBatchRotate(-90)}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-blue-50 hover:border-blue-300 text-slate-700 font-medium transition cursor-pointer"
-                    title="Markierte Seiten 90° gegen den Uhrzeigersinn drehen"
+                    title="Rotate selected pages 90° counter-clockwise"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
                     <span className="hidden sm:inline">-90°</span>
@@ -668,7 +668,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                     type="button"
                     onClick={() => handleBatchRotate(90)}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-blue-50 hover:border-blue-300 text-slate-700 font-medium transition cursor-pointer"
-                    title="Markierte Seiten 90° im Uhrzeigersinn drehen"
+                    title="Rotate selected pages 90° clockwise"
                   >
                     <RotateCw className="w-3.5 h-3.5 text-blue-600" />
                     <span className="hidden sm:inline">+90°</span>
@@ -677,10 +677,10 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                     type="button"
                     onClick={handleBatchDuplicate}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-blue-50 hover:border-blue-300 text-slate-700 font-medium transition cursor-pointer"
-                    title="Markierte Seiten duplizieren"
+                    title="Duplicate selected pages"
                   >
                     <Copy className="w-3.5 h-3.5 text-blue-600" />
-                    <span className="hidden sm:inline">Duplizieren</span>
+                    <span className="hidden sm:inline">Duplicate</span>
                   </button>
                   <button
                     type="button"
@@ -689,22 +689,22 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-red-200 hover:bg-red-50 text-red-600 disabled:opacity-40 font-medium transition cursor-pointer"
                     title={
                       selectedPageIds.size >= pages.length
-                        ? 'Mindestens 1 Seite muss übrig bleiben'
-                        : 'Markierte Seiten löschen'
+                        ? 'At least 1 page must remain'
+                        : 'Delete selected pages'
                     }
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Löschen</span>
+                    <span className="hidden sm:inline">Delete</span>
                   </button>
                   {onExportSelectedPages && (
                     <button
                       type="button"
                       onClick={handleBatchExportSelected}
                       className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs transition cursor-pointer"
-                      title="Markierte Seiten direkt als neues PDF exportieren"
+                      title="Export selected pages as a new PDF"
                     >
                       <FileDown className="w-3.5 h-3.5" />
-                      <span>Auswahl als PDF exportieren ({selectedPageIds.size})</span>
+                      <span>Export Selection as PDF ({selectedPageIds.size})</span>
                     </button>
                   )}
                 </div>
@@ -783,8 +783,8 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                             type="button"
                             onClick={(e) => togglePageSelection(page.id, index, e.shiftKey, e)}
                             className="p-0.5 rounded text-slate-400 hover:text-blue-600 transition"
-                            title="Seite für Sammelaktion markieren (Shift+Klick für Bereich)"
-                            aria-label={`Seite ${index + 1} auswählen`}
+                            title="Select page for batch action (Shift+Click for range)"
+                            aria-label={`Select page ${index + 1}`}
                           >
                             {isChecked ? (
                               <CheckSquare className="w-4 h-4 text-blue-600" />
@@ -966,7 +966,7 @@ export const PageManagementModal: React.FC<PageManagementModalProps> = ({
                   className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold shadow-xs transition cursor-pointer"
                 >
                   <FileDown className="w-4 h-4 shrink-0" />
-                  <span>Auswahl als PDF exportieren ({selectedPageIds.size})</span>
+                  <span>Export Selection as PDF ({selectedPageIds.size})</span>
                 </button>
               )}
 

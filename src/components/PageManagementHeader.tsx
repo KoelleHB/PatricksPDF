@@ -34,27 +34,27 @@ export const PageManagementHeader: React.FC<Props> = ({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h2 id="page-management-title" className="text-base sm:text-lg font-bold text-slate-900 tracking-tight truncate">
-            Seitenverwaltung
+            Page Management
           </h2>
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 shrink-0">
-            {pageCount} {pageCount === 1 ? 'Seite' : 'Seiten'}
+            {pageCount} {pageCount === 1 ? 'Page' : 'Pages'}
           </span>
           {isDirty && (
             <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-              Ungespeicherte Änderungen
+              Unsaved Changes
             </span>
           )}
         </div>
         <p className="text-xs text-slate-500 truncate hidden sm:block">
-          Seiten hinzufügen, löschen, umsortieren und in 90°-Schritten drehen
+          Add, delete, reorder, and rotate pages in 90° steps
         </p>
       </div>
     </div>
 
     {/* Quick Action Buttons */}
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-      {/* Jump to Beginning / Seite 1 */}
+      {/* Jump to Beginning / Page 1 */}
       {onJumpToBeginning && (
         <button
           id="btn-jump-to-beginning"
@@ -62,11 +62,11 @@ export const PageManagementHeader: React.FC<Props> = ({
           onClick={onJumpToBeginning}
           disabled={pageCount === 0 || isApplying}
           className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
-          title="An den Anfang des Dokuments springen"
-          aria-label="An den Anfang des Dokuments springen"
+          title="Jump to the beginning of the document"
+          aria-label="Jump to the beginning of the document"
         >
           <ArrowUpToLine className="w-4 h-4 text-blue-600 shrink-0" />
-          <span className="hidden xs:inline">An den Anfang</span>
+          <span className="hidden xs:inline">To Top</span>
         </button>
       )}
 
@@ -77,11 +77,11 @@ export const PageManagementHeader: React.FC<Props> = ({
         onClick={() => onRotateAll()}
         disabled={pageCount === 0 || isApplying}
         className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs font-medium shadow-2xs transition cursor-pointer"
-        title="Alle Seiten um 90° im Uhrzeigersinn drehen"
-        aria-label="Alle Seiten um 90° im Uhrzeigersinn drehen"
+        title="Rotate all pages 90° clockwise"
+        aria-label="Rotate all pages 90° clockwise"
       >
         <RotateCw className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-        <span className="hidden md:inline">Alle drehen</span>
+        <span className="hidden md:inline">Rotate All</span>
       </button>
 
       {/* Add Blank Page */}
@@ -91,11 +91,11 @@ export const PageManagementHeader: React.FC<Props> = ({
         onClick={() => onAddBlank()}
         disabled={isApplying}
         className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
-        title="Leere Seite hinzufügen"
-        aria-label="Leere Seite hinzufügen"
+        title="Add blank page"
+        aria-label="Add blank page"
       >
         <FilePlus2 className="w-4 h-4 text-emerald-600 shrink-0" />
-        <span className="hidden sm:inline">Leere Seite</span>
+        <span className="hidden sm:inline">Blank Page</span>
       </button>
 
       {/* Import Pages from another PDF */}
@@ -105,15 +105,15 @@ export const PageManagementHeader: React.FC<Props> = ({
         onClick={() => importFileInputRef.current?.click()}
         disabled={isApplying || isImporting}
         className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs sm:text-sm font-medium shadow-2xs transition cursor-pointer"
-        title="Seiten aus einer anderen PDF importieren"
-        aria-label="Seiten aus einer anderen PDF importieren"
+        title="Import pages from another PDF"
+        aria-label="Import pages from another PDF"
       >
         {isImporting ? (
           <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
         ) : (
           <FileUp className="w-4 h-4 text-purple-600 shrink-0" />
         )}
-        <span className="hidden sm:inline">Importieren</span>
+        <span className="hidden sm:inline">Import</span>
       </button>
 
       {/* Hidden file input for importing */}
@@ -132,7 +132,7 @@ export const PageManagementHeader: React.FC<Props> = ({
         onClick={onClose}
         disabled={isApplying}
         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition cursor-pointer"
-        aria-label="Schließen"
+        aria-label="Close"
       >
         <X className="w-5 h-5" />
       </button>

@@ -104,7 +104,7 @@ export function getRuntimeVersionInfo(appVersion: string): RuntimeVersionInfo {
     return {
       appVersion,
       apkBuildVersion: null,
-      runtimeEnvironment: 'Web / Vorschau (Eingebettetes iFrame)',
+      runtimeEnvironment: 'Web / Preview (Embedded iFrame)',
     };
   }
 
@@ -123,9 +123,9 @@ export function getRuntimeVersionInfo(appVersion: string): RuntimeVersionInfo {
 export function openPdfExternalLink(rawUrl: string): void {
   const url = new URL(rawUrl);
   if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new Error('Dieser PDF-Link verwendet ein nicht unterstütztes Protokoll.');
+    throw new Error('This PDF link uses an unsupported protocol.');
   }
-  if (!url.hostname) throw new Error('Ungültige Webadresse im PDF.');
+  if (!url.hostname) throw new Error('Invalid web address in PDF.');
   if (!isNativeAndroid()) {
     window.open(url.href, '_blank', 'noopener,noreferrer');
     return;
@@ -133,7 +133,7 @@ export function openPdfExternalLink(rawUrl: string): void {
   const native = window.NativePdfBridge as any;
   if (typeof native.openExternalUrl !== 'function' ||
       native.openExternalUrl(url.href) !== true) {
-    throw new Error('Der Weblink konnte nicht im Android-Browser geöffnet werden.');
+    throw new Error('Could not open the web link in the Android browser.');
   }
 }
 
@@ -164,7 +164,7 @@ export async function savePdfDocument(
     try {
       const ok = await nativeFileAction('save', safeName, pdfData);
       if (ok) return { success: true, method: 'native-android' };
-      throw new Error('Android-Dateiaktion wurde nicht erfolgreich abgeschlossen.');
+      throw new Error('Android file action did not complete successfully.');
     } catch (err) {
       console.error('Native Android save failed:', err);
       throw err;
@@ -238,7 +238,7 @@ export async function savePdfDocumentAs(
   const bridge = typeof window !== 'undefined' ? (window.NativePdfBridge as any) : null;
   if (isNativeAndroid() && bridge?.beginPdfTransfer) {
     if (activeSaveAsRequestId !== null) {
-      throw new Error('Ein Speichervorgang über den Dateidialog ist bereits aktiv.');
+      throw new Error('A save operation via the file dialog is already active.');
     }
 
     const requestId =
@@ -261,7 +261,7 @@ export async function savePdfDocumentAs(
       if (typeof bridge.beginSaveAsRequest === 'function') {
         const started = bridge.beginSaveAsRequest(requestId);
         if (started === false) {
-          throw new Error('Speicherort-Anfrage auf Android konnte nicht initialisiert werden.');
+          throw new Error('Could not initialize save location request on Android.');
         }
       }
 
@@ -288,7 +288,7 @@ export async function savePdfDocumentAs(
 
         timeoutHandle = setTimeout(() => {
           settleReject(
-            new Error('Zeitüberschreitung bei der Speicherort-Auswahl auf Android.')
+            new Error('Timed out waiting for save location selection on Android.')
           );
         }, timeoutMs);
 
@@ -306,7 +306,7 @@ export async function savePdfDocumentAs(
               } else if (status === 'unknown') {
                 settleReject(
                   new Error(
-                    'Der Android-Speicherdialog wurde durch eine Unterbrechung oder Neuerstellung der Activity beendet.'
+                    'The Android save dialog was interrupted or closed by an Activity recreation.'
                   )
                 );
               }
@@ -346,7 +346,7 @@ export async function savePdfDocumentAs(
       const launched = await nativeFileAction('save_as', safeName, pdfData);
       if (!launched) {
         settled = true;
-        throw new Error('Speicherort-Auswahl auf Android konnte nicht geöffnet werden.');
+        throw new Error('Could not open save location picker on Android.');
       }
 
       const saved = await completionPromise;
@@ -399,7 +399,7 @@ export async function sharePdfDocument(
     try {
       const ok = await nativeFileAction('share', safeName, pdfData);
       if (ok) return { success: true, method: 'native-android' };
-      throw new Error('Android-Dateiaktion wurde nicht erfolgreich abgeschlossen.');
+      throw new Error('Android file action did not complete successfully.');
     } catch (err) {
       console.error('Native Android share failed:', err);
       throw err;
@@ -418,7 +418,7 @@ export async function sharePdfDocument(
         await navigator.share({
           files: [file],
           title: safeName,
-          text: 'PDF-Dokument teilen',
+          text: 'Share PDF Document',
         });
         return { success: true, method: 'web-share' };
       }
@@ -460,7 +460,7 @@ export async function printPdfDocument(
     try {
       const ok = await nativeFileAction('print', safeTitle, pdfData);
       if (ok) return { success: true, method: 'native-android' };
-      throw new Error('Android-Dateiaktion wurde nicht erfolgreich abgeschlossen.');
+      throw new Error('Android file action did not complete successfully.');
     } catch (err) {
       console.error('Native Android print failed:', err);
       throw err;

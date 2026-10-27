@@ -30,7 +30,7 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
 
   return (
     <aside
-      aria-label="Schnellsteuerung für Seiten und Zoom"
+      aria-label="Quick page and zoom controls"
       className={`fixed left-1/2 -translate-x-1/2 ${
         isFullscreen ? 'bottom-6' : 'bottom-20'
       } z-30 transition-all duration-300 ease-in-out pointer-events-auto ${
@@ -47,8 +47,8 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
             onClick={onPrevPage}
             disabled={currentPage <= 1}
             className="p-1 rounded-full text-slate-700 hover:bg-slate-200/50 active:bg-slate-200/70 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer min-w-[32px] min-h-[32px] flex items-center justify-center"
-            title="Vorherige Seite"
-            aria-label="Vorherige Seite"
+            title="Previous page"
+            aria-label="Previous page"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -57,8 +57,8 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
             type="button"
             onClick={onOpenPageGrid}
             className="px-2 py-0.5 rounded-full text-xs font-semibold hover:bg-slate-200/50 active:bg-slate-200/70 transition cursor-pointer flex items-center gap-1"
-            title="Seitenübersicht öffnen"
-            aria-label={`Seite ${currentPage} von ${numPages}. Klicken für Seitenübersicht.`}
+            title="Open page overview"
+            aria-label={`Page ${currentPage} of ${numPages}. Tap for page overview.`}
           >
             <span className="text-blue-600 font-mono font-bold">{currentPage}</span>
             <span className="text-slate-400 font-normal">/</span>
@@ -70,8 +70,8 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
             onClick={onNextPage}
             disabled={currentPage >= numPages}
             className="p-1 rounded-full text-slate-700 hover:bg-slate-200/50 active:bg-slate-200/70 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer min-w-[32px] min-h-[32px] flex items-center justify-center"
-            title="Nächste Seite"
-            aria-label="Nächste Seite"
+            title="Next page"
+            aria-label="Next page"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -80,13 +80,13 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
         {/* Divider */}
         <span className="w-px h-4 bg-slate-300/60 mx-0.5" />
 
-        {/* Zoom percentage button: shows zoom % and resets to "Ganze Seite" (Fit Page) on click */}
+        {/* Zoom percentage button: shows zoom % and resets to Fit Page on click */}
         <button
           type="button"
           onClick={onResetToFitPage}
           className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-200/55 hover:bg-slate-200/80 active:bg-blue-100/80 active:text-blue-700 text-slate-700 transition active:scale-95 cursor-pointer whitespace-nowrap min-h-[28px] flex items-center justify-center font-mono"
-          title="Klicken, um auf 'Ganze Seite' zurückzusetzen"
-          aria-label={`Zoom: ${roundedZoom}%. Klicken für Ganze Seite.`}
+          title="Tap to reset zoom to Fit Page"
+          aria-label={`Zoom: ${roundedZoom}%. Tap to fit page.`}
         >
           {roundedZoom}%
         </button>
@@ -102,8 +102,8 @@ export const MobileFloatingPill: React.FC<MobileFloatingPillProps> = ({
               className={`p-1.5 rounded-full text-slate-700 hover:bg-slate-200/50 active:bg-slate-200/70 transition cursor-pointer min-w-[28px] min-h-[28px] flex items-center justify-center ${
                 isFullscreen ? 'text-blue-600 bg-blue-50/80' : ''
               }`}
-              title={isFullscreen ? 'Vollbildmodus beenden' : 'Vollbildmodus aktivieren'}
-              aria-label={isFullscreen ? 'Vollbildmodus beenden' : 'Vollbildmodus aktivieren'}
+              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             >
               {isFullscreen ? (
                 <Minimize2 className="w-3.5 h-3.5" />

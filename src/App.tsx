@@ -264,7 +264,7 @@ export default function App() {
         const msg = `Could not open "${file.name}": ${errorDetail}. Please ensure the file is an uncorrupted PDF.`;
         setPdfErrorMessage(msg);
         setActiveAppError(
-          createAppError('PDF_LOAD_FAILED', 'PDF konnte nicht geöffnet werden', msg, err, {
+          createAppError('PDF_LOAD_FAILED', 'Could not open PDF', msg, err, {
             fileName: file.name,
             fileSize: file.size,
           })
@@ -342,7 +342,7 @@ export default function App() {
         await handleFileSelect(file);
       } catch (err) {
         console.error('[Native Bridge] Error reading incoming PDF:', err);
-        setShareIssueNotice({ title: 'Android-Dateiübertragung', message: 'PDF konnte nicht aus Android übernommen werden.' });
+        setShareIssueNotice({ title: 'Android File Transfer', message: 'Could not receive PDF from Android.' });
       } finally {
         if (data.token) bridge?.releaseIncomingPdf?.(data.token);
       }
@@ -791,10 +791,10 @@ export default function App() {
   const handleSelectRecentDoc = async (record: RecentDocumentRecord) => {
     const buffer = record.pdfBuffer || (await getRecentDocumentBlob(record.id));
     if (!buffer) {
-      const msg = `Das Dokument „${record.name}“ konnte nicht aus dem lokalen Speicher geladen werden.`;
+      const msg = `The document "${record.name}" could not be loaded from local storage.`;
       setPdfErrorMessage(msg);
       setActiveAppError(
-        createAppError('RECENT_DOC_LOAD_FAILED', 'Verlaufsdokument nicht verfügbar', msg, undefined, {
+        createAppError('RECENT_DOC_LOAD_FAILED', 'Recent document unavailable', msg, undefined, {
           docId: record.id,
           name: record.name,
         })
@@ -865,10 +865,10 @@ export default function App() {
         await printPdfDocument(pdfState.name, bytes);
       }
     } catch (err: any) {
-      const msg = `Drucken fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`;
+      const msg = `Print failed: ${err?.message || 'Could not generate PDF.'}`;
       setPdfErrorMessage(msg);
       setActiveAppError(
-        createAppError('PDF_EXPORT_FAILED', 'Drucken fehlgeschlagen', msg, err, {
+        createAppError('PDF_EXPORT_FAILED', 'Print failed', msg, err, {
           document: pdfState.name,
         })
       );
@@ -888,10 +888,10 @@ export default function App() {
         await sharePdfDocument(pdfState.name, bytes);
       }
     } catch (err: any) {
-      const msg = `Teilen fehlgeschlagen: ${err?.message || 'PDF konnte nicht erzeugt werden.'}`;
+      const msg = `Share failed: ${err?.message || 'Could not generate PDF.'}`;
       setPdfErrorMessage(msg);
       setActiveAppError(
-        createAppError('PDF_EXPORT_FAILED', 'Teilen fehlgeschlagen', msg, err, {
+        createAppError('PDF_EXPORT_FAILED', 'Share failed', msg, err, {
           document: pdfState.name,
         })
       );
@@ -1038,7 +1038,7 @@ export default function App() {
                 onClick={() => setShowDiagnosticsModal(true)}
                 className="px-2.5 py-1 rounded-lg bg-red-100 hover:bg-red-200 text-red-900 text-xs font-semibold transition"
               >
-                Diagnose
+                Diagnostics
               </button>
             )}
             <button
@@ -1350,7 +1350,7 @@ export default function App() {
               ? createAppError(
                   'ANDROID_SHARE_FAILED',
                   shareIssueNotice.title || 'Android Share Technical Diagnostic',
-                  shareIssueNotice.message || 'PDF konnte nicht über das Share-Target geladen werden.',
+                  shareIssueNotice.message || 'Could not load PDF from Share Target.',
                   shareIssueNotice.details,
                   shareIssueNotice.attemptedFile
                     ? { attemptedFile: shareIssueNotice.attemptedFile }

@@ -320,7 +320,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
                     openPdfExternalLink(link.url);
                     setLinkError(null);
                   } catch (error: any) {
-                    setLinkError(error?.message || 'Weblink konnte nicht geöffnet werden.');
+                    setLinkError(error?.message || 'Could not open web link.');
                   }
                 }
               }}
@@ -342,7 +342,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
       {linkError && (
         <div role="alert" className="absolute z-[40] top-2 left-2 right-2 bg-amber-50 border border-amber-300 rounded p-2 text-sm text-amber-900">
           {linkError}
-          <button type="button" onClick={() => setLinkError(null)} className="ml-2 underline">Schließen</button>
+          <button type="button" onClick={() => setLinkError(null)} className="ml-2 underline">Close</button>
         </div>
       )}
 

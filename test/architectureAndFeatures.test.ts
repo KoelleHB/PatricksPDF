@@ -168,7 +168,7 @@ test('parsePageRangeInput and buildExportFileName handle page subsets, naming te
   const fixedDate = new Date(2026, 9, 25); // 2026-10-25
   assert.equal(
     buildExportFileName('Vertrag.pdf', DEFAULT_EXPORT_SETTINGS),
-    'Vertrag_unterschrieben'
+    'Vertrag_signed'
   );
   assert.equal(
     buildExportFileName(
@@ -400,7 +400,7 @@ test('Form modifications & flattening fail explicitly on invalid field updates i
         { country: 'INVALID_COUNTRY_OPTION' },
         { flattenForm: true }
       ),
-    /Option "INVALID_COUNTRY_OPTION" ist im Auswahlfeld "country" nicht vorhanden/
+    /Option "INVALID_COUNTRY_OPTION" does not exist in selection field "country"/
   );
 
   // 2. Setting a non-empty value for a non-existent field on an exported page must reject
@@ -413,7 +413,7 @@ test('Form modifications & flattening fail explicitly on invalid field updates i
         { missing_field_id: 'Important Value' },
         { flattenForm: false }
       ),
-    /Formularfeld "missing_field_id" konnte beim Export nicht im PDF gefunden werden/
+    /Form field "missing_field_id" could not be found in the PDF during export/
   );
 });
 
@@ -549,11 +549,11 @@ test('savePdfDocumentAs enforces requestId correlation, concurrency lock, timeou
     // Concurrent call while hangingPromise is active must reject immediately
     await assert.rejects(
       () => savePdfDocumentAs('concurrent.pdf', new Uint8Array([1, 2, 3])),
-      /bereits aktiv/
+      /already active/
     );
 
     // Hanging promise must time out cleanly and release the lock
-    await assert.rejects(hangingPromise, /Zeitüberschreitung/);
+    await assert.rejects(hangingPromise, /Timed out/);
     assert.equal(
       (globalThis as any).window.onNativeSaveAsCompleted,
       undefined,
@@ -567,21 +567,21 @@ test('savePdfDocumentAs enforces requestId correlation, concurrency lock, timeou
 test('createAppError and formatAppErrorReport generate structured v2.3.0 diagnostics and info reports', () => {
   const err = createAppError(
     'PDF_EXPORT_FAILED',
-    'Export fehlgeschlagen',
-    'Die Datei konnte nicht erzeugt werden.',
+    'Export failed',
+    'Could not generate the file.',
     new Error('Test stack error'),
     { pages: 4 }
   );
   const report = formatAppErrorReport(err);
-  assert.match(report, /PatricksPDF v2\.3\.0 Fehlerdiagnose/);
-  assert.match(report, /Build-Version:/);
+  assert.match(report, /PatricksPDF v2\.3\.0 Error Diagnostics/);
+  assert.match(report, /Build Version:/);
   assert.match(report, /PDF_EXPORT_FAILED/);
   assert.match(report, /Test stack error/);
   assert.match(report, /"pages":4/);
 
   const infoOnlyReport = formatAppErrorReport(null);
-  assert.match(infoOnlyReport, /PatricksPDF v2\.3\.0 Info & Diagnose/);
-  assert.match(infoOnlyReport, /Keine aktiven Laufzeitfehler protokolliert/);
+  assert.match(infoOnlyReport, /PatricksPDF v2\.3\.0 Info & Diagnostics/);
+  assert.match(infoOnlyReport, /No active runtime errors logged/);
 });
 
 test('applyPageModifications explicitly rejects encrypted PDFs instead of using ignoreEncryption: true', async () => {
@@ -592,7 +592,7 @@ test('applyPageModifications explicitly rejects encrypted PDFs instead of using 
     encryptedBytes.byteOffset + encryptedBytes.byteLength
   ) as ArrayBuffer;
 
-  // 1. Direct modification of an encrypted document must reject with German security notice
+  // 1. Direct modification of an encrypted document must reject with English security notice
   await assert.rejects(
     () =>
       applyPageModifications(encryptedBuffer, [
@@ -607,7 +607,7 @@ test('applyPageModifications explicitly rejects encrypted PDFs instead of using 
           aspectRatio: 595 / 842,
         },
       ]),
-    /verschlüsselt oder bearbeitungsgeschützt/
+    /encrypted or protected against editing/
   );
 
   // 2. Importing pages from an encrypted external PDF into an unencrypted working document must also reject
@@ -646,7 +646,7 @@ test('applyPageModifications explicitly rejects encrypted PDFs instead of using 
           sourceFileName: 'encrypted.pdf',
         },
       ]),
-    /verschlüsselt oder bearbeitungsgeschützt/
+    /encrypted or protected against editing/
   );
 });
 
@@ -737,10 +737,10 @@ test('Mobile UI components, confirmed fullscreen, manual zoom preservation, live
   assert.match(topBarSource, /Undo2/);
   assert.match(topBarSource, /Redo2/);
   // 3-dots menu entries:
-  assert.match(topBarSource, /Datei öffnen/);
-  assert.match(topBarSource, /Verlauf/);
-  assert.match(topBarSource, /Seitenübersicht/);
-  assert.match(topBarSource, /Info & Diagnose/);
+  assert.match(topBarSource, /Open File/);
+  assert.match(topBarSource, /Recent Documents/);
+  assert.match(topBarSource, /Page Overview/);
+  assert.match(topBarSource, /Info & Diagnostics/);
   assert.doesNotMatch(topBarSource, /Seiten organisieren/);
 
   const floatingPillSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileFloatingPill.tsx'), 'utf8');
@@ -781,13 +781,13 @@ test('Mobile UI components, confirmed fullscreen, manual zoom preservation, live
 
   const bottomSheetSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobilePageGridBottomSheet.tsx'), 'utf8');
   assert.match(bottomSheetSource, /export (const|function) MobilePageGridBottomSheet/);
-  assert.match(bottomSheetSource, /An den Anfang/, 'Bottom sheet must have an An den Anfang button');
-  assert.match(bottomSheetSource, /aria-label="Seiten verwalten"/, 'Verwalten button must have explicit aria-label');
-  assert.match(bottomSheetSource, /<span>Verwalten<\/span>/, 'Verwalten label must be visible');
+  assert.match(bottomSheetSource, /To Top/, 'Bottom sheet must have a To Top button');
+  assert.match(bottomSheetSource, /aria-label="Manage pages"/, 'Manage button must have explicit aria-label');
+  assert.match(bottomSheetSource, /<span>Manage<\/span>/, 'Manage label must be visible');
   assert.match(bottomSheetSource, /scrollIntoView/, 'Bottom sheet must scroll to active page');
 
   const pageHeaderSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/PageManagementHeader.tsx'), 'utf8');
-  assert.match(pageHeaderSource, /An den Anfang/, 'Page management header must have an An den Anfang button');
+  assert.match(pageHeaderSource, /To Top/, 'Page management header must have a To Top button');
 
   const bottomBarSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/mobile/MobileBottomBar.tsx'), 'utf8');
   assert.match(bottomBarSource, /export (const|function) MobileBottomBar/);

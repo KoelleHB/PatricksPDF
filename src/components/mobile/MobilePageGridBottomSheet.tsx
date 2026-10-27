@@ -82,7 +82,7 @@ const ThumbnailCard: React.FC<{
         {thumbUrl ? (
           <img
             src={thumbUrl}
-            alt={`Seite ${pageNumber}`}
+            alt={`Page ${pageNumber}`}
             className="w-full h-full object-contain animate-in fade-in duration-150"
             loading="lazy"
           />
@@ -103,7 +103,7 @@ const ThumbnailCard: React.FC<{
             isCurrent ? 'text-blue-700 font-bold' : 'text-slate-600'
           }`}
         >
-          Seite {pageNumber}
+          Page {pageNumber}
         </span>
         {isCurrent && (
           <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
@@ -170,10 +170,10 @@ export const MobilePageGridBottomSheet: React.FC<MobilePageGridBottomSheetProps>
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 shrink-0 gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="text-sm font-semibold text-slate-900 truncate">
-              Seitenübersicht
+              Page Overview
             </h2>
             <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
-              {pdfState.numPages} {pdfState.numPages === 1 ? 'Seite' : 'Seiten'}
+              {pdfState.numPages} {pdfState.numPages === 1 ? 'page' : 'pages'}
             </span>
           </div>
 
@@ -186,11 +186,11 @@ export const MobilePageGridBottomSheet: React.FC<MobilePageGridBottomSheetProps>
                 scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="text-xs font-medium text-slate-700 hover:text-slate-900 active:bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 transition flex items-center gap-1 cursor-pointer shadow-2xs"
-              title="An den Anfang (Seite 1) scrollen"
-              aria-label="An den Anfang scrollen"
+              title="Scroll to top (Page 1)"
+              aria-label="Scroll to top"
             >
               <ArrowUpToLine className="w-3.5 h-3.5 text-blue-600" />
-              <span>An den Anfang</span>
+              <span>To Top</span>
             </button>
 
             {onOpenFullPageManager && (
@@ -201,11 +201,11 @@ export const MobilePageGridBottomSheet: React.FC<MobilePageGridBottomSheetProps>
                   onOpenFullPageManager();
                 }}
                 className="text-xs font-medium text-blue-600 hover:text-blue-700 active:bg-blue-50 px-2 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                title="Seiten verwalten"
-                aria-label="Seiten verwalten"
+                title="Manage pages"
+                aria-label="Manage pages"
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>Verwalten</span>
+                <span>Manage</span>
               </button>
             )}
 
@@ -213,7 +213,7 @@ export const MobilePageGridBottomSheet: React.FC<MobilePageGridBottomSheetProps>
               type="button"
               onClick={onClose}
               className="p-1 rounded-full text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition cursor-pointer"
-              aria-label="Schließen"
+              aria-label="Close"
             >
               <X className="w-5 h-5" />
             </button>

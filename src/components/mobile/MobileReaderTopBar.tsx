@@ -105,8 +105,8 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
             type="button"
             onClick={onBack}
             className="p-1.5 -ml-1 rounded-full text-slate-700 hover:bg-slate-100 active:bg-slate-200/70 transition shrink-0 cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
-            title="Zurück zur Übersicht"
-            aria-label="Zurück zur Übersicht"
+            title="Back to Home"
+            aria-label="Back to Home"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -116,7 +116,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
               className="text-xs sm:text-sm font-semibold text-slate-900 truncate tracking-tight leading-tight"
               title={pdfState.name}
             >
-              {pdfState.name || 'Dokument'}
+              {pdfState.name || 'Document'}
             </h1>
             <div className="flex items-center gap-1.5 mt-0.5 text-[10px] sm:text-[11px] text-slate-500 font-medium truncate">
               <span>PDF</span>
@@ -134,7 +134,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                   }`}
                 />
                 <span className={isSaved ? 'text-slate-600' : 'text-amber-700 font-semibold'}>
-                  {isSaved ? 'Gespeichert' : 'Geändert'}
+                  {isSaved ? 'Saved' : 'Modified'}
                 </span>
               </span>
             </div>
@@ -150,8 +150,8 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
               onClick={onUndo}
               disabled={!canUndo}
               className="p-1.5 rounded-full text-slate-700 hover:bg-slate-100 active:bg-slate-200/70 disabled:opacity-25 disabled:hover:bg-transparent transition cursor-pointer min-w-[34px] min-h-[34px] flex items-center justify-center"
-              title="Rückgängig"
-              aria-label="Rückgängig"
+              title="Undo"
+              aria-label="Undo"
             >
               <Undo2 className="w-4 h-4" />
             </button>
@@ -164,8 +164,8 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
               onClick={onRedo}
               disabled={!canRedo}
               className="p-1.5 rounded-full text-slate-700 hover:bg-slate-100 active:bg-slate-200/70 disabled:opacity-25 disabled:hover:bg-transparent transition cursor-pointer min-w-[34px] min-h-[34px] flex items-center justify-center"
-              title="Wiederholen"
-              aria-label="Wiederholen"
+              title="Redo"
+              aria-label="Redo"
             >
               <Redo2 className="w-4 h-4" />
             </button>
@@ -180,8 +180,8 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                 ? 'bg-blue-100 text-blue-600'
                 : 'text-slate-700 hover:bg-slate-100 active:bg-slate-200/70'
             }`}
-            title="Dokument durchsuchen"
-            aria-label="Dokument durchsuchen"
+            title="Search document"
+            aria-label="Search document"
           >
             <Search className="w-4 h-4" />
           </button>
@@ -196,8 +196,8 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                   ? 'bg-slate-200 text-slate-900'
                   : 'text-slate-700 hover:bg-slate-100 active:bg-slate-200/70'
               }`}
-              title="Weitere Optionen"
-              aria-label="Weitere Optionen"
+              title="More options"
+              aria-label="More options"
               aria-expanded={isMenuOpen}
             >
               <MoreVertical className="w-4 h-4" />
@@ -220,7 +220,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                       className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
                     >
                       <FolderOpen className="w-4 h-4 text-blue-600" />
-                      <span className="font-medium">Datei öffnen</span>
+                      <span className="font-medium">Open File</span>
                     </button>
                   )}
 
@@ -234,7 +234,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                       className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
                     >
                       <History className="w-4 h-4 text-blue-600" />
-                      <span>Verlauf zeigen</span>
+                      <span>Recent Documents</span>
                     </button>
                   )}
                 </div>
@@ -251,7 +251,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                       className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
                     >
                       <LayoutGrid className="w-4 h-4 text-slate-600" />
-                      <span>Seitenübersicht</span>
+                      <span>Page Overview</span>
                     </button>
                   )}
 
@@ -265,7 +265,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                       className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
                     >
                       <BookOpen className="w-4 h-4 text-slate-600" />
-                      <span>Inhaltsverzeichnis</span>
+                      <span>Table of Contents</span>
                     </button>
                   )}
 
@@ -280,7 +280,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                     >
                       <div className="flex items-center gap-2.5">
                         <AlignLeft className="w-4 h-4 text-slate-600" />
-                        <span>Text-Reflow (Lesemodus)</span>
+                        <span>Text Reflow (Reader)</span>
                       </div>
                       {isReflowActive && <Check className="w-3.5 h-3.5 text-blue-600" />}
                     </button>
@@ -299,7 +299,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                       className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
                     >
                       <Printer className="w-4 h-4 text-slate-600" />
-                      <span>Drucken</span>
+                      <span>Print</span>
                     </button>
                   )}
 
@@ -313,7 +313,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                       className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
                     >
                       <Share2 className="w-4 h-4 text-slate-600" />
-                      <span>Teilen</span>
+                      <span>Share</span>
                     </button>
                   )}
                 </div>
@@ -329,7 +329,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                       className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition cursor-pointer"
                     >
                       <HelpCircle className="w-4 h-4 text-slate-500" />
-                      <span>Info & Diagnose</span>
+                      <span>Info & Diagnostics</span>
                     </button>
                   </div>
                 )}

@@ -86,8 +86,8 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onOpenDiagnostics}
-                title="App-Info & Build-Version anzeigen"
-                aria-label="App-Info & Build-Version anzeigen"
+                title="Show App Info & Build Version"
+                aria-label="Show App Info & Build Version"
                 className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
               >
                 v2.3
@@ -137,17 +137,17 @@ export const Header: React.FC<HeaderProps> = ({
             <span>{isOnline ? 'Local' : 'Offline'}</span>
           </div>
 
-          {/* Verlauf / Recent Documents button */}
+          {/* Recent Documents button */}
           {onOpenRecent && (
             <button
               id="header-recent-btn"
               onClick={onOpenRecent}
               className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
-              title="Zuletzt geöffnete Dokumente"
-              aria-label="Verlauf"
+              title="Recently opened documents"
+              aria-label="History"
             >
               <History className="w-4 h-4 text-slate-600 shrink-0" />
-              <span className="hidden md:inline">Verlauf</span>
+              <span className="hidden md:inline">History</span>
               {recentCount > 0 && (
                 <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-blue-100 text-blue-700">
                   {recentCount}
@@ -162,11 +162,11 @@ export const Header: React.FC<HeaderProps> = ({
               id="header-print-btn"
               onClick={onQuickPrint}
               className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
-              title="Dokument drucken (Android Print / Spooler)"
-              aria-label="Drucken"
+              title="Print document (Android Print / Spooler)"
+              aria-label="Print"
             >
               <Printer className="w-4 h-4 text-slate-600 shrink-0" />
-              <span className="hidden lg:inline">Drucken</span>
+              <span className="hidden lg:inline">Print</span>
             </button>
           )}
 
@@ -176,11 +176,11 @@ export const Header: React.FC<HeaderProps> = ({
               id="header-share-btn"
               onClick={onQuickShare}
               className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
-              title="Dokument teilen (Android Share / Web Share)"
-              aria-label="Teilen"
+              title="Share document (Android Share / Web Share)"
+              aria-label="Share"
             >
               <Share2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span className="hidden lg:inline">Teilen</span>
+              <span className="hidden lg:inline">Share</span>
             </button>
           )}
 
