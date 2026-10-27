@@ -1,11 +1,12 @@
 import React from 'react';
-import { AlertTriangle, Download, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Download, Trash2, X, Clock } from 'lucide-react';
 
 interface UnsavedChangesModalProps {
   isOpen: boolean;
   documentName: string;
   actionType: 'close' | 'switch';
   onKeepEditing: () => void;
+  onKeepDraftAndProceed?: () => void;
   onDiscardChanges: () => void;
   onSaveFirst?: () => void;
   onExportFirst?: () => void;
@@ -16,6 +17,7 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
   documentName,
   actionType,
   onKeepEditing,
+  onKeepDraftAndProceed,
   onDiscardChanges,
   onSaveFirst,
   onExportFirst,
@@ -38,7 +40,7 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
               <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
-                Unsaved Changes
+                Unexported Edits
               </h3>
               <button
                 id="unsaved-modal-close-btn"
@@ -50,46 +52,61 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
               </button>
             </div>
             <p className="text-xs sm:text-sm text-slate-600 mt-1.5 leading-relaxed">
-              You have unsaved signatures or edits in{' '}
+              You have edits in{' '}
               <span className="font-semibold text-slate-800 break-all">"{documentName}"</span>{' '}
-              that have not been saved yet.
+              that have not been exported as a final PDF yet.
             </p>
-            <p className="text-xs text-slate-500 mt-1">
-              If you {actionType === 'switch' ? 'open another document' : 'close this document'} now, your changes will be permanently discarded.
+            <p className="text-xs text-slate-500 mt-1.5">
+              Your working progress is automatically saved locally as a draft in Recent Documents so you can resume anytime, or you can export a PDF now.
             </p>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="px-5 sm:px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5">
-          <button
-            id="unsaved-keep-editing-btn"
-            type="button"
-            onClick={onKeepEditing}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-          >
-            Keep Editing
-          </button>
-          <button
-            id="unsaved-discard-btn"
-            type="button"
-            onClick={onDiscardChanges}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-          >
-            <Trash2 className="w-4 h-4 shrink-0" />
-            <span>Discard & {actionType === 'switch' ? 'Open' : 'Close'}</span>
-          </button>
-          {handleSaveFirst && (
+        <div className="px-5 sm:px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col gap-2">
+          <div className="flex flex-col sm:flex-row items-center justify-end gap-2">
+            {onKeepDraftAndProceed && (
+              <button
+                id="unsaved-keep-draft-btn"
+                type="button"
+                onClick={onKeepDraftAndProceed}
+                className="w-full sm:w-auto px-3.5 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Clock className="w-4 h-4 shrink-0 text-amber-700" />
+                <span>Keep Draft & {actionType === 'switch' ? 'Open' : 'Close'}</span>
+              </button>
+            )}
+            {handleSaveFirst && (
+              <button
+                id="unsaved-save-first-btn"
+                type="button"
+                onClick={handleSaveFirst}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Download className="w-4 h-4 shrink-0" />
+                <span>Export PDF Now</span>
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-2 pt-1 border-t border-slate-200/80">
             <button
-              id="unsaved-save-first-btn"
+              id="unsaved-discard-btn"
               type="button"
-              onClick={handleSaveFirst}
-              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              onClick={onDiscardChanges}
+              className="w-full sm:w-auto px-3 py-1.5 rounded-xl text-red-600 hover:bg-red-50 text-xs font-semibold transition flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <Download className="w-4 h-4 shrink-0" />
-              <span>Save First</span>
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Discard Draft & Reset</span>
             </button>
-          )}
+            <button
+              id="unsaved-keep-editing-btn"
+              type="button"
+              onClick={onKeepEditing}
+              className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+            >
+              Back to Editor
+            </button>
+          </div>
         </div>
       </div>
     </div>

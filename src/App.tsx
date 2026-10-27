@@ -11,7 +11,21 @@ import { MobileBottomBar } from './components/MobileBottomBar';
 import { RecentDocumentsModal } from './components/RecentDocumentsModal';
 import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec, RecentDocumentRecord } from './types';
 import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, buildStagedPageExportSnapshot, type StagedPageExportSnapshot, clearThumbnailCache, disposePdfJsResources, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
-import { getRecentDocuments, getRecentDocumentBlob, saveRecentDocument, removeRecentDocument, clearRecentDocuments } from './utils/recentDocuments';
+import {
+  getRecentDocuments,
+  getRecentDocumentBlob,
+  saveRecentDocument,
+  removeRecentDocument,
+  clearRecentDocuments,
+  computePdfFingerprint,
+  saveDocumentDraft,
+  getDocumentDraft,
+  markDocumentDraftSaved,
+  discardDocumentDraft,
+  writeEmergencyDraftToLocalStorage,
+  reconcileEmergencyDraftFromLocalStorage,
+  compileRecentDocumentPdfBytes,
+} from './utils/recentDocuments';
 import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
 import { usePwaShareTarget } from './hooks/usePwaShareTarget';
@@ -28,6 +42,7 @@ import { useIsMobile } from './hooks/useIsMobile';
 
 export default function App() {
   const [pdfState, setPdfState] = useState<PdfDocumentState | null>(null);
+  const [currentDocId, setCurrentDocId] = useState<string | null>(null);
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [isReceivingSharedPdf, setIsReceivingSharedPdf] = useState(() => 
     typeof window !== 'undefined' && window.location.search.includes('shared=true')
@@ -43,6 +58,7 @@ export default function App() {
   const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
   const manualFileInputRef = useRef<HTMLInputElement>(null);
   const originalPdfBufferRef = useRef<ArrayBuffer | null>(null);
+  const originalNumPagesRef = useRef<number>(1);
   const viewportSnapshotGetterRef = useRef<(() => ViewportPageSnapshot | null) | null>(null);
   const pendingPlacementSnapshotRef = useRef<ViewportPageSnapshot | null>(null);
 
@@ -98,35 +114,28 @@ export default function App() {
   } | null>(null);
   const [isPasswordIncorrect, setIsPasswordIncorrect] = useState(false);
 
-  // Check if form values differ from initial document state
-  const isFormModified = React.useMemo(() => {
+  // Count how many form fields differ from initial document state
+  const formEditCount = React.useMemo(() => {
     const initial = initialFormValuesRef.current;
     const currentKeys = Object.keys(formValues);
+    let count = 0;
     for (const k of currentKeys) {
-      if (formValues[k] !== initial[k]) return true;
+      if (formValues[k] !== initial[k]) count++;
     }
-    return false;
+    return count;
   }, [formValues]);
 
-  // Overall check: has user modified anything that has not been saved yet?
-  // Do not infer safety from remaining overlays: edits such as removing an
-  // existing signature or resetting a field still require an explicit save.
-  const hasUnsavedChanges = Boolean(pdfState && !isSaved);
+  const isFormModified = formEditCount > 0;
 
-  // Browser beforeunload event listener (triggers browser's native leave confirmation)
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [hasUnsavedChanges]);
+  // Overall check: has user modified anything that has not been saved/exported yet?
+  const hasUnsavedChanges = Boolean(pdfState && !isSaved);
+  const hasWorkingEdits = Boolean(
+    pdfState &&
+      (signatures.length > 0 ||
+        textOverlays.length > 0 ||
+        isFormModified ||
+        hasPageModifications)
+  );
 
   // Pending action for switching document or closing document with unsaved changes
   const [pendingAction, setPendingAction] = useState<{
@@ -135,17 +144,121 @@ export default function App() {
   } | null>(null);
   const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
 
-  // Local Document History (Zuletzt geöffnet)
+  // Local Document History (Recent Documents & Drafts)
   const [recentDocs, setRecentDocs] = useState<RecentDocumentRecord[]>([]);
   const [isRecentModalOpen, setIsRecentModalOpen] = useState(false);
   const [isQuickProcessing, setIsQuickProcessing] = useState(false);
 
-  // Load recent documents on initial mount
+  // Reconcile any emergency localStorage draft and load recent documents on initial mount
   useEffect(() => {
-    getRecentDocuments()
-      .then((docs) => setRecentDocs(docs))
-      .catch((err) => console.warn('Failed to load recent documents:', err));
+    reconcileEmergencyDraftFromLocalStorage()
+      .catch((err) => console.warn('Emergency draft reconciliation warning:', err))
+      .finally(() => {
+        getRecentDocuments()
+          .then((docs) => setRecentDocs(docs))
+          .catch((err) => console.warn('Failed to load recent documents:', err));
+      });
   }, []);
+
+  // Synchronized ref of current active document state for immediate background/lifecycle draft flushes
+  const latestDraftSnapshotRef = useRef<{
+    id: string;
+    name: string;
+    originalBuffer: ArrayBuffer | null;
+    isUnsavedDraft: boolean;
+    currentPage: number;
+    numPages: number;
+    hasPageModifications: boolean;
+    modifiedPdfBuffer: ArrayBuffer | null;
+    signatures: SignatureItem[];
+    textOverlays: TextOverlayItem[];
+    formValues: FormValuesState;
+    formEditCount: number;
+  } | null>(null);
+
+  latestDraftSnapshotRef.current =
+    pdfState && currentDocId
+      ? {
+          id: currentDocId,
+          name: pdfState.name,
+          originalBuffer: originalPdfBufferRef.current,
+          isUnsavedDraft: !isSaved,
+          currentPage: pdfState.currentPage,
+          numPages: pdfState.numPages,
+          hasPageModifications,
+          modifiedPdfBuffer: hasPageModifications ? pdfState.arrayBuffer : null,
+          signatures,
+          textOverlays,
+          formValues,
+          formEditCount,
+        }
+      : null;
+
+  // Flush active draft immediately (used on visibilitychange hidden, pagehide, beforeunload, and document switch)
+  const flushActiveDraftNow = useCallback(async () => {
+    flushPendingFormCommit();
+    const snap = latestDraftSnapshotRef.current;
+    if (!snap) return;
+    writeEmergencyDraftToLocalStorage(snap);
+    await saveDocumentDraft(snap);
+    const updated = await getRecentDocuments();
+    setRecentDocs(updated);
+  }, [flushPendingFormCommit]);
+
+  // Debounced background persistence to IndexedDB v3 (~450ms after any edit or page change)
+  useEffect(() => {
+    if (!pdfState || !currentDocId) return;
+    const timer = setTimeout(() => {
+      const snap = latestDraftSnapshotRef.current;
+      if (!snap) return;
+      saveDocumentDraft(snap)
+        .then(() => getRecentDocuments())
+        .then((docs) => setRecentDocs(docs))
+        .catch((err) => console.warn('Background draft save warning:', err));
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [
+    pdfState?.currentPage,
+    pdfState?.numPages,
+    pdfState?.arrayBuffer,
+    currentDocId,
+    signatures,
+    textOverlays,
+    formValues,
+    formEditCount,
+    hasPageModifications,
+    isSaved,
+  ]);
+
+  // Immediate lifecycle flush when app goes to background or is force-closed (PWA & Android APK)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && latestDraftSnapshotRef.current) {
+        void flushActiveDraftNow();
+      }
+    };
+    const handlePageHide = () => {
+      if (latestDraftSnapshotRef.current) {
+        void flushActiveDraftNow();
+      }
+    };
+    const handleBeforeUnload = () => {
+      if (latestDraftSnapshotRef.current) {
+        flushPendingFormCommit();
+        writeEmergencyDraftToLocalStorage(latestDraftSnapshotRef.current);
+        void saveDocumentDraft(latestDraftSnapshotRef.current);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [flushActiveDraftNow, flushPendingFormCommit]);
 
   // Modals state
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
@@ -160,8 +273,12 @@ export default function App() {
   const isMobile = useIsMobile();
   const [isMobileBottomBarVisible, setIsMobileBottomBarVisible] = useState(true);
 
-  // Load a user-selected PDF file with robust error handling and password detection
-  const handleFileSelect = async (file: File, password?: string) => {
+  // Load a user-selected PDF file with robust error handling, password detection, and automatic draft restoration
+  const handleFileSelect = async (
+    file: File,
+    password?: string,
+    options?: { skipDraftRestore?: boolean }
+  ) => {
     setIsLoadingPdf(true);
     setPdfErrorMessage(null);
     setActiveAppError(null);
@@ -181,61 +298,130 @@ export default function App() {
           console.warn('PDF resource disposal warning:', disposeErr);
         }
       }
+
+      const docId = await computePdfFingerprint(arrayBuffer);
       const pdfJsDoc = await loadPdfJsDoc(arrayBuffer, password);
       const page1 = await pdfJsDoc.getPage(1);
       const viewport = page1.getViewport({ scale: 1.0 });
 
       originalPdfBufferRef.current = arrayBuffer;
-      setPdfState({
-        file,
-        name: file.name,
-        arrayBuffer,
-        numPages: pdfJsDoc.numPages,
-        currentPage: 1,
-        pageWidth: viewport.width,
-        pageHeight: viewport.height,
-      });
+      originalNumPagesRef.current = pdfJsDoc.numPages;
 
-      // Extract native PDF AcroForm fields if present
+      // Extract native PDF AcroForm fields from original PDF
       let initialValues: FormValuesState = {};
       let initialFields: FormFieldItem[] = [];
       try {
         const { fields, initialValues: extractedVals } = await extractPdfFormFields(arrayBuffer);
-        setFormFields(fields);
         initialFields = fields;
         initialValues = extractedVals;
         initialFormValuesRef.current = { ...extractedVals };
       } catch (err) {
         console.warn('Could not extract form fields:', err);
-        setFormFields([]);
+        initialFields = [];
         initialFormValuesRef.current = {};
       }
 
-      // Reset document history with clean initial state
-      resetHistory({
-        pageDocument: {
-          arrayBuffer, numPages: pdfJsDoc.numPages, currentPage: 1,
-          pageWidth: viewport.width, pageHeight: viewport.height,
-          formFields: initialFields,
-        },
-        signatures: [],
-        textOverlays: [],
-        formValues: initialValues,
+      // Check if an editable working draft exists for this document in IndexedDB
+      const existingDraft = options?.skipDraftRestore ? null : await getDocumentDraft(docId);
+
+      let activeArrayBuffer = arrayBuffer;
+      let activeNumPages = pdfJsDoc.numPages;
+      let activePageWidth = viewport.width;
+      let activePageHeight = viewport.height;
+      let activeFields = initialFields;
+      let restoredPageMod = false;
+
+      if (existingDraft?.hasPageModifications && existingDraft.modifiedPdfBuffer) {
+        try {
+          const modDoc = await loadPdfJsDoc(existingDraft.modifiedPdfBuffer, password);
+          activeArrayBuffer = existingDraft.modifiedPdfBuffer;
+          activeNumPages = modDoc.numPages;
+          const targetP = Math.max(1, Math.min(activeNumPages, existingDraft.currentPage || 1));
+          const modPage = await modDoc.getPage(targetP);
+          const modVp = modPage.getViewport({ scale: 1.0 });
+          activePageWidth = modVp.width;
+          activePageHeight = modVp.height;
+          restoredPageMod = true;
+          try {
+            const { fields: modFields } = await extractPdfFormFields(activeArrayBuffer);
+            activeFields = modFields;
+          } catch {
+            // Keep initialFields if modified buffer form extraction fails
+          }
+        } catch (modErr) {
+          console.warn('Could not restore modified PDF buffer from draft, falling back to original:', modErr);
+        }
+      }
+
+      const startPage = existingDraft
+        ? Math.max(1, Math.min(activeNumPages, existingDraft.currentPage || 1))
+        : 1;
+
+      setCurrentDocId(docId);
+      setFormFields(activeFields);
+      setPdfState({
+        file,
+        name: file.name,
+        arrayBuffer: activeArrayBuffer,
+        numPages: activeNumPages,
+        currentPage: startPage,
+        pageWidth: activePageWidth,
+        pageHeight: activePageHeight,
       });
+
+      const baselinePageDoc = {
+        arrayBuffer,
+        numPages: pdfJsDoc.numPages,
+        currentPage: 1,
+        pageWidth: viewport.width,
+        pageHeight: viewport.height,
+        formFields: initialFields,
+      };
+
+      const activePageDoc = {
+        arrayBuffer: activeArrayBuffer,
+        numPages: activeNumPages,
+        currentPage: startPage,
+        pageWidth: activePageWidth,
+        pageHeight: activePageHeight,
+        formFields: activeFields,
+      };
+
+      if (existingDraft) {
+        resetHistory({
+          pageDocument: activePageDoc,
+          signatures: existingDraft.signatures || [],
+          textOverlays: existingDraft.textOverlays || [],
+          formValues: { ...initialValues, ...(existingDraft.formValues || {}) },
+          markAsUnsavedDraft: existingDraft.isUnsavedDraft,
+          baselinePageDocument: baselinePageDoc,
+          baselineFormValues: initialValues,
+        });
+      } else {
+        resetHistory({
+          pageDocument: baselinePageDoc,
+          signatures: [],
+          textOverlays: [],
+          formValues: initialValues,
+        });
+      }
 
       setIsPasswordModalOpen(false);
       setPasswordPendingDoc(null);
-      setHasPageModifications(false);
+      setHasPageModifications(restoredPageMod);
 
       // Non-blocking background generation of page 1 thumbnail for local document history
       const scheduleRecentDocPersist = () => {
         generatePageThumbnail(arrayBuffer, 1, 160, password)
           .then(async (thumbnail) => {
             await saveRecentDocument({
+              id: docId,
               name: file.name,
               buffer: arrayBuffer,
-              numPages: pdfJsDoc.numPages,
+              numPages: activeNumPages,
               thumbnailDataUrl: thumbnail || undefined,
+              signatureCount: existingDraft ? existingDraft.signatures.length : 0,
+              textCount: existingDraft ? existingDraft.textOverlays.length : 0,
             });
             const updatedRecent = await getRecentDocuments();
             setRecentDocs(updatedRecent);
@@ -756,6 +942,7 @@ export default function App() {
       console.warn('PDF resource disposal warning on clear:', err);
     });
     setPdfState(null);
+    setCurrentDocId(null);
     resetHistory({
       signatures: [],
       textOverlays: [],
@@ -765,6 +952,36 @@ export default function App() {
     initialFormValuesRef.current = {};
     setHasPageModifications(false);
     setIsReaderMode(false);
+  };
+
+  // Reset the currently open document back to its unmodified original PDF
+  const handleResetCurrentDocumentToOriginal = async () => {
+    if (!pdfState || !originalPdfBufferRef.current) return;
+    const origBuffer = originalPdfBufferRef.current.slice(0);
+    const docName = pdfState.name;
+    if (currentDocId) {
+      await discardDocumentDraft(currentDocId, originalNumPagesRef.current);
+      const updated = await getRecentDocuments();
+      setRecentDocs(updated);
+    }
+    const cleanFile = new File([origBuffer], docName, { type: 'application/pdf' });
+    await handleFileSelect(cleanFile, undefined, { skipDraftRestore: true });
+  };
+
+  // Discard draft for a recent document (from EmptyState banner or RecentDocumentsModal)
+  const handleDiscardRecentDraft = async (record: RecentDocumentRecord) => {
+    await discardDocumentDraft(
+      record.id,
+      currentDocId === record.id ? originalNumPagesRef.current : undefined
+    );
+    const updated = await getRecentDocuments();
+    setRecentDocs(updated);
+    if (currentDocId === record.id && pdfState && originalPdfBufferRef.current) {
+      const cleanFile = new File([originalPdfBufferRef.current.slice(0)], pdfState.name, {
+        type: 'application/pdf',
+      });
+      await handleFileSelect(cleanFile, undefined, { skipDraftRestore: true });
+    }
   };
 
   // Safe request to close document with unsaved changes verification
@@ -787,7 +1004,7 @@ export default function App() {
     }
   };
 
-  // Recent Documents Actions (load binary blob on demand from IndexedDB v2)
+  // Recent Documents Actions (load binary blob on demand from IndexedDB v3)
   const handleSelectRecentDoc = async (record: RecentDocumentRecord) => {
     const buffer = record.pdfBuffer || (await getRecentDocumentBlob(record.id));
     if (!buffer) {
@@ -819,15 +1036,15 @@ export default function App() {
   };
 
   const handlePrintRecentDoc = async (record: RecentDocumentRecord) => {
-    const buffer = record.pdfBuffer || (await getRecentDocumentBlob(record.id));
-    if (!buffer) return;
-    await printPdfDocument(record.name, buffer);
+    const bytes = await compileRecentDocumentPdfBytes(record);
+    if (!bytes) return;
+    await printPdfDocument(record.name, bytes);
   };
 
   const handleShareRecentDoc = async (record: RecentDocumentRecord) => {
-    const buffer = record.pdfBuffer || (await getRecentDocumentBlob(record.id));
-    if (!buffer) return;
-    await sharePdfDocument(record.name, buffer);
+    const bytes = await compileRecentDocumentPdfBytes(record);
+    if (!bytes) return;
+    await sharePdfDocument(record.name, bytes);
   };
 
   // Helper to compile current modified document (signatures, text overlays, form values)
@@ -1007,7 +1224,9 @@ export default function App() {
           signatureCount={signatures.length}
           hasUnsavedChanges={hasUnsavedChanges}
           hasPageModifications={hasPageModifications}
+          hasWorkingEdits={hasWorkingEdits}
           recentCount={recentDocs.length}
+          draftCount={recentDocs.filter((d) => d.hasDraft).length}
           onOpenSave={() => {
             flushPendingFormCommit();
             setIsSaveModalOpen(true);
@@ -1016,6 +1235,7 @@ export default function App() {
           onOpenRecent={() => setIsRecentModalOpen(true)}
           onQuickPrint={handleQuickPrint}
           onQuickShare={handleQuickShare}
+          onResetToOriginal={handleResetCurrentDocumentToOriginal}
           onFileSelect={handleRequestFileSelect}
           onCloseDocument={handleRequestCloseDocument}
           onOpenDiagnostics={() => setShowDiagnosticsModal(true)}
@@ -1120,6 +1340,7 @@ export default function App() {
             onFileSelect={handleFileSelect}
             recentDocs={recentDocs}
             onSelectRecentDoc={handleSelectRecentDoc}
+            onDiscardDraft={handleDiscardRecentDraft}
             onOpenRecentModal={() => setIsRecentModalOpen(true)}
             onPrintRecentDoc={handlePrintRecentDoc}
             onShareRecentDoc={handleShareRecentDoc}
@@ -1168,9 +1389,11 @@ export default function App() {
             onRegisterViewportSnapshotGetter={handleRegisterViewportSnapshotGetter}
             isMobile={isMobile}
             isSaved={isSaved}
+            hasWorkingEdits={hasWorkingEdits}
             onBack={handleRequestCloseDocument}
             onQuickPrint={handleQuickPrint}
             onQuickShare={handleQuickShare}
+            onResetToOriginal={handleResetCurrentDocumentToOriginal}
             onOpenFile={() => manualFileInputRef.current?.click()}
             onOpenRecent={() => setIsRecentModalOpen(true)}
             onOpenDiagnostics={() => setShowDiagnosticsModal(true)}
@@ -1241,6 +1464,12 @@ export default function App() {
           onSaveSuccess={(info) => {
             if (!info?.isSubsetExport && !exportOverrideSnapshot) {
               markCurrentStateSaved();
+              if (currentDocId) {
+                void markDocumentDraftSaved(currentDocId).then(() =>
+                  getRecentDocuments().then(setRecentDocs)
+                );
+                return;
+              }
             }
             getRecentDocuments().then(setRecentDocs).catch(() => {});
           }}
@@ -1252,8 +1481,10 @@ export default function App() {
         isOpen={isRecentModalOpen}
         onClose={() => setIsRecentModalOpen(false)}
         recentDocs={recentDocs}
+        currentDocId={currentDocId}
         currentDocName={pdfState?.name}
         onSelectDoc={handleSelectRecentDoc}
+        onDiscardDraft={handleDiscardRecentDraft}
         onRemoveDoc={handleRemoveRecentDoc}
         onClearAll={handleClearAllRecentDocs}
       />
@@ -1307,12 +1538,29 @@ export default function App() {
           setIsUnsavedModalOpen(false);
           setPendingAction(null);
         }}
-        onDiscardChanges={() => {
+        onKeepDraftAndProceed={async () => {
           setIsUnsavedModalOpen(false);
+          await flushActiveDraftNow();
           if (pendingAction?.type === 'switch' && pendingAction.file) {
             const nextFile = pendingAction.file;
             setPendingAction(null);
             handleFileSelect(nextFile);
+          } else {
+            setPendingAction(null);
+            handleClearDocument();
+          }
+        }}
+        onDiscardChanges={async () => {
+          setIsUnsavedModalOpen(false);
+          if (currentDocId) {
+            await discardDocumentDraft(currentDocId, originalNumPagesRef.current);
+            const updated = await getRecentDocuments();
+            setRecentDocs(updated);
+          }
+          if (pendingAction?.type === 'switch' && pendingAction.file) {
+            const nextFile = pendingAction.file;
+            setPendingAction(null);
+            handleFileSelect(nextFile, undefined, { skipDraftRestore: true });
           } else {
             setPendingAction(null);
             handleClearDocument();

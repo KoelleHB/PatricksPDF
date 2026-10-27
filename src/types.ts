@@ -154,10 +154,38 @@ export interface RecentDocumentRecord {
   numPages: number;
   lastOpened: number;
   thumbnailDataUrl?: string;
-  /** Optional: in IndexedDB v2, binary PDF data is stored in recent_docs_blobs and loaded on demand */
+  /** Optional: in IndexedDB v2/v3, binary PDF data is stored in recent_docs_blobs and loaded on demand */
   pdfBuffer?: ArrayBuffer;
   signatureCount?: number;
   textCount?: number;
+  /** Number of modified form fields in the working copy/draft */
+  formEditCount?: number;
+  /** True when structural page modifications (rotate/reorder/delete/insert) were applied */
+  hasPageModifications?: boolean;
+  /** True when the document has unsaved edits in the background draft */
+  hasDraft?: boolean;
+  /** True when the document has editable working items (even after exporting/saving) */
+  hasWorkingCopy?: boolean;
+  /** Timestamp of the latest background draft update */
+  draftUpdatedAt?: number;
+  /** Last active page number (1-based) */
+  lastPage?: number;
+}
+
+export interface DocumentDraftRecord {
+  id: string;
+  updatedAt: number;
+  /** True if modified since the last explicit Save/Export; false once exported while keeping items editable */
+  isUnsavedDraft: boolean;
+  currentPage: number;
+  numPages?: number;
+  hasPageModifications: boolean;
+  /** Stored only when structural page modifications were applied */
+  modifiedPdfBuffer?: ArrayBuffer;
+  signatures: SignatureItem[];
+  textOverlays: TextOverlayItem[];
+  formValues: FormValuesState;
+  formEditCount?: number;
 }
 
 declare global {

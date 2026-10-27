@@ -9,6 +9,7 @@ import {
   History,
   Printer,
   Share2,
+  RotateCcw,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -17,13 +18,16 @@ interface HeaderProps {
   signatureCount: number;
   hasUnsavedChanges?: boolean;
   hasPageModifications?: boolean;
+  hasWorkingEdits?: boolean;
   recentCount?: number;
+  draftCount?: number;
   onOpenSave?: () => void;
   onOpenExport?: () => void;
   onOpenPageManager?: () => void;
   onOpenRecent?: () => void;
   onQuickPrint?: () => void;
   onQuickShare?: () => void;
+  onResetToOriginal?: () => void;
   onFileSelect?: (file: File) => void;
   onCloseDocument?: () => void;
   onOpenDiagnostics?: () => void;
@@ -35,13 +39,16 @@ export const Header: React.FC<HeaderProps> = ({
   signatureCount,
   hasUnsavedChanges = false,
   hasPageModifications = false,
+  hasWorkingEdits = false,
   recentCount = 0,
+  draftCount = 0,
   onOpenSave,
   onOpenExport,
   onOpenPageManager,
   onOpenRecent,
   onQuickPrint,
   onQuickShare,
+  onResetToOriginal,
   onFileSelect,
   onCloseDocument,
   onOpenDiagnostics,
@@ -92,29 +99,35 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 v2.3
               </button>
-              <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                100% Client-Side Local
+              <span className="hidden sm:inline-flex items-center text-xs font-medium text-emerald-700">
+                · 100% Client-Side Local
               </span>
             </div>
             {hasDocument && (
               <div className="flex items-center gap-1.5 min-w-0">
                 <p className="text-xs text-slate-500 truncate max-w-[180px] sm:max-w-xs md:max-w-md">
-                  {documentName} {signatureCount > 0 && `• ${signatureCount} signature${signatureCount > 1 ? 's' : ''}`} {hasPageModifications && '• Pages Modified'}
+                  {documentName}{' '}
+                  {signatureCount > 0 &&
+                    `· ${signatureCount} signature${signatureCount > 1 ? 's' : ''}`}{' '}
+                  {hasPageModifications && '· Pages Modified'}
                 </p>
                 {hasUnsavedChanges ? (
                   <span
-                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shrink-0"
-                    title="You have unsaved changes that have not been saved yet"
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 shrink-0"
+                    title="Edits are automatically saved locally as a working draft"
                   >
+                    <span>·</span>
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                    <span className="hidden sm:inline">Unsaved</span>
+                    <span className="hidden sm:inline">Draft auto-saved</span>
+                    <span className="sm:hidden">Draft</span>
                   </span>
                 ) : (
                   <span
-                    className="hidden sm:inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 shrink-0"
+                    className="hidden sm:inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 shrink-0"
                     title="All changes saved"
                   >
-                    Saved
+                    <span>·</span>
+                    <span>Saved</span>
                   </span>
                 )}
               </div>
@@ -124,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right action controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* Offline/Online badge */}
+          {/* Offline/Online indicator */}
           <div
             title={isOnline ? 'Online (Ready)' : 'Offline mode active (Local processing works 100%)'}
             className={`hidden md:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border ${
@@ -133,7 +146,11 @@ export const Header: React.FC<HeaderProps> = ({
                 : 'bg-amber-50 text-amber-700 border-amber-200'
             }`}
           >
-            {isOnline ? <Wifi className="w-3.5 h-3.5 text-slate-500" /> : <WifiOff className="w-3.5 h-3.5 text-amber-600" />}
+            {isOnline ? (
+              <Wifi className="w-3.5 h-3.5 text-slate-500" />
+            ) : (
+              <WifiOff className="w-3.5 h-3.5 text-amber-600" />
+            )}
             <span>{isOnline ? 'Local' : 'Offline'}</span>
           </div>
 
@@ -142,17 +159,42 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="header-recent-btn"
               onClick={onOpenRecent}
-              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
-              title="Recently opened documents"
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0 cursor-pointer"
+              title={
+                draftCount > 0
+                  ? `Recent documents (${draftCount} unfinished draft${draftCount > 1 ? 's' : ''})`
+                  : 'Recently opened documents'
+              }
               aria-label="History"
             >
               <History className="w-4 h-4 text-slate-600 shrink-0" />
               <span className="hidden md:inline">History</span>
               {recentCount > 0 && (
-                <span className="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-blue-100 text-blue-700">
-                  {recentCount}
+                <span className="text-[11px] font-semibold text-blue-700">
+                  ({recentCount})
                 </span>
               )}
+              {draftCount > 0 && (
+                <span
+                  className="w-2 h-2 rounded-full bg-amber-500 shrink-0"
+                  title={`${draftCount} unsaved draft${draftCount > 1 ? 's' : ''}`}
+                />
+              )}
+            </button>
+          )}
+
+          {/* Reset to Original Button (when document has working edits) */}
+          {hasDocument && hasWorkingEdits && onResetToOriginal && (
+            <button
+              id="header-reset-original-btn"
+              type="button"
+              onClick={onResetToOriginal}
+              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-600 hover:text-amber-800 hover:bg-amber-50 hover:border-amber-200 transition shrink-0 cursor-pointer"
+              title="Discard draft edits and reset to original PDF"
+              aria-label="Reset to original PDF"
+            >
+              <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden xl:inline">Reset</span>
             </button>
           )}
 
@@ -161,7 +203,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="header-print-btn"
               onClick={onQuickPrint}
-              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
+              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0 cursor-pointer"
               title="Print document (Android Print / Spooler)"
               aria-label="Print"
             >
@@ -175,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="header-share-btn"
               onClick={onQuickShare}
-              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0"
+              className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition shrink-0 cursor-pointer"
               title="Share document (Android Share / Web Share)"
               aria-label="Share"
             >
@@ -200,7 +242,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="header-open-pdf-btn"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition cursor-pointer"
               title="Open or replace current PDF"
             >
               <FolderOpen className="w-4 h-4 text-slate-600 shrink-0" />
@@ -213,7 +255,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="header-close-doc-btn"
               onClick={onCloseDocument}
-              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs sm:text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition cursor-pointer"
               title="Close current document"
               aria-label="Close document"
             >

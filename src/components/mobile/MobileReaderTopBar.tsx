@@ -14,6 +14,7 @@ import {
   Check,
   Undo2,
   Redo2,
+  RotateCcw,
 } from 'lucide-react';
 import { PdfDocumentState } from '../../types';
 
@@ -21,6 +22,7 @@ interface MobileReaderTopBarProps {
   pdfState: PdfDocumentState;
   isVisible: boolean;
   isSaved: boolean;
+  hasWorkingEdits?: boolean;
   onBack: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
@@ -34,6 +36,7 @@ interface MobileReaderTopBarProps {
   isReflowActive?: boolean;
   onQuickPrint?: () => void;
   onQuickShare?: () => void;
+  onResetToOriginal?: () => void;
   onOpenFile?: () => void;
   onOpenRecent?: () => void;
   onOpenDiagnostics?: () => void;
@@ -43,6 +46,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
   pdfState,
   isVisible,
   isSaved,
+  hasWorkingEdits = false,
   onBack,
   canUndo = false,
   canRedo = false,
@@ -56,6 +60,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
   isReflowActive = false,
   onQuickPrint,
   onQuickShare,
+  onResetToOriginal,
   onOpenFile,
   onOpenRecent,
   onOpenDiagnostics,
@@ -134,7 +139,7 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                   }`}
                 />
                 <span className={isSaved ? 'text-slate-600' : 'text-amber-700 font-semibold'}>
-                  {isSaved ? 'Saved' : 'Modified'}
+                  {isSaved ? 'Saved' : 'Draft saved'}
                 </span>
               </span>
             </div>
@@ -235,6 +240,20 @@ export const MobileReaderTopBar: React.FC<MobileReaderTopBarProps> = ({
                     >
                       <History className="w-4 h-4 text-blue-600" />
                       <span>Recent Documents</span>
+                    </button>
+                  )}
+
+                  {hasWorkingEdits && onResetToOriginal && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        onResetToOriginal();
+                      }}
+                      className="w-full px-3.5 py-2 text-left flex items-center gap-2.5 hover:bg-amber-50 text-amber-800 transition cursor-pointer"
+                    >
+                      <RotateCcw className="w-4 h-4 text-amber-600" />
+                      <span>Reset to Original PDF</span>
                     </button>
                   )}
                 </div>

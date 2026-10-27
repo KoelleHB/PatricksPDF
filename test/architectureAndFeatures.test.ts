@@ -4,7 +4,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
-import { computePdfFingerprint } from '../src/utils/recentDocuments';
+import {
+  computePdfFingerprint,
+  saveRecentDocument,
+  getRecentDocuments,
+  getRecentDocumentBlob,
+  saveDocumentDraft,
+  getDocumentDraft,
+  markDocumentDraftSaved,
+  discardDocumentDraft,
+  writeEmergencyDraftToLocalStorage,
+  reconcileEmergencyDraftFromLocalStorage,
+  resetRecentDocumentsMemoryStoreForTests,
+  formatDraftEditSummary,
+  EMERGENCY_DRAFT_STORAGE_KEY,
+} from '../src/utils/recentDocuments';
 import { computeDocumentStateSignature } from '../src/hooks/useDocumentHistory';
 import {
   buildExportFileName,
@@ -875,6 +889,158 @@ test('disposePdfJsResources safely disposes documents and tasks without throwing
     assert.equal(loadingTaskDestroyed, true, 'Doc loadingTask should be destroyed');
   });
 });
+
+test('Background draft persistence, emergency localStorage force-close recovery, save status transition, and reset to original PDF', async () => {
+  resetRecentDocumentsMemoryStoreForTests();
+
+  const origBuf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]).buffer;
+  const modBuf = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x99, 0x88]).buffer;
+
+  // 1. Open and register a recent document
+  const savedDoc = await saveRecentDocument({
+    name: 'Contract_2026.pdf',
+    buffer: origBuf,
+    numPages: 3,
+  });
+  const docId = savedDoc.id;
+
+  const sigItem = {
+    id: 'sig-1',
+    name: 'Signature 1',
+    transparentDataUrl: 'data:image/png;base64,AQIDBA==',
+    pngBytes: new Uint8Array([1, 2, 3, 4]),
+    originalDataUrl: 'data:image/png;base64,AQIDBA==',
+    pageNumber: 2,
+    xPercent: 25,
+    yPercent: 60,
+    widthPercent: 30,
+    aspectRatio: 2.2,
+    opacity: 1,
+    rotation: 0,
+  };
+
+  const textItem = {
+    id: 'txt-1',
+    text: 'Approved by Patrick',
+    pageNumber: 2,
+    xPercent: 25,
+    yPercent: 45,
+    widthPercent: 35,
+    fontSize: 14,
+    fontFamily: 'standard' as const,
+    color: 'blue' as const,
+  };
+
+  // 2. Save an unsaved working draft (with page modification, signature, text, and form edit)
+  await saveDocumentDraft({
+    id: docId,
+    name: 'Contract_2026.pdf',
+    originalBuffer: origBuf,
+    isUnsavedDraft: true,
+    currentPage: 2,
+    numPages: 4,
+    hasPageModifications: true,
+    modifiedPdfBuffer: modBuf,
+    signatures: [sigItem],
+    textOverlays: [textItem],
+    formValues: { customer_name: 'Patrick Julius' },
+    formEditCount: 1,
+  });
+
+  // Verify RecentDocuments metadata reflects the unsaved draft while original blob remains untouched
+  const docsWithDraft = await getRecentDocuments();
+  assert.equal(docsWithDraft.length, 1);
+  assert.equal(docsWithDraft[0].hasDraft, true, 'Document must be marked as unsaved draft');
+  assert.equal(docsWithDraft[0].hasWorkingCopy, true, 'Document must be marked as having a working copy');
+  assert.equal(docsWithDraft[0].signatureCount, 1);
+  assert.equal(docsWithDraft[0].textCount, 1);
+  assert.equal(docsWithDraft[0].formEditCount, 1);
+  assert.equal(docsWithDraft[0].hasPageModifications, true);
+  assert.equal(docsWithDraft[0].lastPage, 2);
+  assert.match(formatDraftEditSummary(docsWithDraft[0]), /1 signature · 1 text · 1 field · page edits/);
+
+  // Original PDF blob must remain the pristine 8-byte buffer
+  const storedOriginalBlob = await getRecentDocumentBlob(docId);
+  assert.equal(storedOriginalBlob?.byteLength, origBuf.byteLength, 'Original PDF buffer must remain unmodified');
+
+  // Draft record must contain the modified buffer and editable overlays
+  const loadedDraft = await getDocumentDraft(docId);
+  assert.ok(loadedDraft);
+  assert.equal(loadedDraft.isUnsavedDraft, true);
+  assert.equal(loadedDraft.currentPage, 2);
+  assert.equal(loadedDraft.modifiedPdfBuffer?.byteLength, modBuf.byteLength);
+  assert.deepEqual(Array.from(loadedDraft.signatures[0].pngBytes), [1, 2, 3, 4]);
+  assert.equal(loadedDraft.textOverlays[0].text, 'Approved by Patrick');
+  assert.equal(loadedDraft.formValues.customer_name, 'Patrick Julius');
+
+  // 3. Simulate exporting/saving the document via SaveModal:
+  // Draft badge is cleared (`hasDraft: false`), but overlays remain editable (`hasWorkingCopy: true`)!
+  await markDocumentDraftSaved(docId);
+  const docsAfterExport = await getRecentDocuments();
+  assert.equal(docsAfterExport[0].hasDraft, false, 'Exporting must clear unsaved draft warning');
+  assert.equal(docsAfterExport[0].hasWorkingCopy, true, 'Exporting must keep working copy items editable');
+  const draftAfterExport = await getDocumentDraft(docId);
+  assert.equal(draftAfterExport?.isUnsavedDraft, false);
+  assert.equal(draftAfterExport?.signatures.length, 1, 'Signatures must remain editable after export');
+
+  // 4. Simulate an emergency synchronous localStorage flush right before an OS force-close
+  const origLocalStorage = (globalThis as any).localStorage;
+  const mockStorage = new Map<string, string>();
+  (globalThis as any).localStorage = {
+    getItem: (k: string) => mockStorage.get(k) ?? null,
+    setItem: (k: string, v: string) => { mockStorage.set(k, v); },
+    removeItem: (k: string) => { mockStorage.delete(k); },
+  };
+
+  try {
+    // Advance clock slightly via emergency write with a second text overlay added right before force-close
+    await new Promise((r) => setTimeout(r, 10));
+    const wroteEmergency = writeEmergencyDraftToLocalStorage({
+      id: docId,
+      name: 'Contract_2026.pdf',
+      isUnsavedDraft: true,
+      currentPage: 3,
+      numPages: 4,
+      hasPageModifications: true,
+      signatures: [sigItem],
+      textOverlays: [
+        textItem,
+        { ...textItem, id: 'txt-2', text: 'Emergency Force-Close Note' },
+      ],
+      formValues: { customer_name: 'Patrick Julius' },
+      formEditCount: 1,
+    });
+    assert.equal(wroteEmergency, true, 'Emergency draft must be written synchronously to localStorage');
+    assert.equal(mockStorage.has(EMERGENCY_DRAFT_STORAGE_KEY), true);
+
+    // On app restart, reconcileEmergencyDraftFromLocalStorage restores the newer emergency snapshot into the draft store
+    const reconciled = await reconcileEmergencyDraftFromLocalStorage();
+    assert.equal(reconciled, true, 'Emergency snapshot must reconcile on startup');
+    assert.equal(mockStorage.has(EMERGENCY_DRAFT_STORAGE_KEY), false, 'Emergency key must be cleared after reconciliation');
+
+    const recoveredDraft = await getDocumentDraft(docId);
+    assert.equal(recoveredDraft?.isUnsavedDraft, true);
+    assert.equal(recoveredDraft?.currentPage, 3);
+    assert.equal(recoveredDraft?.textOverlays.length, 2);
+    assert.equal(recoveredDraft?.textOverlays[1].text, 'Emergency Force-Close Note');
+    assert.deepEqual(Array.from(recoveredDraft?.signatures[0].pngBytes || []), [1, 2, 3, 4]);
+  } finally {
+    (globalThis as any).localStorage = origLocalStorage;
+  }
+
+  // 5. Reset to original PDF (`discardDocumentDraft`): deletes draft and restores original metadata
+  await discardDocumentDraft(docId, 3);
+  const draftAfterReset = await getDocumentDraft(docId);
+  assert.equal(draftAfterReset, null, 'Draft must be deleted after reset to original');
+  const docsAfterReset = await getRecentDocuments();
+  assert.equal(docsAfterReset[0].hasDraft, false);
+  assert.equal(docsAfterReset[0].hasWorkingCopy, false);
+  assert.equal(docsAfterReset[0].signatureCount, 0);
+  assert.equal(docsAfterReset[0].textCount, 0);
+  assert.equal(docsAfterReset[0].numPages, 3);
+  assert.equal(docsAfterReset[0].fileSize, origBuf.byteLength);
+});
+
 
 
 

@@ -11,17 +11,25 @@ import {
   Layers,
   HardDrive,
   AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import { RecentDocumentRecord } from '../types';
-import { formatRelativeTime, formatFileSize, getRecentDocumentBlob } from '../utils/recentDocuments';
+import {
+  formatRelativeTime,
+  formatFileSize,
+  formatDraftEditSummary,
+  compileRecentDocumentPdfBytes,
+} from '../utils/recentDocuments';
 import { sharePdfDocument, printPdfDocument } from '../utils/nativeBridge';
 
 interface RecentDocumentsModalProps {
   isOpen: boolean;
   onClose: () => void;
   recentDocs: RecentDocumentRecord[];
+  currentDocId?: string | null;
   currentDocName?: string;
   onSelectDoc: (record: RecentDocumentRecord) => void;
+  onDiscardDraft?: (record: RecentDocumentRecord) => void;
   onRemoveDoc: (id: string) => void;
   onClearAll: () => void;
 }
@@ -30,8 +38,10 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
   isOpen,
   onClose,
   recentDocs,
+  currentDocId,
   currentDocName,
   onSelectDoc,
+  onDiscardDraft,
   onRemoveDoc,
   onClearAll,
 }) => {
@@ -48,9 +58,9 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
   const handleShare = async (doc: RecentDocumentRecord, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const buffer = doc.pdfBuffer || (await getRecentDocumentBlob(doc.id));
-      if (!buffer) return;
-      const res = await sharePdfDocument(doc.name, buffer);
+      const bytes = await compileRecentDocumentPdfBytes(doc);
+      if (!bytes) return;
+      const res = await sharePdfDocument(doc.name, bytes);
       if (res.success) {
         showFeedback(`Shared "${doc.name}".`);
       }
@@ -62,14 +72,22 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
   const handlePrint = async (doc: RecentDocumentRecord, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const buffer = doc.pdfBuffer || (await getRecentDocumentBlob(doc.id));
-      if (!buffer) return;
-      const res = await printPdfDocument(doc.name, buffer);
+      const bytes = await compileRecentDocumentPdfBytes(doc);
+      if (!bytes) return;
+      const res = await printPdfDocument(doc.name, bytes);
       if (res.success) {
         showFeedback(`Print job started: ${doc.name}`);
       }
     } catch (err) {
       console.error('Print error:', err);
+    }
+  };
+
+  const handleDiscard = (doc: RecentDocumentRecord, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onDiscardDraft) {
+      onDiscardDraft(doc);
+      showFeedback(`Reset "${doc.name}" to original PDF.`);
     }
   };
 
@@ -89,10 +107,10 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-900 leading-tight">
-                Recent Documents
+                Recent Documents & Drafts
               </h3>
               <p className="text-xs text-slate-500">
-                Stored 100% offline in your browser • Open, print & share directly
+                Stored 100% offline in your browser · Edits are auto-saved in the background
               </p>
             </div>
           </div>
@@ -127,7 +145,10 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
           ) : (
             <div className="space-y-2.5">
               {recentDocs.map((doc) => {
-                const isCurrentlyActive = currentDocName === doc.name;
+                const isCurrentlyActive =
+                  currentDocId ? currentDocId === doc.id : currentDocName === doc.name;
+                const editSummary = formatDraftEditSummary(doc);
+
                 return (
                   <div
                     key={doc.id}
@@ -138,6 +159,8 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
                     className={`group relative flex items-center justify-between gap-3 p-3 sm:p-3.5 rounded-xl border transition cursor-pointer ${
                       isCurrentlyActive
                         ? 'bg-blue-50/60 border-blue-300 ring-1 ring-blue-300'
+                        : doc.hasDraft
+                        ? 'bg-amber-50/40 hover:bg-amber-50/70 border-amber-200 hover:border-amber-300 shadow-2xs'
                         : 'bg-white hover:bg-slate-50 border-slate-200 hover:border-blue-300 shadow-2xs'
                     }`}
                   >
@@ -156,45 +179,85 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h4
-                            className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[200px] sm:max-w-xs md:max-w-md"
+                            className="text-xs sm:text-sm font-bold text-slate-900 truncate max-w-[190px] sm:max-w-xs md:max-w-md"
                             title={doc.name}
                           >
                             {doc.name}
                           </h4>
                           {isCurrentlyActive && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                              Active
+                            <span className="text-[11px] font-semibold text-blue-700">
+                              · Active
                             </span>
                           )}
+                          {doc.hasDraft ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                              <span>Draft · Unsaved edits</span>
+                            </span>
+                          ) : doc.hasWorkingCopy ? (
+                            <span className="text-[11px] font-medium text-blue-600">
+                              · Editable items
+                            </span>
+                          ) : null}
                         </div>
 
-                        {/* Metadata tags */}
-                        <div className="flex items-center gap-2 sm:gap-3 text-[11px] text-slate-500 mt-1 flex-wrap">
+                        {/* Metadata line */}
+                        <div className="flex items-center gap-2 sm:gap-2.5 text-[11px] text-slate-500 mt-1 flex-wrap">
                           <span className="inline-flex items-center gap-1">
                             <Layers className="w-3 h-3 text-slate-400" />
                             {doc.numPages} {doc.numPages === 1 ? 'page' : 'pages'}
                           </span>
+                          <span>·</span>
                           <span className="inline-flex items-center gap-1">
                             <HardDrive className="w-3 h-3 text-slate-400" />
                             {formatFileSize(doc.fileSize)}
                           </span>
+                          {editSummary && (
+                            <>
+                              <span>·</span>
+                              <span className="font-medium text-slate-700">{editSummary}</span>
+                            </>
+                          )}
+                          {doc.lastPage && doc.lastPage > 1 && (
+                            <>
+                              <span>·</span>
+                              <span>Page {doc.lastPage}</span>
+                            </>
+                          )}
+                          <span>·</span>
                           <span className="inline-flex items-center gap-1 text-slate-400">
                             <Calendar className="w-3 h-3 text-slate-400" />
-                            {formatRelativeTime(doc.lastOpened)}
+                            {formatRelativeTime(doc.draftUpdatedAt || doc.lastOpened)}
                           </span>
                         </div>
                       </div>
                     </div>
 
                     {/* Quick action buttons */}
-                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <div
+                      className="flex items-center gap-1 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Reset Draft to Original button */}
+                      {(doc.hasDraft || doc.hasWorkingCopy) && onDiscardDraft && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDiscard(doc, e)}
+                          className="p-2 rounded-lg text-slate-600 hover:text-amber-700 hover:bg-amber-50 border border-slate-200 transition cursor-pointer"
+                          title="Reset draft to original PDF"
+                          aria-label="Reset draft to original PDF"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                      )}
+
                       {/* Print button */}
                       <button
                         type="button"
                         onClick={(e) => handlePrint(doc, e)}
-                        className="p-2 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition"
+                        className="p-2 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition cursor-pointer"
                         title="Print document"
                         aria-label="Print"
                       >
@@ -205,31 +268,35 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
                       <button
                         type="button"
                         onClick={(e) => handleShare(doc, e)}
-                        className="p-2 rounded-lg text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 border border-slate-200 transition"
+                        className="p-2 rounded-lg text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 border border-slate-200 transition cursor-pointer"
                         title="Share document"
                         aria-label="Share"
                       >
                         <Share2 className="w-4 h-4" />
                       </button>
 
-                      {/* Open button */}
+                      {/* Open / Resume button */}
                       <button
                         type="button"
                         onClick={() => {
                           onSelectDoc(doc);
                           onClose();
                         }}
-                        className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-2xs transition"
+                        className={`hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs font-semibold shadow-2xs transition cursor-pointer ${
+                          doc.hasDraft
+                            ? 'bg-amber-600 hover:bg-amber-700'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
                       >
                         <FolderOpen className="w-3.5 h-3.5" />
-                        <span>Open</span>
+                        <span>{doc.hasDraft ? 'Resume' : 'Open'}</span>
                       </button>
 
                       {/* Delete button */}
                       <button
                         type="button"
                         onClick={(e) => handleRemove(doc.id, e)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition ml-0.5"
+                        className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition ml-0.5 cursor-pointer"
                         title="Remove from history"
                         aria-label="Remove"
                       >
@@ -250,10 +317,20 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
               {recentDocs.length} {recentDocs.length === 1 ? 'document' : 'documents'} in history
             </span>
 
-            {confirmClear ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-red-600 flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Clear all?
+            {!confirmClear ? (
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                className="text-xs font-semibold text-slate-500 hover:text-red-600 flex items-center gap-1 transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear History</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 animate-in fade-in duration-150">
+                <span className="text-xs text-red-600 font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Clear all?
                 </span>
                 <button
                   type="button"
@@ -261,27 +338,18 @@ export const RecentDocumentsModal: React.FC<RecentDocumentsModalProps> = ({
                     onClearAll();
                     setConfirmClear(false);
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition"
+                  className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold transition cursor-pointer"
                 >
-                  Yes, clear all
+                  Yes, delete
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmClear(false)}
-                  className="px-2 py-1 rounded-lg border border-slate-300 text-slate-700 text-xs hover:bg-slate-200 transition"
+                  className="px-2.5 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold transition cursor-pointer"
                 >
                   Cancel
                 </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmClear(true)}
-                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-red-600 transition"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Clear History</span>
-              </button>
             )}
           </div>
         )}

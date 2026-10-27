@@ -84,9 +84,11 @@ interface PdfViewerProps {
   onRegisterViewportSnapshotGetter?: (getter: (() => ViewportPageSnapshot | null) | null) => void;
   isMobile?: boolean;
   isSaved?: boolean;
+  hasWorkingEdits?: boolean;
   onBack?: () => void;
   onQuickPrint?: () => void;
   onQuickShare?: () => void;
+  onResetToOriginal?: () => void;
   onOpenFile?: () => void;
   onOpenRecent?: () => void;
   onOpenDiagnostics?: () => void;
@@ -130,9 +132,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onRegisterViewportSnapshotGetter,
   isMobile = false,
   isSaved = true,
+  hasWorkingEdits = false,
   onBack,
   onQuickPrint,
   onQuickShare,
+  onResetToOriginal,
   onOpenFile,
   onOpenRecent,
   onOpenDiagnostics,
@@ -1472,6 +1476,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           pdfState={pdfState}
           isVisible={isControlsVisible}
           isSaved={isSaved}
+          hasWorkingEdits={hasWorkingEdits}
           onBack={onBack || (() => {})}
           canUndo={canUndo}
           canRedo={canRedo}
@@ -1485,6 +1490,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           isReflowActive={isReflowMode}
           onQuickPrint={onQuickPrint}
           onQuickShare={onQuickShare}
+          onResetToOriginal={onResetToOriginal}
           onOpenFile={onOpenFile}
           onOpenRecent={onOpenRecent}
           onOpenDiagnostics={onOpenDiagnostics}

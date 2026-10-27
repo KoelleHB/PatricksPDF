@@ -1,46 +1,80 @@
-# Umsetzungsplan: Einheitlich englische Benutzeroberfläche (PatricksPDF v2.3)
+# Implementation Plan: Background Auto-Save & Working Draft Persistence
 
-## Zielsetzung
-Die gesamte Benutzeroberfläche von **PatricksPDF** wird durchgängig und konsistent auf **Englisch** vereinheitlicht, sodass sämtliche deutschsprachigen Beschriftungen, Menüpunkte, Tooltips (`title`), Barrierefreiheits-Attribute (`aria-label`), Statusmeldungen und Fehlerdiagnosen entfernt bzw. sauber übersetzt werden.
+## 1. Architecture & Storage Strategy (`PatricksPDFRecentDB` v3 + Emergency Lifecycle Flush)
 
-## Geplante Änderungen nach Bereichen
+To ensure edits survive a force-close of the PWA or Android APK while keeping all placed elements (signatures, text annotations, form fields) fully editable upon reopening, we separate the **Original PDF Blob** from the **Working Draft Snapshot**:
 
-### 1. Hauptnavigation, Startbildschirm & Mobile Leisten
-- **Desktop-Header (`src/components/Header.tsx`)**:
-  - Buttons und Tooltips vereinheitlichen: *History* (statt „Verlauf“), *Print* (statt „Drucken“), *Share* (statt „Teilen“) sowie englische `title`- und `aria-label`-Attribute (*Show App Info & Build Version*, *Recently opened documents*, etc.).
-- **Startbildschirm (`src/components/EmptyState.tsx`)**:
-  - Upload-Bereich (*Select or drop a PDF document*, *Tap here to open a file from your phone or computer*, *Select PDF*), Verlaufskarte (*Recently Opened*, *View all*, *page/pages*, *Open*, *Print*, *Share*) und die drei Funktions-Kacheln (*Transparent Signature*, *Touch & Placement*, *Android Print & Share*) komplett auf Englisch umstellen.
-- **Mobile Kopf- & Fußleiste sowie Seitenblätter-Pille (`src/components/mobile/MobileReaderTopBar.tsx`, `MobileBottomBar.tsx`, `MobileFloatingPill.tsx`)**:
-  - Statusanzeige: *Saved* / *Modified* (statt „Gespeichert“ / „Geändert“).
-  - 3-Punkte-Menü: *Open File*, *Recent Documents*, *Page Overview*, *Table of Contents*, *Text Reflow (Reader)*, *Print*, *Share*, *Info & Diagnostics*.
-  - Untere Werkzeugleiste: *Pages*, *Text*, *Sign*, *Save* inklusive englischer `title`- und `aria-label`-Texte.
-  - Seitenblätter-Pille: Englische Tooltips und Screenreader-Labels für Seitenwechsel, Seitenübersicht, Zoom-Reset (*Tap to reset zoom to Fit Page*) und Vollbildmodus (*Enter fullscreen* / *Exit fullscreen*).
+1. **IndexedDB Schema Upgrade (`DB_VERSION = 3` in `src/utils/recentDocuments.ts`)**:
+   - `recent_docs_meta`: Stores lightweight `RecentDocumentRecord` metadata, extended with draft status fields:
+     - `hasDraft?: boolean` (true when unsaved working edits exist)
+     - `hasWorkingCopy?: boolean` (true when editable overlays/page edits exist, even after export)
+     - `draftUpdatedAt?: number` (timestamp of last background save)
+     - `formEditCount?: number` (number of modified form fields)
+     - `hasPageModifications?: boolean` (whether pages were rotated, deleted, or reordered)
+   - `recent_docs_blobs`: Continues to store the **unmodified original `pdfBuffer`** (`{ id, pdfBuffer }`) keyed by the original document's deterministic fingerprint (`docId`), guaranteeing we can always reset back to the pristine original PDF.
+   - `recent_docs_drafts` (New Object Store, `keyPath: 'id'`): Stores the structured `DocumentDraftRecord` for `docId`:
+     - `id: string` (matches original `docId`)
+     - `updatedAt: number`
+     - `isUnsavedDraft: boolean` (true if modified since last explicit Save/Export; cleared to `false` on Save/Export while keeping the editable elements intact)
+     - `currentPage: number`
+     - `hasPageModifications: boolean`
+     - `modifiedPdfBuffer?: ArrayBuffer` (only stored when structural page changes like rotation/reordering/deletion were applied; omitted otherwise to save space and write speed)
+     - `signatures: SignatureItem[]` (serialized with `Uint8Array` & `transparentDataUrl`)
+     - `textOverlays: TextOverlayItem[]`
+     - `formValues: FormValuesState`
 
-### 2. Seitenübersicht & Seitenverwaltung
-- **Mobile Seitenübersicht (`src/components/mobile/MobilePageGridBottomSheet.tsx`)**:
-  - Header, Seitenzähler (*page/pages*), *To Top*-Button (statt „An den Anfang“), *Manage*-Button (statt „Verwalten“) und Kachel-Labels (*Page X*) auf Englisch umstellen.
-- **Seitenverwaltung (`src/components/PageManagementHeader.tsx`, `PageManagementModal.tsx`, `LazyPageThumbnail.tsx`)**:
-  - Header-Aktionen: *Page Management*, *Unsaved Changes*, *To Top*, *Rotate All*, *Blank Page*, *Import*.
-  - Mehrfachauswahl-Leiste & Aktionen: *Select All*, *Deselect All*, *Invert*, *X of Y selected*, *Duplicate*, *Delete*, *Export Selection as PDF* sowie alle Hinweis- und Fehlermeldungen.
+2. **Two-Tier Background Persistence & Emergency Lifecycle Flush**:
+   - **Debounced Background Save (~450 ms):** Whenever `signatures`, `textOverlays`, `formValues`, `hasPageModifications`, or `currentPage` change on an active document, a debounced writer persists the `DocumentDraftRecord` to IndexedDB and updates `recent_docs_meta`.
+   - **Immediate Lifecycle Flush (`visibilitychange`, `pagehide`, `beforeunload`):** Before a user can swipe away the Android APK or close a browser tab, the document transitions to `document.visibilityState === 'hidden'`. We flush any pending form-field debounce immediately, trigger an immediate IndexedDB write, and synchronously write a compact JSON backup of the overlay state (`signatures` metadata/dataURLs, `textOverlays`, `formValues`, `docId`, `currentPage`) to `localStorage` (`patricks_pdf_emergency_draft_v1`).
+   - **Startup Recovery Reconciliation:** On app launch, if `localStorage` contains an emergency draft snapshot newer than the IndexedDB draft record (e.g., if the OS killed the process mid-transaction), it is automatically reconciled into IndexedDB before loading `recentDocs`.
 
-### 3. PDF-Viewer, Volltextsuche & Textauswahl
-- **Viewer & Seitenansicht (`src/components/PdfViewer.tsx`, `PdfPageView.tsx`)**:
-  - Such-Button in der Desktop-Toolbar (*Search*, *Search entire PDF (Ctrl+F)*) und Link-Fehlermeldungen auf Englisch vereinheitlichen.
-- **Volltextsuche (`src/components/PdfSearchPanel.tsx`)**:
-  - Eingabefeld (*Search in PDF…*), Trefferanzeige (*match / matches*), Fortschrittsanzeige, mobile Ergebnisliste (*Show matches* / *Hide list*) und Hinweistexte auf Englisch umstellen.
-- **Textauswahl-Leiste (`src/components/TextSelectionToolbar.tsx`)**:
-  - Zeichen-/Wortzähler (*char/chars*, *word/words*) und Kopier-Button (*Copy* / *Copied!*) übersetzen.
+---
 
-### 4. Dialoge (Speichern, Signatur, Verlauf, Diagnose & Fehlermeldungen)
-- **Speichern & Export (`src/components/SaveModal.tsx`, `src/utils/exportSettings.ts`)**:
-  - Seitenauswahl (*All*, *Current*, *Page Range*), Formular-Abflachung (*Flatten Form Fields*), Dateinamen-Vorlagen (*Original Name*, *Custom Suffix*), Buttons (*Save to Downloads*, *Choose Save Location…*, *Share*, *Print*, *Preview in new tab*) sowie Validierungsmeldungen in `parsePageRangeInput` auf Englisch umstellen.
-- **Signatur-Modal (`src/components/SignatureModal.tsx`)**:
-  - Reiter *Template Library*, Schnellauswahl (*Saved Signatures (Tap to insert)*, *Manage all*), Vorlagenverwaltung (*Save to Library*, *Save Only*, *Draw Now*, *Choose Image*) auf Englisch vereinheitlichen.
-- **Verlauf (`src/components/RecentDocumentsModal.tsx`, `src/utils/recentDocuments.ts`)**:
-  - Dialogtexte (*Recent Documents*, *No recent documents yet*, *Active*, *Clear History*) sowie relative Zeitangaben (*Just now*, *X min ago*, *Today*, *Yesterday*, *X days ago*) auf Englisch umstellen.
-- **Fehlerdiagnose & Native Bridge (`src/components/ErrorDiagnosticsModal.tsx`, `ErrorBoundary.tsx`, `src/utils/appError.ts`, `src/utils/nativeBridge.ts`, `src/App.tsx`)**:
-  - Diagnose-Modal (*PatricksPDF Info & Diagnostics*, *App Info & Build Version*, *No active runtime errors logged*, *Copy diagnostic report*) sowie sämtliche System-, Datei-, Druck- und Teilen-Meldungen auf Englisch vereinheitlichen.
+## 2. User Experience & Workflow Details (All UI in English)
 
-### 5. Qualitätssicherung & Tests
-- Anpassung der Text-Assertions in `test/architectureAndFeatures.test.ts` an die englischen UI-Strings.
-- Ausführung von `lint_applet`, `npm test`, `compile_applet` und `npx cap sync android`.
+### A. Start Screen (`EmptyState.tsx`) — Resume Draft Banner
+- When the app starts on the home screen (`!pdfState`) and a recent document has an active unsaved draft (`hasDraft === true`), a prominent **"Unfinished Draft Available"** banner is displayed at the top of `EmptyState`:
+  - Shows document name, relative timestamp (`Edited 2 min ago`), and a summary of edits (e.g., `2 signatures · 1 text · Page 3`).
+  - Primary button: **Resume Editing** (loads the document with its full working state and jumps straight to the last active page).
+  - Secondary action: **Reset to Original** (discards the draft and restores the original unmodified PDF).
+
+### B. Recent Documents History (`RecentDocumentsModal.tsx` & `EmptyState.tsx`)
+- Entries in `RecentDocumentsModal` and the "Recently Opened" list on `EmptyState` clearly display their state:
+  - **Unsaved Drafts (`hasDraft === true`):** Highlighted with an amber `Draft • Unsaved edits` indicator, edit counts (`Signatures`, `Text`, `Form fields`, `Page edits`), and a **Discard Draft / Reset** action button next to Open/Print/Share so the user can revert to the original PDF at any time.
+  - **Saved Working Copies (`hasWorkingCopy === true && !hasDraft`):** Shows a subtle `Editable items` indicator so the user knows their placed signatures/texts remain movable when reopened.
+- **Print & Share from Recent Documents:** If a document in history has a working draft or saved overlays, clicking **Print** or **Share** directly in `RecentDocumentsModal` or `EmptyState` compiles the composite PDF (including the draft's signatures, texts, and form values) rather than printing/sharing the blank original.
+
+### C. Editor Header, Reset-to-Original & Save Behavior (`App.tsx`, `Header.tsx`, `PdfViewer.tsx`)
+- **Seamless Reopening:** Opening a document (either via Recent Documents, the Resume Banner, or selecting the same PDF file from disk) checks for an existing `DocumentDraftRecord` by `docId`. If found, it restores `signatures`, `textOverlays`, `formValues`, `modifiedPdfBuffer` (if pages were modified), and `currentPage`.
+  - If `isUnsavedDraft` is `true`, the document opens in the **Unsaved (`Draft saved locally`)** state so the user can see it hasn't been exported yet, while `resetHistory` is initialized so the restored working state can be edited or reset.
+- **Reset to Original Option:** When a document has active edits or a restored draft, the user can trigger **Reset to Original** (available in `RecentDocumentsModal`, the start screen Resume Banner, and the editor menu) to wipe the draft and reload the pristine `originalPdfBuffer`.
+- **Save / Export Behavior (`SaveModal`):** When the user exports/saves the full document via `SaveModal`:
+  - `markCurrentStateSaved()` is called.
+  - The draft record in IndexedDB is updated with `isUnsavedDraft: false` (clearing the "Unsaved Draft" warning badge while keeping all signatures, texts, and form fields editable for future sessions).
+- **Closing or Switching Documents:** Because all changes are now automatically persisted as a local draft in IndexedDB, `UnsavedChangesModal` is updated to inform the user that their draft is safely stored in Recent Documents, offering:
+  - **Save / Export PDF** (to export a final PDF file to device storage)
+  - **Close & Keep Draft** (closes the editor while preserving the draft in history & start screen)
+  - **Discard Draft & Revert** (deletes the draft and reverts to the original PDF)
+
+---
+
+## 3. Planned File Changes
+
+1. **`src/types.ts`**:
+   - Extend `RecentDocumentRecord` with `hasDraft?: boolean`, `hasWorkingCopy?: boolean`, `draftUpdatedAt?: number`, `formEditCount?: number`, `hasPageModifications?: boolean`, `lastPage?: number`.
+   - Add `DocumentDraftRecord` interface.
+2. **`src/utils/recentDocuments.ts`**:
+   - Upgrade IndexedDB to `DB_VERSION = 3`, adding `recent_docs_drafts` object store.
+   - Add `saveDocumentDraft()`, `getDocumentDraft()`, `discardDocumentDraft()`, `markDocumentDraftSaved()`, and `reconcileEmergencyDraftFromLocalStorage()` + `writeEmergencyDraftToLocalStorage()`.
+   - Add helper `compileRecentDocumentPdfBytes()` so Print/Share from Recent Documents includes draft overlays when present.
+3. **`src/App.tsx`**:
+   - Track `currentDocId` (computed via `computePdfFingerprint` on the original PDF buffer).
+   - Wire debounced background draft persistence + immediate flush on `visibilitychange` (`hidden`) / `pagehide` / `beforeunload`.
+   - Restore draft state automatically when opening a document with an existing draft, and wire `handleDiscardDraft` / `handleResetToOriginal`.
+   - Update `SaveModal` `onSaveSuccess` and `UnsavedChangesModal` actions to integrate with draft persistence.
+4. **`src/components/EmptyState.tsx` & `src/components/RecentDocumentsModal.tsx` & `src/components/UnsavedChangesModal.tsx`**:
+   - Add the **Resume Unfinished Draft** banner to `EmptyState.tsx`.
+   - Add Draft status indicators, edit summaries, and **Reset to Original** button to `RecentDocumentsModal.tsx` and `EmptyState.tsx`.
+   - Update `UnsavedChangesModal.tsx` to support keeping the local draft vs. discarding it.
+5. **Unit Tests (`src/utils/__tests__/recentDocumentsDrafts.test.ts`)**:
+   - Add tests verifying draft creation, restoration of `Uint8Array` signature bytes/text overlays/form values, emergency `localStorage` reconciliation, marking drafts as saved while keeping overlays editable, and resetting back to the original PDF buffer.

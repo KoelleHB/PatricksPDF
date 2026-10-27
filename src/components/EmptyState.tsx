@@ -10,14 +10,21 @@ import {
   Share2,
   Printer,
   Calendar,
+  RotateCcw,
+  Clock,
 } from 'lucide-react';
 import { RecentDocumentRecord } from '../types';
-import { formatRelativeTime, formatFileSize } from '../utils/recentDocuments';
+import {
+  formatRelativeTime,
+  formatFileSize,
+  formatDraftEditSummary,
+} from '../utils/recentDocuments';
 
 interface EmptyStateProps {
   onFileSelect: (file: File) => void;
   recentDocs?: RecentDocumentRecord[];
   onSelectRecentDoc?: (record: RecentDocumentRecord) => void;
+  onDiscardDraft?: (record: RecentDocumentRecord) => void;
   onOpenRecentModal?: () => void;
   onShareRecentDoc?: (record: RecentDocumentRecord) => void;
   onPrintRecentDoc?: (record: RecentDocumentRecord) => void;
@@ -27,6 +34,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   onFileSelect,
   recentDocs = [],
   onSelectRecentDoc,
+  onDiscardDraft,
   onOpenRecentModal,
   onShareRecentDoc,
   onPrintRecentDoc,
@@ -63,9 +71,84 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     }
   };
 
+  // Find the most recent document with an active unsaved draft
+  const latestUnsavedDraft = React.useMemo(() => {
+    const drafts = recentDocs.filter((d) => d.hasDraft);
+    if (drafts.length === 0) return null;
+    return drafts.sort(
+      (a, b) => (b.draftUpdatedAt || b.lastOpened) - (a.draftUpdatedAt || a.lastOpened)
+    )[0];
+  }, [recentDocs]);
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-3 sm:p-8 max-w-4xl mx-auto w-full">
-      <div className="w-full max-w-xl flex flex-col gap-4 sm:gap-5">
+    <div className="flex-1 flex flex-col items-center justify-center p-3 sm:p-8 max-w-4xl mx-auto w-full overflow-y-auto">
+      <div className="w-full max-w-xl flex flex-col gap-4 sm:gap-5 my-auto">
+        {/* Unfinished Draft Resume Banner */}
+        {latestUnsavedDraft && onSelectRecentDoc && (
+          <div
+            id="unfinished-draft-banner"
+            className="bg-amber-50/90 border border-amber-300 rounded-2xl p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-150"
+          >
+            <div className="flex items-start gap-3 min-w-0 flex-1">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                    Unfinished Draft Saved Locally
+                  </span>
+                </div>
+                <h3
+                  className="text-xs sm:text-sm font-bold text-slate-900 truncate mt-0.5"
+                  title={latestUnsavedDraft.name}
+                >
+                  {latestUnsavedDraft.name}
+                </h3>
+                <p className="text-[11px] text-slate-600 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <span>{formatDraftEditSummary(latestUnsavedDraft)}</span>
+                  {latestUnsavedDraft.lastPage && latestUnsavedDraft.lastPage > 1 && (
+                    <>
+                      <span>·</span>
+                      <span>Page {latestUnsavedDraft.lastPage}</span>
+                    </>
+                  )}
+                  <span>·</span>
+                  <span>
+                    {formatRelativeTime(
+                      latestUnsavedDraft.draftUpdatedAt || latestUnsavedDraft.lastOpened
+                    )}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              {onDiscardDraft && (
+                <button
+                  id="banner-reset-draft-btn"
+                  type="button"
+                  onClick={() => onDiscardDraft(latestUnsavedDraft)}
+                  className="px-2.5 py-1.5 rounded-xl border border-amber-300 bg-white hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-slate-700 text-xs font-semibold transition inline-flex items-center gap-1 cursor-pointer"
+                  title="Discard draft edits and reset to original PDF"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset</span>
+                </button>
+              )}
+              <button
+                id="banner-resume-draft-btn"
+                type="button"
+                onClick={() => onSelectRecentDoc(latestUnsavedDraft)}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-semibold shadow-2xs transition inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Resume Editing</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Main Upload Area */}
         <div
           onDrop={handleDrop}
@@ -109,15 +192,15 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                 <h3 className="text-xs sm:text-sm font-bold text-slate-900">
                   Recently Opened
                 </h3>
-                <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">
-                  {recentDocs.length}
+                <span className="text-[10px] font-semibold text-slate-500">
+                  ({recentDocs.length})
                 </span>
               </div>
               {onOpenRecentModal && recentDocs.length > 2 && (
                 <button
                   type="button"
                   onClick={onOpenRecentModal}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5"
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center gap-0.5 cursor-pointer"
                 >
                   <span>View all</span>
                   <ArrowRight className="w-3 h-3" />
@@ -126,77 +209,122 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             </div>
 
             <div className="space-y-1.5">
-              {recentDocs.slice(0, 3).map((doc) => (
-                <div
-                  key={doc.id}
-                  onClick={() => onSelectRecentDoc?.(doc)}
-                  className="group flex items-center justify-between gap-2.5 p-2 sm:p-2.5 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-slate-50/80 transition cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className="w-9 h-12 rounded bg-slate-100 border border-slate-200 shrink-0 overflow-hidden flex items-center justify-center">
-                      {doc.thumbnailDataUrl ? (
-                        <img
-                          src={doc.thumbnailDataUrl}
-                          alt={doc.name}
-                          className="w-full h-full object-cover object-top"
-                        />
-                      ) : (
-                        <FileText className="w-4 h-4 text-slate-400" />
-                      )}
+              {recentDocs.slice(0, 3).map((doc) => {
+                const editSummary = formatDraftEditSummary(doc);
+                return (
+                  <div
+                    key={doc.id}
+                    onClick={() => onSelectRecentDoc?.(doc)}
+                    className={`group flex items-center justify-between gap-2.5 p-2 sm:p-2.5 rounded-xl border transition cursor-pointer ${
+                      doc.hasDraft
+                        ? 'border-amber-200 bg-amber-50/40 hover:border-amber-300 hover:bg-amber-50/70'
+                        : 'border-slate-100 hover:border-blue-200 hover:bg-slate-50/80'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="w-9 h-12 rounded bg-slate-100 border border-slate-200 shrink-0 overflow-hidden flex items-center justify-center">
+                        {doc.thumbnailDataUrl ? (
+                          <img
+                            src={doc.thumbnailDataUrl}
+                            alt={doc.name}
+                            className="w-full h-full object-cover object-top"
+                          />
+                        ) : (
+                          <FileText className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h4
+                            className="text-xs font-semibold text-slate-800 truncate group-hover:text-blue-600 transition max-w-[180px] sm:max-w-xs"
+                            title={doc.name}
+                          >
+                            {doc.name}
+                          </h4>
+                          {doc.hasDraft ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                              <span>Draft</span>
+                            </span>
+                          ) : doc.hasWorkingCopy ? (
+                            <span className="text-[10px] font-medium text-blue-600">
+                              · Editable
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span>
+                            {doc.numPages} {doc.numPages === 1 ? 'page' : 'pages'}
+                          </span>
+                          <span>·</span>
+                          <span>{formatFileSize(doc.fileSize)}</span>
+                          {editSummary && (
+                            <>
+                              <span>·</span>
+                              <span className="text-slate-600 font-medium">{editSummary}</span>
+                            </>
+                          )}
+                          <span>·</span>
+                          <span className="inline-flex items-center gap-0.5">
+                            <Calendar className="w-2.5 h-2.5 text-slate-400" />
+                            {formatRelativeTime(doc.draftUpdatedAt || doc.lastOpened)}
+                          </span>
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h4
-                        className="text-xs font-semibold text-slate-800 truncate group-hover:text-blue-600 transition"
-                        title={doc.name}
-                      >
-                        {doc.name}
-                      </h4>
-                      <p className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
-                        <span>{doc.numPages} {doc.numPages === 1 ? 'page' : 'pages'}</span>
-                        <span>•</span>
-                        <span>{formatFileSize(doc.fileSize)}</span>
-                        <span>•</span>
-                        <span className="inline-flex items-center gap-0.5">
-                          <Calendar className="w-2.5 h-2.5 text-slate-400" />
-                          {formatRelativeTime(doc.lastOpened)}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {onPrintRecentDoc && (
-                      <button
-                        type="button"
-                        onClick={() => onPrintRecentDoc(doc)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
-                        title="Print"
-                        aria-label="Print"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    {onShareRecentDoc && (
-                      <button
-                        type="button"
-                        onClick={() => onShareRecentDoc(doc)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition"
-                        title="Share"
-                        aria-label="Share"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onSelectRecentDoc?.(doc)}
-                      className="px-2 py-1 rounded-lg bg-slate-100 group-hover:bg-blue-600 text-slate-700 group-hover:text-white text-[11px] font-semibold transition ml-1"
+                    <div
+                      className="flex items-center gap-1 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      Open
-                    </button>
+                      {(doc.hasDraft || doc.hasWorkingCopy) && onDiscardDraft && (
+                        <button
+                          type="button"
+                          onClick={() => onDiscardDraft(doc)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-amber-700 hover:bg-amber-100/70 transition cursor-pointer"
+                          title="Reset draft to original PDF"
+                          aria-label="Reset draft to original PDF"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {onPrintRecentDoc && (
+                        <button
+                          type="button"
+                          onClick={() => onPrintRecentDoc(doc)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition cursor-pointer"
+                          title="Print"
+                          aria-label="Print"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {onShareRecentDoc && (
+                        <button
+                          type="button"
+                          onClick={() => onShareRecentDoc(doc)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition cursor-pointer"
+                          title="Share"
+                          aria-label="Share"
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onSelectRecentDoc?.(doc)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ml-1 cursor-pointer ${
+                          doc.hasDraft
+                            ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                            : 'bg-slate-100 group-hover:bg-blue-600 text-slate-700 group-hover:text-white'
+                        }`}
+                      >
+                        {doc.hasDraft ? 'Resume' : 'Open'}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

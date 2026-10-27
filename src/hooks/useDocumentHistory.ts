@@ -505,13 +505,16 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     return targetEntry.pageNumber;
   }, [historyIndex, history, showNotice]);
 
-  // Reset history (e.g. on new document)
+  // Reset history (e.g. on new document or when restoring a saved/unsaved working draft)
   const resetHistory = useCallback(
     (initial?: {
       signatures?: SignatureItem[];
       textOverlays?: TextOverlayItem[];
       formValues?: FormValuesState;
       pageDocument?: PageDocumentSnapshot;
+      markAsUnsavedDraft?: boolean;
+      baselinePageDocument?: PageDocumentSnapshot;
+      baselineFormValues?: FormValuesState;
     }) => {
       if (pendingFormDebounceRef.current.timer) {
         clearTimeout(pendingFormDebounceRef.current.timer);
@@ -548,7 +551,23 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       stateRef.current = initialSnapshot;
       pageDocumentRef.current = pageDoc;
 
-      setSavedStateSignature(initSigStr);
+      if (initial?.markAsUnsavedDraft) {
+        const baselineRevId = initial.baselinePageDocument
+          ? registerPageDocument(initial.baselinePageDocument)
+          : revId;
+        const baselineSigStr = computeDocumentStateSignature(
+          baselineRevId,
+          [],
+          [],
+          initial.baselineFormValues || {}
+        );
+        // Ensure savedStateSignature differs from initSigStr so isSaved is false for unsaved drafts
+        setSavedStateSignature(
+          baselineSigStr === initSigStr ? `${baselineSigStr}#unsaved_draft` : baselineSigStr
+        );
+      } else {
+        setSavedStateSignature(initSigStr);
+      }
 
       setHistory([
         {
@@ -559,7 +578,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
           selectedSignatureId: null,
           selectedTextId: null,
           delta: { type: 'initial' },
-          pageNumber: 1,
+          pageNumber: pageDoc?.currentPage || 1,
           action: 'Initial Document',
           stateSignature: initSigStr,
         },
