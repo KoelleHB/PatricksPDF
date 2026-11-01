@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
-import { SignatureItem, TextOverlayItem, FormValuesState, FormFieldItem } from '../types';
+import { SignatureItem, TextOverlayItem, FormValuesState, FormVisibilityState, FormFieldItem } from '../types';
 
 export interface PageDocumentSnapshot {
   arrayBuffer: ArrayBuffer;
@@ -15,6 +15,7 @@ export interface DocumentSnapshot {
   signatures: SignatureItem[];
   textOverlays: TextOverlayItem[];
   formValues: FormValuesState;
+  formVisibility: FormVisibilityState;
   selectedSignatureId: string | null;
   selectedTextId: string | null;
 }
@@ -23,10 +24,17 @@ export interface DocumentSnapshot {
  * Compact history entry:
  * Instead of duplicating heavy PageDocumentSnapshot / ArrayBuffer instances per step,
  * each entry references a deduplicated binary revision ID (`docRevisionId`) stored in
- * `docRevisionsRef` and stores lightweight overlay/form statedeltas.
+ * `docRevisionsRef` and stores lightweight overlay/form state deltas.
  */
 export interface HistoryDeltaOperation {
-  type: 'initial' | 'signatures' | 'textOverlays' | 'formValues' | 'pageDocument' | 'composite';
+  type:
+    | 'initial'
+    | 'signatures'
+    | 'textOverlays'
+    | 'formValues'
+    | 'formVisibility'
+    | 'pageDocument'
+    | 'composite';
   changedKeys?: string[];
 }
 
@@ -35,6 +43,7 @@ export interface HistoryEntry {
   signatures: SignatureItem[];
   textOverlays: TextOverlayItem[];
   formValues: FormValuesState;
+  formVisibility: FormVisibilityState;
   selectedSignatureId: string | null;
   selectedTextId: string | null;
   delta: HistoryDeltaOperation;
@@ -49,11 +58,12 @@ export interface UseDocumentHistoryOptions {
   initialSignatures?: SignatureItem[];
   initialTextOverlays?: TextOverlayItem[];
   initialFormValues?: FormValuesState;
+  initialFormVisibility?: FormVisibilityState;
 }
 
 /**
  * Computes a deterministic, fast content signature for the current document state
- * (binary revision ID + signatures + text overlays + form values).
+ * (binary revision ID + signatures + text overlays + form values + form visibility).
  * Ignores transient UI selection (`selectedSignatureId`, `selectedTextId`) so selecting
  * or deselecting an element never marks the document as unsaved.
  */
@@ -61,7 +71,8 @@ export function computeDocumentStateSignature(
   docRevisionId: string | null,
   signatures: SignatureItem[],
   textOverlays: TextOverlayItem[],
-  formValues: FormValuesState
+  formValues: FormValuesState,
+  formVisibility: FormVisibilityState = {}
 ): string {
   const sigPart = signatures
     .map(
@@ -86,7 +97,11 @@ export function computeDocumentStateSignature(
     })
     .join('|');
 
-  return `rev:${docRevisionId ?? 'none'}#sig:${sigPart}#txt:${textPart}#frm:${formPart}`;
+  const visKeys = Object.keys(formVisibility || {}).sort();
+  const visPart = visKeys.map((k) => `${k}=${String(Boolean(formVisibility[k]))}`).join('|');
+
+  const base = `rev:${docRevisionId ?? 'none'}#sig:${sigPart}#txt:${textPart}#frm:${formPart}`;
+  return visPart ? `${base}#vis:${visPart}` : base;
 }
 
 export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
@@ -132,6 +147,9 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
   const [signatures, setSignatures] = useState<SignatureItem[]>(options.initialSignatures || []);
   const [textOverlays, setTextOverlays] = useState<TextOverlayItem[]>(options.initialTextOverlays || []);
   const [formValues, setFormValues] = useState<FormValuesState>(options.initialFormValues || {});
+  const [formVisibility, setFormVisibility] = useState<FormVisibilityState>(
+    options.initialFormVisibility || {}
+  );
   const [selectedSignatureId, setSelectedSignatureId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [hasPendingFormEdit, setHasPendingFormEdit] = useState<boolean>(false);
@@ -142,7 +160,8 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         null,
         options.initialSignatures || [],
         options.initialTextOverlays || [],
-        options.initialFormValues || {}
+        options.initialFormValues || {},
+        options.initialFormVisibility || {}
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
@@ -157,6 +176,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     signatures: options.initialSignatures || [],
     textOverlays: options.initialTextOverlays || [],
     formValues: options.initialFormValues || {},
+    formVisibility: options.initialFormVisibility || {},
     selectedSignatureId: null,
     selectedTextId: null,
   });
@@ -166,6 +186,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     signatures,
     textOverlays,
     formValues,
+    formVisibility,
     selectedSignatureId,
     selectedTextId,
   };
@@ -188,6 +209,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       signatures: options.initialSignatures || [],
       textOverlays: options.initialTextOverlays || [],
       formValues: options.initialFormValues || {},
+      formVisibility: options.initialFormVisibility || {},
       selectedSignatureId: null,
       selectedTextId: null,
       delta: { type: 'initial' },
@@ -219,6 +241,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     if (partial.signatures !== undefined) keys.push('signatures');
     if (partial.textOverlays !== undefined) keys.push('textOverlays');
     if (partial.formValues !== undefined) keys.push('formValues');
+    if (partial.formVisibility !== undefined) keys.push('formVisibility');
     if (keys.length === 1) {
       return { type: keys[0] as HistoryDeltaOperation['type'], changedKeys: keys };
     }
@@ -242,7 +265,8 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         revId,
         current.signatures,
         current.textOverlays,
-        current.formValues
+        current.formValues,
+        current.formVisibility
       );
 
       setHistory((prev) => {
@@ -252,6 +276,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
           signatures: current.signatures,
           textOverlays: current.textOverlays,
           formValues: current.formValues,
+          formVisibility: current.formVisibility,
           selectedSignatureId: current.selectedSignatureId,
           selectedTextId: current.selectedTextId,
           delta: { type: 'formValues', changedKeys: [fieldName] },
@@ -296,6 +321,10 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         textOverlays:
           newSnapshot.textOverlays !== undefined ? newSnapshot.textOverlays : stateRef.current.textOverlays,
         formValues: newSnapshot.formValues !== undefined ? newSnapshot.formValues : stateRef.current.formValues,
+        formVisibility:
+          newSnapshot.formVisibility !== undefined
+            ? newSnapshot.formVisibility
+            : stateRef.current.formVisibility,
         selectedSignatureId:
           newSnapshot.selectedSignatureId !== undefined
             ? newSnapshot.selectedSignatureId
@@ -307,6 +336,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       if (newSnapshot.signatures !== undefined) setSignatures(merged.signatures);
       if (newSnapshot.textOverlays !== undefined) setTextOverlays(merged.textOverlays);
       if (newSnapshot.formValues !== undefined) setFormValues(merged.formValues);
+      if (newSnapshot.formVisibility !== undefined) setFormVisibility(merged.formVisibility);
       if (newSnapshot.selectedSignatureId !== undefined) setSelectedSignatureId(merged.selectedSignatureId);
       if (newSnapshot.selectedTextId !== undefined) setSelectedTextId(merged.selectedTextId);
 
@@ -318,7 +348,8 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         revId,
         merged.signatures,
         merged.textOverlays,
-        merged.formValues
+        merged.formValues,
+        merged.formVisibility
       );
 
       setHistory((prevHistory) => {
@@ -328,6 +359,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
           signatures: merged.signatures,
           textOverlays: merged.textOverlays,
           formValues: merged.formValues,
+          formVisibility: merged.formVisibility,
           selectedSignatureId: merged.selectedSignatureId,
           selectedTextId: merged.selectedTextId,
           delta,
@@ -412,7 +444,8 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         revId,
         currentSnapshot.signatures,
         currentSnapshot.textOverlays,
-        currentSnapshot.formValues
+        currentSnapshot.formValues,
+        currentSnapshot.formVisibility
       );
       const validHistory = history.slice(0, historyIndex + 1);
       const newEntry: HistoryEntry = {
@@ -420,6 +453,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         signatures: currentSnapshot.signatures,
         textOverlays: currentSnapshot.textOverlays,
         formValues: currentSnapshot.formValues,
+        formVisibility: currentSnapshot.formVisibility,
         selectedSignatureId: currentSnapshot.selectedSignatureId,
         selectedTextId: currentSnapshot.selectedTextId,
         delta: { type: 'formValues', changedKeys: [fieldName] },
@@ -449,6 +483,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     setSignatures(targetEntry.signatures);
     setTextOverlays(targetEntry.textOverlays);
     setFormValues(targetEntry.formValues);
+    setFormVisibility(targetEntry.formVisibility || {});
     setSelectedSignatureId(targetEntry.selectedSignatureId);
     setSelectedTextId(targetEntry.selectedTextId);
 
@@ -460,6 +495,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       signatures: targetEntry.signatures,
       textOverlays: targetEntry.textOverlays,
       formValues: targetEntry.formValues,
+      formVisibility: targetEntry.formVisibility || {},
       selectedSignatureId: targetEntry.selectedSignatureId,
       selectedTextId: targetEntry.selectedTextId,
     };
@@ -484,6 +520,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     setSignatures(targetEntry.signatures);
     setTextOverlays(targetEntry.textOverlays);
     setFormValues(targetEntry.formValues);
+    setFormVisibility(targetEntry.formVisibility || {});
     setSelectedSignatureId(targetEntry.selectedSignatureId);
     setSelectedTextId(targetEntry.selectedTextId);
 
@@ -495,6 +532,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       signatures: targetEntry.signatures,
       textOverlays: targetEntry.textOverlays,
       formValues: targetEntry.formValues,
+      formVisibility: targetEntry.formVisibility || {},
       selectedSignatureId: targetEntry.selectedSignatureId,
       selectedTextId: targetEntry.selectedTextId,
     };
@@ -511,10 +549,12 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       signatures?: SignatureItem[];
       textOverlays?: TextOverlayItem[];
       formValues?: FormValuesState;
+      formVisibility?: FormVisibilityState;
       pageDocument?: PageDocumentSnapshot;
       markAsUnsavedDraft?: boolean;
       baselinePageDocument?: PageDocumentSnapshot;
       baselineFormValues?: FormValuesState;
+      baselineFormVisibility?: FormVisibilityState;
     }) => {
       if (pendingFormDebounceRef.current.timer) {
         clearTimeout(pendingFormDebounceRef.current.timer);
@@ -531,21 +571,30 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       const initSignatures = initial?.signatures || [];
       const initTexts = initial?.textOverlays || [];
       const initForms = initial?.formValues || {};
+      const initVisibility = initial?.formVisibility || {};
 
       const initialSnapshot: DocumentSnapshot = {
         pageDocument: pageDoc,
         signatures: initSignatures,
         textOverlays: initTexts,
         formValues: initForms,
+        formVisibility: initVisibility,
         selectedSignatureId: null,
         selectedTextId: null,
       };
 
-      const initSigStr = computeDocumentStateSignature(revId, initSignatures, initTexts, initForms);
+      const initSigStr = computeDocumentStateSignature(
+        revId,
+        initSignatures,
+        initTexts,
+        initForms,
+        initVisibility
+      );
 
       setSignatures(initSignatures);
       setTextOverlays(initTexts);
       setFormValues(initForms);
+      setFormVisibility(initVisibility);
       setSelectedSignatureId(null);
       setSelectedTextId(null);
       stateRef.current = initialSnapshot;
@@ -559,7 +608,8 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
           baselineRevId,
           [],
           [],
-          initial.baselineFormValues || {}
+          initial.baselineFormValues || {},
+          initial.baselineFormVisibility || {}
         );
         // Ensure savedStateSignature differs from initSigStr so isSaved is false for unsaved drafts
         setSavedStateSignature(
@@ -575,6 +625,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
           signatures: initSignatures,
           textOverlays: initTexts,
           formValues: initForms,
+          formVisibility: initVisibility,
           selectedSignatureId: null,
           selectedTextId: null,
           delta: { type: 'initial' },
@@ -607,7 +658,8 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
             revId,
             prev[0].signatures,
             prev[0].textOverlays,
-            prev[0].formValues
+            prev[0].formValues,
+            prev[0].formVisibility
           );
           setSavedStateSignature(updatedSig);
           return [
@@ -631,9 +683,10 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
         currentDocRevisionId,
         signatures,
         textOverlays,
-        formValues
+        formValues,
+        formVisibility
       ),
-    [currentDocRevisionId, signatures, textOverlays, formValues]
+    [currentDocRevisionId, signatures, textOverlays, formValues, formVisibility]
   );
 
   const isSaved = !hasPendingFormEdit && currentStateSignature === savedStateSignature;
@@ -644,7 +697,8 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
       currentDocRevisionIdRef.current,
       stateRef.current.signatures,
       stateRef.current.textOverlays,
-      stateRef.current.formValues
+      stateRef.current.formValues,
+      stateRef.current.formVisibility
     );
     setSavedStateSignature(sig);
   }, [flushPendingFormCommit]);
@@ -655,6 +709,7 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
     signatures,
     textOverlays,
     formValues,
+    formVisibility,
     selectedSignatureId,
     selectedTextId,
     setSelectedSignatureId,

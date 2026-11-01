@@ -116,26 +116,127 @@ export async function detectImageHasTransparency(imageSource: string): Promise<b
 }
 
 /**
- * Inserts an image as-is, preserving its original pixel colors and native transparency.
- * Uses zero-alpha RGB cleaning for transparent PNGs and native JPEG encoding (q=0.88)
- * when the image is 100% opaque.
+ * Checks whether a string is a base64-encoded JPEG Data URL.
+ */
+export function isJpegDataUrl(src: string): boolean {
+  return /^data:image\/jpe?g;base64,/i.test((src || '').trim());
+}
+
+/**
+ * Decodes a base64 Data URL directly into a Uint8Array without re-encoding.
+ */
+export function dataUrlToUint8Array(dataUrl: string): Uint8Array {
+  const commaIdx = dataUrl.indexOf(',');
+  const base64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1).trim() : dataUrl.trim();
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(base64, 'base64'));
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Classifies whether an opaque RGBA pixel buffer represents a continuous-tone photograph
+ * (suitable for high-quality JPEG DCTDecode compression) versus a sharp-edged graphic,
+ * stamp, logo, or line-art diagram (which must remain lossless PNG to avoid ringing artifacts).
+ */
+export function isContinuousTonePhoto(
+  data: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number
+): boolean {
+  const totalPixels = width * height;
+  if (totalPixels < 64 || data.length < totalPixels * 4) {
+    return false;
+  }
+
+  const step = Math.max(1, Math.floor(Math.sqrt(totalPixels / 8000)));
+  let pairCount = 0;
+  let identicalPairs = 0;
+  let smoothGradientPairs = 0;
+  const quantizedColors = new Set<number>();
+
+  for (let y = 0; y < height; y += step) {
+    const rowOffset = y * width * 4;
+    for (let x = 0; x + step < width; x += step) {
+      const idx = rowOffset + x * 4;
+      const nextIdx = rowOffset + (x + step) * 4;
+
+      const r1 = data[idx];
+      const g1 = data[idx + 1];
+      const b1 = data[idx + 2];
+      const r2 = data[nextIdx];
+      const g2 = data[nextIdx + 1];
+      const b2 = data[nextIdx + 2];
+
+      quantizedColors.add(((r1 >> 4) << 8) | ((g1 >> 4) << 4) | (b1 >> 4));
+
+      const maxDiff = Math.max(Math.abs(r1 - r2), Math.abs(g1 - g2), Math.abs(b1 - b2));
+      pairCount++;
+      if (maxDiff === 0) {
+        identicalPairs++;
+      } else if (maxDiff <= 28) {
+        smoothGradientPairs++;
+      }
+    }
+  }
+
+  if (pairCount === 0) return false;
+  const identicalRatio = identicalPairs / pairCount;
+  const smoothRatio = smoothGradientPairs / pairCount;
+
+  // Continuous-tone photos exhibit rich color diversity, low flat-color runs, and smooth local gradients.
+  return quantizedColors.size >= 128 && identicalRatio < 0.65 && smoothRatio >= 0.3;
+}
+
+/**
+ * Inserts an image as-is:
+ * - Lossless 1:1 passthrough for existing JPEG sources that do not require cropping or downscaling.
+ * - Lossless PNG with zero-alpha RGB pre-cleaning for images with transparency.
+ * - Lossless PNG for sharp-edged opaque graphics, stamps, or logos to prevent JPEG ringing artifacts.
+ * - High-quality JPEG (q=0.92, lossy) only for opaque continuous-tone photographs (or oversized JPEGs).
  */
 export async function processAsIsImage(
   imageSource: string,
   autoCrop: boolean = false
 ): Promise<ProcessedImageResult> {
   const img = await loadImage(imageSource);
+  const naturalWidth = img.naturalWidth || img.width;
+  const naturalHeight = img.naturalHeight || img.height;
+  const maxDim = 1600;
+  const needsDownscale = naturalWidth > maxDim || naturalHeight > maxDim;
+
+  // Lossless 1:1 passthrough if the input is already a JPEG within maxDim and autoCrop is off
+  if (isJpegDataUrl(imageSource) && !autoCrop && !needsDownscale) {
+    const rawJpegBytes = dataUrlToUint8Array(imageSource);
+    if (
+      rawJpegBytes.byteLength >= 3 &&
+      rawJpegBytes[0] === 0xff &&
+      rawJpegBytes[1] === 0xd8 &&
+      rawJpegBytes[2] === 0xff
+    ) {
+      return {
+        transparentDataUrl: imageSource,
+        pngBytes: rawJpegBytes,
+        width: naturalWidth,
+        height: naturalHeight,
+        aspectRatio: naturalWidth / naturalHeight,
+      };
+    }
+  }
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Could not get canvas context');
 
-  canvas.width = img.naturalWidth || img.width;
-  canvas.height = img.naturalHeight || img.height;
+  canvas.width = naturalWidth;
+  canvas.height = naturalHeight;
 
-  // Max dimension limit to keep mobile memory & PDF size optimal while retaining 300+ DPI quality
-  const maxDim = 1600;
-  if (canvas.width > maxDim || canvas.height > maxDim) {
+  if (needsDownscale) {
     const scale = maxDim / Math.max(canvas.width, canvas.height);
     canvas.width = Math.round(canvas.width * scale);
     canvas.height = Math.round(canvas.height * scale);
@@ -189,18 +290,24 @@ export async function processAsIsImage(
 
   const finalCtx = finalCanvas.getContext('2d', { willReadFrequently: true });
   let hasTransparency = true;
+  let useLossyJpeg = false;
   if (finalCtx) {
     const finalImgData = finalCtx.getImageData(0, 0, finalCanvas.width, finalCanvas.height);
     hasTransparency = cleanZeroAlphaRgbPixels(finalImgData.data);
     finalCtx.putImageData(finalImgData, 0, 0);
+    if (!hasTransparency) {
+      useLossyJpeg =
+        isJpegDataUrl(imageSource) ||
+        isContinuousTonePhoto(finalImgData.data, finalCanvas.width, finalCanvas.height);
+    }
   }
 
-  const transparentDataUrl = hasTransparency
+  const transparentDataUrl = !useLossyJpeg
     ? finalCanvas.toDataURL('image/png')
-    : finalCanvas.toDataURL('image/jpeg', 0.88);
-  const blob = hasTransparency
+    : finalCanvas.toDataURL('image/jpeg', 0.92);
+  const blob = !useLossyJpeg
     ? await canvasToBlob(finalCanvas)
-    : await canvasToJpegBlob(finalCanvas, 0.88);
+    : await canvasToJpegBlob(finalCanvas, 0.92);
   const pngBytes = await blobToUint8Array(blob);
 
   return {

@@ -46,6 +46,7 @@ import { extractViewportPageSnapshot, type ViewportPageSnapshot } from '../utils
 import { MobileReaderTopBar } from './mobile/MobileReaderTopBar';
 import { MobileFloatingPill } from './mobile/MobileFloatingPill';
 import { MobilePageGridBottomSheet } from './mobile/MobilePageGridBottomSheet';
+import { isFormFieldVisible } from '../utils/pdfFormActions';
 
 interface PdfViewerProps {
   pdfState: PdfDocumentState;
@@ -167,10 +168,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       return next;
     });
   };
-  const visibleFormFields = formFields.filter(field => {
-    const match = Object.keys(activeVisibility).find(name => field.name === name || field.name.startsWith(`${name}.`));
-    return match ? activeVisibility[match] : !field.initiallyHidden;
-  });
+  const visibleFormFields = formFields.filter(field => isFormFieldVisible(field, activeVisibility));
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainersRef = useRef<{ [pageNum: number]: HTMLDivElement | null }>({});
 

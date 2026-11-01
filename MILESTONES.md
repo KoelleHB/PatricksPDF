@@ -231,7 +231,7 @@ Dieser Meilenstein transformiert PatricksPDF auf Smartphones und in der Android-
 
 ---
 
-## 🏆 Meilenstein 7: Version 2.4 (`2.4.0`) – AcroForm-Härtung, Export-Persistenz & europäische Zahlenformate
+## 🏆 Meilenstein 7: Version 2.4 (`2.4.0`) – AcroForm-Korrekturen, vollständige Sichtbarkeits-Zustandsintegration & abgesicherte PDF-Bildoptimierung
 
 - **Datum**: 1. November 2026
 - **Version**: `2.4.0` (CI-Schema: `2.4.<github.run_number>`)
@@ -239,21 +239,22 @@ Dieser Meilenstein transformiert PatricksPDF auf Smartphones und in der Android-
 
 ### Zusammenfassung der Kernarchitektur:
 
-1. **Dual-Key Lookup für Formularaktionen & Formatierungen (`src/utils/pdfFormActions.ts`, `src/utils/pdfFormFormatting.ts`, `src/utils/pdfEngine.ts`)**:
-   - Assoziation von Aktionen (`/Hide`, `/ResetForm`) und Rechen-/Formatierungsregeln sowohl mit der Objekt-Referenz (`12R`) als auch mit dem Feldnamen (`name:Feldname`).
-   - Schützt gegen synthetische PDF.js-IDs und stellt sicher, dass Formularaktionen auf allen PDF-Strukturen greifen.
+1. **Spezifikationsgerechte Acrobat-Zahlenformatierung & Summenberechnung (`src/utils/pdfFormFormatting.ts`)**:
+   - Exakte Abbildung aller vier `AFNumber_Format`-Separatorstile (`0 -> 1,234.56`, `1 -> 1234.56`, `2 -> 1.234,56`, `3 -> 1234,56`).
+   - Strikte Trennung von Dezimaltrennzeichen und Tausendergruppierung, Ablehnung mehrdeutiger Eingaben und exakte Zwischenwert-Berechnung bei verketteten `AFSimple_Calculate("SUM", ...)`-Summenfeldern.
 
-2. **Persistierung dynamischer Sichtbarkeiten im PDF-Export (`src/utils/pdfExportEngine.ts`)**:
-   - Beim Exportieren / Speichern / Drucken / Teilen werden durch `/Hide`-Aktionen verborgene Formularfelder in den Annotation-Flags `/F` mit `Hidden` (`1 << 1`) und `NoView` (`1 << 5`) markiert.
-   - Beim Flattening werden verborgene Felder vor dem Rendern aus dem AcroForm-Baum entfernt, sodass sie nicht in den Seiteninhalt eingebrannt werden.
+2. **Vollständige Integration von `formVisibility` in Historie, Entwürfe & Export (`src/hooks/useDocumentHistory.ts`, `src/utils/recentDocuments.ts`, `src/App.tsx`, `src/utils/pdfExportEngine.ts`)**:
+   - Dynamische `/Hide`-Sichtbarkeitsänderungen sind vollständig in Undo/Redo, den deterministischen `isSaved`-Status (`computeDocumentStateSignature`), IndexedDB-Entwürfe (`DocumentDraftRecord`), den `localStorage`-Notfall-Draft sowie alle Export-/Druck-/Teilen-Pfade integriert.
+   - Ursprünglich ausgeblendete Felder (`initiallyHidden`) und dynamisch ausgeblendete Felder werden beim Flattening vor `form.flatten()` entfernt, damit verborgene Inhalte niemals in die Seite eingebrannt werden.
 
-3. **Europäische Zahlenformate & zyklusfreie Summenberechnung (`src/utils/pdfFormFormatting.ts`)**:
-   - Unterstützung für Adobe Acrobat Formatierungs-Signaturen mit `sepStyle = 1` und `3` (Punkt oder Leerzeichen als Tausender, Komma als Dezimaltrenner).
-   - Sauberes Parsen und Formatieren sowohl deutscher/europäischer (`1.234,50`) als auch US-amerikanischer Eingaben (`1,234.50`).
+3. **Hierarchische AcroForm-Auflösung & indirekte PDF-Referenzen (`src/utils/pdfFormActions.ts`, `src/utils/pdfEngine.ts`)**:
+   - Auflösung mehrstufiger `/Parent`-Ketten zu vollqualifizierten Feldnamen (`parent.child.leaf`) mit Zyklenschutz, Auswertung von `/A` und `/AA` an Feld-Dictionaries und Widgets sowie Auflösung indirekter `PDFRef`-Ziele in `/Hide` und `/ResetForm`.
 
-4. **Verlustfreie & performante PDF-Dateigrößen-Optimierung (`src/utils/pdfExportEngine.ts`, `src/utils/imageProcessor.ts`)**:
-   - Aktivierung von PDF 1.5 Object Streams (`useObjectStreams: true`), XObject-Deduplizierung mehrfach platzierter Signaturen/Stempel (`computeImagePayloadFingerprint`), Font-Subsetting (`{ subset: true }`), Zero-Alpha RGB Pre-Cleaning (`cleanZeroAlphaRgbPixels`) und nativem JPEG-Passthrough (`embedJpg`) für voll-opake Fotos.
+4. **Saubere Trennung verlustfreier & verlustbehafteter PDF-Optimierungen (`src/utils/pdfExportEngine.ts`, `src/utils/imageProcessor.ts`)**:
+   - Verlustfrei: PDF 1.5 Object Streams (`useObjectStreams: true`), kollisionssichere XObject-Deduplizierung mit Byte-für-Byte-Verifikation (`getOrEmbedPdfImage` / `areUint8ArraysEqual`), Font-Subsetting (`{ subset: true }`), Zero-Alpha RGB Pre-Cleaning (`cleanZeroAlphaRgbPixels`) und 1:1 JPEG-Passthrough (`dataUrlToUint8Array`).
+   - Kontrolliert verlustbehaftet: Grafik-/Foto-Klassifikation (`isContinuousTonePhoto`, scharfe Grafiken/Stempel bleiben PNG, nur Fotos werden mit `quality: 0.92` als JPEG kodiert) und Auflösungsdeckelung (`maxDim = 1600`).
 
-5. **Repository-Bereinigung & 100% Testabdeckung**:
+5. **Repository-Bereinigung & erweiterte Test-Suite**:
    - Entfernung des fremden `bun.lock` (ausschließliche Nutzung von `package-lock.json` mit `npm ci`).
-   - 52 automatisierte Unit-Tests grün, vollständige Versionskonsistenz auf allen Plattformen.
+   - Umfassende automatisierte Unit- und Integrationstests für alle vier Arbeitspakete.
+

@@ -14,6 +14,7 @@ import {
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { SignatureItem, TextOverlayItem, FormValuesState, PageSpec } from '../types';
+import { isFormFieldVisible } from './pdfFormActions';
 
 // Cache for Caveat script font ArrayBuffer
 let cachedScriptFontBytes: ArrayBuffer | null = null;
@@ -495,35 +496,73 @@ export async function embedSignaturesIntoPdf(
 
     let modifiedOrHasActiveFields = existingFields.length > excludedFieldNames.size;
 
-    if (options.formVisibility) {
+    const visibilityOverrides = options.formVisibility;
+    const hasVisibilityOverrides = Boolean(
+      visibilityOverrides && Object.keys(visibilityOverrides).length > 0
+    );
+
+    if (hasVisibilityOverrides || options.flattenForm) {
       for (const field of existingFields) {
         const fName = field.getName();
-        const matchedKey = Object.keys(options.formVisibility).find(
-          (k) => k === fName || fName.startsWith(`${k}.`)
+        if (excludedFieldNames.has(fName)) continue;
+
+        const widgets = (field as any).acroField?.getWidgets?.() || [];
+        let anyWidgetInitiallyHidden = false;
+        for (const w of widgets) {
+          const rawF = w.dict.lookup(PDFName.of('F'));
+          const currentF = rawF instanceof PDFNumber ? rawF.asNumber() : 0;
+          if ((currentF & 34) !== 0) {
+            anyWidgetInitiallyHidden = true;
+            break;
+          }
+        }
+
+        const hasExplicitMatch = Boolean(
+          visibilityOverrides &&
+            Object.keys(visibilityOverrides).some(
+              (k) => k === fName || fName.startsWith(`${k}.`)
+            )
         );
-        if (matchedKey !== undefined) {
-          const isVisible = options.formVisibility[matchedKey];
-          const widgets = (field as any).acroField?.getWidgets?.() || [];
-          if (!isVisible) {
+        const effectiveVisible = isFormFieldVisible(
+          { name: fName, initiallyHidden: anyWidgetInitiallyHidden },
+          visibilityOverrides
+        );
+
+        if (!effectiveVisible) {
+          if (hasExplicitMatch) {
             modifiedOrHasActiveFields = true;
-            if (options.flattenForm) {
+          }
+          if (options.flattenForm) {
+            // Never burn dynamically hidden or originally hidden fields into page content.
+            // Call form.removeField(field) while /AP is intact so pdf-lib deletes its normal appearance stream, widget, and field ref.
+            try {
+              form.removeField(field);
+            } catch {
+              // Fallback if a malformed widget lacks /AP /N
               try {
-                form.removeField(field);
-                excludedFieldNames.add(fName);
-              } catch {}
-            } else {
-              for (const w of widgets) {
-                const rawF = w.dict.lookup(PDFName.of('F'));
-                const currentF = rawF instanceof PDFNumber ? rawF.asNumber() : 0;
-                w.dict.set(PDFName.of('F'), PDFNumber.of(currentF | 2 | 32));
+                const acroForm = (form as any).acroForm;
+                if (acroForm && typeof acroForm.removeField === 'function') {
+                  acroForm.removeField((field as any).acroField);
+                }
+              } catch {
+                // Ignore fallback error
               }
             }
-          } else {
+            excludedFieldNames.add(fName);
+            modifiedOrHasActiveFields = true;
+          } else if (hasExplicitMatch) {
             for (const w of widgets) {
               const rawF = w.dict.lookup(PDFName.of('F'));
               const currentF = rawF instanceof PDFNumber ? rawF.asNumber() : 0;
-              w.dict.set(PDFName.of('F'), PDFNumber.of(currentF & ~34));
+              w.dict.set(PDFName.of('F'), PDFNumber.of(currentF | 2 | 32));
             }
+          }
+        } else if (hasExplicitMatch) {
+          modifiedOrHasActiveFields = true;
+          for (const w of widgets) {
+            const rawF = w.dict.lookup(PDFName.of('F'));
+            const currentF = rawF instanceof PDFNumber ? rawF.asNumber() : 0;
+            w.dict.set(PDFName.of('F'), PDFNumber.of(currentF & ~34));
           }
         }
       }
@@ -533,7 +572,7 @@ export async function embedSignaturesIntoPdf(
     const choiceExports: Array<{ field: PDFDropdown | PDFOptionList; values: string[]; indices: number[] }> = [];
 
     for (const [name, val] of formEntries) {
-      if (selectedPageSet && excludedFieldNames.has(name)) {
+      if (excludedFieldNames.has(name)) {
         continue;
       }
 
@@ -785,21 +824,18 @@ export async function embedSignaturesIntoPdf(
     }
   }
 
-  // 4. Embed Signatures & Images onto targetDoc (only for included pages) with XObject deduplication
-  const embeddedImageCache = new Map<string, any>();
+  // 4. Embed Signatures & Images onto targetDoc (only for included pages) with collision-safe XObject deduplication
+  const embeddedImageCache = new Map<string, CachedPdfImageEntry[]>();
 
   for (const sig of signatures) {
     const targetPageIdx = origPageNumToTargetIdx.get(sig.pageNumber);
     if (targetPageIdx === undefined) continue;
 
-    const imgKey = computeImagePayloadFingerprint(sig.pngBytes);
-    let embeddedImage = embeddedImageCache.get(imgKey);
-    if (!embeddedImage) {
-      embeddedImage = isJpegBytes(sig.pngBytes)
-        ? await targetDoc.embedJpg(sig.pngBytes)
-        : await targetDoc.embedPng(sig.pngBytes);
-      embeddedImageCache.set(imgKey, embeddedImage);
-    }
+    const embeddedImage = await getOrEmbedPdfImage(
+      targetDoc,
+      embeddedImageCache,
+      sig.pngBytes
+    );
 
     const page = targetDoc.getPage(targetPageIdx);
 
@@ -867,7 +903,7 @@ export async function embedSignaturesIntoPdf(
  */
 export function isJpegBytes(bytes: Uint8Array): boolean {
   return (
-    bytes &&
+    Boolean(bytes) &&
     bytes.byteLength >= 3 &&
     bytes[0] === 0xff &&
     bytes[1] === 0xd8 &&
@@ -876,9 +912,25 @@ export function isJpegBytes(bytes: Uint8Array): boolean {
 }
 
 /**
- * Computes a deterministic, collision-resistant fingerprint for an image byte buffer
- * using dual 32-bit FNV-1a passes + byteLength so identical signatures/stamps across pages
- * share a single embedded PDF XObject.
+ * Exact byte-for-byte equality check for two Uint8Arrays to eliminate any hash collision risk.
+ */
+export function areUint8ArraysEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+export interface CachedPdfImageEntry {
+  bytes: Uint8Array;
+  image: any;
+}
+
+/**
+ * Computes a fast bucket fingerprint for an image byte buffer using dual 32-bit FNV-1a passes + byteLength.
+ * Always paired with `areUint8ArraysEqual` in `getOrEmbedPdfImage` for 100% collision safety.
  */
 export function computeImagePayloadFingerprint(bytes: Uint8Array): string {
   let h1 = 0x811c9dc5;
@@ -892,6 +944,40 @@ export function computeImagePayloadFingerprint(bytes: Uint8Array): string {
     h2 = Math.imul(h2, 0x811c9dc5);
   }
   return `${len}:${(h1 >>> 0).toString(16)}:${(h2 >>> 0).toString(16)}`;
+}
+
+/**
+ * Collision-safe PDF image XObject deduplication helper:
+ * Looks up `bytes` by fingerprint bucket and verifies exact byte equality (`areUint8ArraysEqual`)
+ * before reusing a previously embedded image XObject.
+ */
+export async function getOrEmbedPdfImage(
+  targetDoc: {
+    embedJpg: (bytes: Uint8Array) => Promise<any>;
+    embedPng: (bytes: Uint8Array) => Promise<any>;
+  },
+  cache: Map<string, CachedPdfImageEntry[]>,
+  bytes: Uint8Array,
+  fingerprintFn: (b: Uint8Array) => string = computeImagePayloadFingerprint
+): Promise<any> {
+  const key = fingerprintFn(bytes);
+  const bucket = cache.get(key);
+  if (bucket) {
+    for (const entry of bucket) {
+      if (areUint8ArraysEqual(entry.bytes, bytes)) {
+        return entry.image;
+      }
+    }
+  }
+  const embedded = isJpegBytes(bytes)
+    ? await targetDoc.embedJpg(bytes)
+    : await targetDoc.embedPng(bytes);
+  if (bucket) {
+    bucket.push({ bytes, image: embedded });
+  } else {
+    cache.set(key, [{ bytes, image: embedded }]);
+  }
+  return embedded;
 }
 
 async function loadUnencryptedPdfForModification(bytes: ArrayBuffer): Promise<PDFDocument> {

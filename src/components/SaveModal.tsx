@@ -267,6 +267,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     signatures,
     textOverlays,
     formValues,
+    formVisibility,
     isFormModified,
     flattenForm,
     resolvedPageSelection.rangeError,

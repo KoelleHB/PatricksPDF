@@ -13,6 +13,7 @@ import {
   SignatureItem,
   TextOverlayItem,
   FormValuesState,
+  FormVisibilityState,
 } from '../types';
 import { embedSignaturesIntoPdf } from './pdfExportEngine';
 
@@ -425,6 +426,7 @@ export async function saveDocumentDraft(params: {
   signatures: SignatureItem[];
   textOverlays: TextOverlayItem[];
   formValues: FormValuesState;
+  formVisibility?: FormVisibilityState;
   formEditCount?: number;
 }): Promise<void> {
   const {
@@ -439,13 +441,18 @@ export async function saveDocumentDraft(params: {
     signatures,
     textOverlays,
     formValues,
+    formVisibility,
     formEditCount = 0,
   } = params;
+
+  const normalizedVisibility: FormVisibilityState = formVisibility ? { ...formVisibility } : {};
+  const visibilityEditCount = Object.keys(normalizedVisibility).length;
+  const effectiveFormEditCount = Math.max(formEditCount, visibilityEditCount);
 
   const hasAnyWorkingEdits =
     signatures.length > 0 ||
     textOverlays.length > 0 ||
-    formEditCount > 0 ||
+    effectiveFormEditCount > 0 ||
     hasPageModifications;
 
   if (!hasAnyWorkingEdits) {
@@ -469,7 +476,8 @@ export async function saveDocumentDraft(params: {
     signatures: normalizedSignatures,
     textOverlays: (textOverlays || []).map((t) => ({ ...t })),
     formValues: { ...(formValues || {}) },
-    formEditCount,
+    formVisibility: normalizedVisibility,
+    formEditCount: effectiveFormEditCount,
   };
 
   if (!hasIndexedDb()) {
@@ -492,7 +500,7 @@ export async function saveDocumentDraft(params: {
         thumbnailDataUrl: existingMeta?.thumbnailDataUrl,
         signatureCount: normalizedSignatures.length,
         textCount: textOverlays.length,
-        formEditCount,
+        formEditCount: effectiveFormEditCount,
         hasPageModifications,
         hasDraft: isUnsavedDraft,
         hasWorkingCopy: true,
@@ -541,7 +549,7 @@ export async function saveDocumentDraft(params: {
             thumbnailDataUrl: existingMeta?.thumbnailDataUrl,
             signatureCount: normalizedSignatures.length,
             textCount: textOverlays.length,
-            formEditCount,
+            formEditCount: effectiveFormEditCount,
             hasPageModifications,
             hasDraft: isUnsavedDraft,
             hasWorkingCopy: true,
@@ -583,6 +591,7 @@ export async function getDocumentDraft(id: string): Promise<DocumentDraftRecord 
       signatures: normalizeSignatureItems(draft.signatures),
       textOverlays: draft.textOverlays.map((t) => ({ ...t })),
       formValues: { ...draft.formValues },
+      formVisibility: { ...(draft.formVisibility || {}) },
     };
   }
 
@@ -611,6 +620,7 @@ export async function getDocumentDraft(id: string): Promise<DocumentDraftRecord 
           signatures: normalizeSignatureItems(res.signatures || []),
           textOverlays: (res.textOverlays || []).map((t) => ({ ...t })),
           formValues: { ...(res.formValues || {}) },
+          formVisibility: { ...(res.formVisibility || {}) },
         });
       };
 
@@ -798,6 +808,7 @@ interface SerializedEmergencyDraft {
   signatures: SerializedEmergencySignature[];
   textOverlays: TextOverlayItem[];
   formValues: FormValuesState;
+  formVisibility?: FormVisibilityState;
 }
 
 /**
@@ -815,11 +826,13 @@ export function writeEmergencyDraftToLocalStorage(params: {
   signatures: SignatureItem[];
   textOverlays: TextOverlayItem[];
   formValues: FormValuesState;
+  formVisibility?: FormVisibilityState;
   formEditCount?: number;
 }): boolean {
   try {
     if (typeof localStorage === 'undefined') return false;
-    const formEditCount = params.formEditCount ?? 0;
+    const visibilityCount = Object.keys(params.formVisibility || {}).length;
+    const formEditCount = Math.max(params.formEditCount ?? 0, visibilityCount);
     const hasAnyEdits =
       params.signatures.length > 0 ||
       params.textOverlays.length > 0 ||
@@ -856,6 +869,7 @@ export function writeEmergencyDraftToLocalStorage(params: {
       })),
       textOverlays: params.textOverlays,
       formValues: params.formValues,
+      formVisibility: params.formVisibility ? { ...params.formVisibility } : {},
     };
 
     localStorage.setItem(EMERGENCY_DRAFT_STORAGE_KEY, JSON.stringify(payload));
@@ -936,6 +950,7 @@ export async function reconcileEmergencyDraftFromLocalStorage(): Promise<boolean
       signatures: restoredSignatures,
       textOverlays: emergency.textOverlays || [],
       formValues: emergency.formValues || {},
+      formVisibility: emergency.formVisibility || existingDraft?.formVisibility || {},
       formEditCount: emergency.formEditCount ?? 0,
     });
 
@@ -965,7 +980,8 @@ export async function compileRecentDocumentPdfBytes(
     (draft.signatures.length > 0 ||
       draft.textOverlays.length > 0 ||
       (draft.formEditCount ?? 0) > 0 ||
-      Object.keys(draft.formValues || {}).length > 0)
+      Object.keys(draft.formValues || {}).length > 0 ||
+      Object.keys(draft.formVisibility || {}).length > 0)
   ) {
     try {
       return await embedSignaturesIntoPdf(
@@ -973,7 +989,7 @@ export async function compileRecentDocumentPdfBytes(
         draft.signatures,
         draft.textOverlays,
         draft.formValues,
-        { flattenForm: true }
+        { flattenForm: true, formVisibility: draft.formVisibility }
       );
     } catch (err) {
       console.warn('Could not embed draft overlays for recent document quick action:', err);

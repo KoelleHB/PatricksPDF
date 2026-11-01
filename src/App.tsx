@@ -9,7 +9,7 @@ import { PasswordPromptModal } from './components/PasswordPromptModal';
 import { PageManagementModal } from './components/PageManagementModal';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { RecentDocumentsModal } from './components/RecentDocumentsModal';
-import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, PdfDocumentState, TextFontFamily, TextColor, PageSpec, RecentDocumentRecord } from './types';
+import { SignatureItem, TextOverlayItem, FormFieldItem, FormValuesState, FormVisibilityState, PdfDocumentState, TextFontFamily, TextColor, PageSpec, RecentDocumentRecord } from './types';
 import { loadPdfJsDoc, extractPdfFormFields, applyPageModifications, buildStagedPageExportSnapshot, type StagedPageExportSnapshot, clearThumbnailCache, disposePdfJsResources, generatePageThumbnail, embedSignaturesIntoPdf } from './utils/pdfEngine';
 import {
   getRecentDocuments,
@@ -29,6 +29,7 @@ import {
 import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
 import { calculateSupportedForms, formatSupportedNumber } from './utils/pdfFormFormatting';
+import { applyHideActionToVisibility, isFormFieldVisible } from './utils/pdfFormActions';
 import { usePwaShareTarget } from './hooks/usePwaShareTarget';
 import { AlertCircle, X, Loader2, Share2, FileQuestion, HelpCircle } from 'lucide-react';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
@@ -73,13 +74,13 @@ export default function App() {
   // Native Form Fields metadata (structural fields from PDF)
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
   const initialFormValuesRef = useRef<FormValuesState>({});
-  const [formVisibility, setFormVisibility] = useState<Record<string, boolean>>({});
 
-  // Unified Document History Manager (Signatures, Text Overlays, Form Values, and deterministic Saved State)
+  // Unified Document History Manager (Signatures, Text Overlays, Form Values, Form Visibility, and deterministic Saved State)
   const {
     signatures,
     textOverlays,
     formValues,
+    formVisibility,
     selectedSignatureId,
     selectedTextId,
     setSelectedSignatureId,
@@ -116,16 +117,25 @@ export default function App() {
   } | null>(null);
   const [isPasswordIncorrect, setIsPasswordIncorrect] = useState(false);
 
-  // Count how many form fields differ from initial document state
+  // Count how many form fields differ from initial document state (values or dynamic visibility)
   const formEditCount = React.useMemo(() => {
     const initial = initialFormValuesRef.current;
-    const currentKeys = Object.keys(formValues);
-    let count = 0;
-    for (const k of currentKeys) {
-      if (formValues[k] !== initial[k]) count++;
+    const modifiedNames = new Set<string>();
+    for (const k of Object.keys(formValues)) {
+      if (formValues[k] !== initial[k]) modifiedNames.add(k);
     }
-    return count;
-  }, [formValues]);
+    for (const f of formFields) {
+      if (isFormFieldVisible(f, formVisibility) !== !f.initiallyHidden) {
+        modifiedNames.add(f.name);
+      }
+    }
+    for (const k of Object.keys(formVisibility)) {
+      if (!formFields.some((f) => f.name === k || f.name.startsWith(`${k}.`))) {
+        modifiedNames.add(k);
+      }
+    }
+    return modifiedNames.size;
+  }, [formValues, formVisibility, formFields]);
 
   const isFormModified = formEditCount > 0;
 
@@ -175,6 +185,7 @@ export default function App() {
     signatures: SignatureItem[];
     textOverlays: TextOverlayItem[];
     formValues: FormValuesState;
+    formVisibility: FormVisibilityState;
     formEditCount: number;
   } | null>(null);
 
@@ -192,6 +203,7 @@ export default function App() {
           signatures,
           textOverlays,
           formValues,
+          formVisibility,
           formEditCount,
         }
       : null;
@@ -227,6 +239,7 @@ export default function App() {
     signatures,
     textOverlays,
     formValues,
+    formVisibility,
     formEditCount,
     hasPageModifications,
     isSaved,
@@ -395,9 +408,11 @@ export default function App() {
           signatures: existingDraft.signatures || [],
           textOverlays: existingDraft.textOverlays || [],
           formValues: { ...initialValues, ...(existingDraft.formValues || {}) },
+          formVisibility: existingDraft.formVisibility || {},
           markAsUnsavedDraft: existingDraft.isUnsavedDraft,
           baselinePageDocument: baselinePageDoc,
           baselineFormValues: initialValues,
+          baselineFormVisibility: {},
         });
       } else {
         resetHistory({
@@ -405,13 +420,13 @@ export default function App() {
           signatures: [],
           textOverlays: [],
           formValues: initialValues,
+          formVisibility: {},
         });
       }
 
       setIsPasswordModalOpen(false);
       setPasswordPendingDoc(null);
       setHasPageModifications(restoredPageMod);
-      setFormVisibility({});
 
       // Non-blocking background generation of page 1 thumbnail for local document history
       const scheduleRecentDocPersist = () => {
@@ -865,11 +880,21 @@ export default function App() {
       return;
     }
     if (action.type === 'hide') {
-      setFormVisibility(prev => {
-        const next = { ...prev };
-        for (const target of action.targets) next[target] = !action.hide;
-        return next;
-      });
+      const { nextVisibility, changed } = applyHideActionToVisibility(
+        formVisibility,
+        action,
+        formFields
+      );
+      if (!changed) return;
+      flushPendingFormCommit();
+      const actionLabel = action.hide
+        ? `Hide ${action.targets.join(', ')}`
+        : `Show ${action.targets.join(', ')}`;
+      commitAction(
+        { formVisibility: nextVisibility },
+        actionLabel,
+        pdfState?.currentPage || 1
+      );
       markUnsaved();
     }
   };
@@ -981,10 +1006,10 @@ export default function App() {
       signatures: [],
       textOverlays: [],
       formValues: {},
+      formVisibility: {},
     });
     setFormFields([]);
     initialFormValuesRef.current = {};
-    setFormVisibility({});
     setHasPageModifications(false);
     setIsReaderMode(false);
   };

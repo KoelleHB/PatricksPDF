@@ -4,30 +4,29 @@ Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilenstein
 
 > **Versionskonvention (ab Version 2.4):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.4.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.4.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.4.<run_number>`). Der Header zeigt den Badge **`v2.4`**.
 
-## 01.11.2026 – Version 2.4 (`2.4.0`) – AcroForm-Härtung, Export-Persistenz dynamischer Sichtbarkeiten & europäische Zahlenformate
+## 01.11.2026 – Version 2.4 (`2.4.0`) – Spezifikationsgerechte AcroForm-Zahlenformatierung, vollständige `formVisibility`-Zustandsintegration, hierarchische Aktionsauflösung & abgesicherte PDF-Bildoptimierung
 
-### 1. Dual-Key Lookup für Formularaktionen & Formatierungen (`src/utils/pdfFormActions.ts`, `src/utils/pdfFormFormatting.ts`, `src/utils/pdfEngine.ts`)
-- Mappen von Aktionen und Formatierungsregeln sowohl auf die Objekt-Referenz `${ref.objectNumber}R${ref.generationNumber}` als auch auf den vollqualifizierten Feldnamen `name:${fieldName}`.
-- Gewährleistet zuverlässige Funktionsweise von `/Hide`, `/ResetForm` und Berechnungen auch dann, wenn PDF.js synthetische IDs vergibt.
+### 1. Spezifikationsgerechte Acrobat-Zahlenformatierung & Summenberechnung (`src/utils/pdfFormFormatting.ts`)
+- Korrekte Umsetzung aller vier Adobe-Acrobat-Separatorstile für `AFNumber_Format`: `sepStyle = 0` (`1,234.56`), `sepStyle = 1` (`1234.56`), `sepStyle = 2` (`1.234,56`) und `sepStyle = 3` (`1234,56`).
+- Strikte Trennung von Dezimaltrennzeichen und Tausendergruppierung in `parseNumber()` und `formatSupportedNumber()`; mehrdeutige Eingaben ohne bekannte `sepStyle`-Vorgabe oder widersprüchliche Trennzeichen werden abgewiesen statt fehlinterpretiert.
+- `AFSimple_Calculate("SUM", ...)` rechnet über ungerundete numerische Zwischenwerte (`computedNumeric`) über gemischte Zahlenformate hinweg und formatiert erst bei der Darstellung, wodurch Kaskaden-Rundungsfehler vermieden werden.
 
-### 2. Export-Persistenz dynamischer Sichtbarkeiten (`src/utils/pdfExportEngine.ts`, `src/components/PdfViewer.tsx`, `src/App.tsx`, `src/components/SaveModal.tsx`)
-- Beim Speichern, Drucken, Teilen und Exportieren von Formularen werden durch Schaltflächen ausgeblendete Felder über die Annotation-Flags `/F` (`Hidden` = 2, `NoView` = 32) im PDF-Binärdokument gesichert.
-- Beim PDF-Flattening werden ausgeblendete Widgets vorab aus dem Formularbaum entfernt, sodass sie nicht in den Seiteninhalt eingebrannt werden.
+### 2. Vollständige Integration von `formVisibility` in den Dokumentzustand (`src/hooks/useDocumentHistory.ts`, `src/utils/recentDocuments.ts`, `src/App.tsx`, `src/utils/pdfExportEngine.ts`)
+- Integration dynamischer `/Hide`-Sichtbarkeitsänderungen (`formVisibility`) in `useDocumentHistory` (Undo/Redo, deterministischer `isSaved`-Status über `computeDocumentStateSignature`), IndexedDB-Entwürfe (`DocumentDraftRecord`) und `localStorage`-Notfall-Drafts (abwärtskompatibel zu bestehenden Entwürfen).
+- Berücksichtigung ursprünglicher Sichtbarkeitsflags (`initiallyHidden` aus `/F` Bits `Hidden` = 2 / `NoView` = 32) beim Öffnen, Wiederherstellen und beim Export: Sowohl dynamisch als auch ursprünglich ausgeblendete Felder werden vor `form.flatten()` entfernt, damit verborgene Felder nicht in den Seiteninhalt eingebrannt werden.
 
-### 3. Europäische Zahlenformate & zyklusfreie Summenberechnung (`src/utils/pdfFormFormatting.ts`)
-- Unterstützung für Adobe Acrobat Formatierungs-Signaturen mit `sepStyle = 1` und `3` (Punkt oder Leerzeichen als Tausender, Komma als Dezimaltrenner).
-- `parseNumber` und `formatSupportedNumber` unterstützen deutsches/europäisches Zahlenformat (`1.234,50`) sowie US-Format (`1,234.50`).
+### 3. Robuste Auswertung von AcroForm-Hierarchien & indirekten Referenzen (`src/utils/pdfFormActions.ts`, `src/utils/pdfFormFormatting.ts`, `src/utils/pdfEngine.ts`)
+- Auflösung mehrstufiger `/Parent`-Hierarchien zu vollqualifizierten Feldnamen (`parent.child.leaf`) mit Zyklenschutz und Tiefenbegrenzung (`MAX_HIERARCHY_DEPTH = 64`).
+- Auswertung von `/A`- und `/AA`-Einträgen (`/U`, `/D`, `/F`, `/C`) sowohl direkt am Widget als auch an übergeordneten Feld-Dictionaries sowie Auflösung indirekter PDF-Referenzen (`PDFRef`) in `/Hide`- und `/ResetForm`-Ziellisten.
+- Kollisionsschutz für gleichnamige Teilfelder in unterschiedlichen Teilbäumen (`billing.address.street` vs. `shipping.address.street`) und strikte Sicherheit (keine Ausführung von eingebettetem JavaScript, Ablehnung verketteter `/Next`-Aktionen).
 
-### 4. Verlustfreie & performante PDF-Dateigrößen-Optimierung (`src/utils/pdfExportEngine.ts`, `src/utils/imageProcessor.ts`)
-- **PDF 1.5 Object Streams (`useObjectStreams: true`)**: Komprimiert sämtliche indirekten PDF-Objekte (Formularfelder, Annotationen, Seitenbäume und Cross-Reference-Streams) per `FlateDecode`.
-- **XObject-Deduplizierung für Signaturen & Stempel**: Mehrfach platzierte identische Unterschriften oder Bilder werden beim Export anhand eines Dual-FNV-1a-Fingerprints (`computeImagePayloadFingerprint`) erkannt, nur einmalig als PDF-`XObject` eingebettet und auf allen Zielseiten referenziert.
-- **Font-Subsetting & Bedarfs-Einbettung**: Die Schreibschrift (`Caveat-Regular.ttf`) wird mit `{ subset: true }` eingebettet, sodass nur verwendete Glyphen im PDF landen; Standard-Fonts (`Helvetica`) werden nur geladen, wenn ein Standard-Text-Overlay existiert.
-- **Zero-Alpha RGB Pre-Cleaning & 300-DPI-Deckelung**: Vollständig transparente Hintergrundpixel (`alpha === 0`) erhalten vor der PNG-Kodierung `R=0, G=0, B=0` (`cleanZeroAlphaRgbPixels`), wodurch `FlateDecode` das Bild um 50–75 % stärker komprimiert.
-- **Nativer JPEG-Passthrough (`DCTDecode`)**: Voll-opake Bilder ohne Transparenz im „Original (As-Is)“-Modus werden als hochwertiges JPEG (`quality: 0.88`) kodiert und beim Export direkt über `embedJpg()` eingebettet.
+### 4. Saubere Trennung verlustfreier & verlustbehafteter PDF-Optimierungen (`src/utils/pdfExportEngine.ts`, `src/utils/imageProcessor.ts`)
+- **Verlustfreie Optimierungen:** PDF 1.5 Object Streams (`useObjectStreams: true`), kollisionssichere XObject-Deduplizierung mit Byte-für-Byte-Verifikation (`getOrEmbedPdfImage` / `areUint8ArraysEqual`), Font-Subsetting (`{ subset: true }`), Zero-Alpha RGB Pre-Cleaning (`cleanZeroAlphaRgbPixels`) für volltransparente Pixel (`alpha === 0`) sowie **1:1 JPEG-Passthrough** (`isJpegDataUrl` / `dataUrlToUint8Array`) ohne Re-Encoding für bereits passende JPEG-Quellen (`<= 1600px`).
+- **Kontrolliert verlustbehaftete Optimierungen:** Automatische Unterscheidung (`isContinuousTonePhoto`) zwischen scharfkantigen Grafiken/Stempeln/Logos (bleiben verlustfreie PNGs) und echten Halbton-Fotos (JPEG `quality: 0.92` via `embedJpg`) sowie Begrenzung sehr großer Kameraaufnahmen auf `maxDim = 1600`.
 
 ### 5. Bereinigung von Repository-Altlasten & Dokumentation
 - Entfernung des obsoleten `bun.lock` (ausschließliche Nutzung von `package-lock.json` mit `npm ci`).
-- Aktualisierung von `docs/PDF-FORMULAR-ANALYSE.md`, `README.md`, `MILESTONES.md` und CI-Konfigurationen.
+- Aktualisierung von `docs/PDF-FORMULAR-ANALYSE.md`, `docs/ARCHITECTURE.md`, `README.md`, `MILESTONES.md` und `CHANGELOG.md`.
 
 ## 26.10.2026 – Version 2.3 (`2.3.0`) – Zoom-Erhalt im Vollbildmodus, bestätigter Fullscreen-Status, APK-Build-Diagnose & Code-Hygiene
 

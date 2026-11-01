@@ -452,6 +452,8 @@ async function extractPdfFormFieldsViaPdfLib(
       return { fields: [], initialValues: {} };
     }
 
+    const actions = await readFormActions(pdfBytes).catch(() => new Map());
+    const formatting = await readFormFormatting(pdfBytes).catch(() => new Map());
     const pages = pdfDoc.getPages();
     const extractedFields: FormFieldItem[] = [];
     const initialValues: FormValuesState = {};
@@ -499,16 +501,21 @@ async function extractPdfFormFieldsViaPdfLib(
         } catch {
           initialVal = '';
         }
+      } else if (field.constructor.name.includes('Button') || (field as any).acroField?.getFlags) {
+        fieldType = 'button';
       } else {
         continue;
       }
 
-      initialValues[name] = initialVal;
+      if (fieldType !== 'button') {
+        initialValues[name] = initialVal;
+      }
 
       const widgets = (field as any).acroField?.getWidgets?.() || [];
       for (let wIdx = 0; wIdx < widgets.length; wIdx++) {
         const widget = widgets[wIdx];
         let widgetPageIndex = 0;
+        let widgetAnnotId: string | undefined = undefined;
 
         for (let p = 0; p < pages.length; p++) {
           try {
@@ -521,6 +528,9 @@ async function extractPdfFormFieldsViaPdfLib(
                 const widgetRef = (widget as any).ref || (widget as any).dict;
                 if (annotItem === widgetRef || resolved === (widget as any).dict) {
                   widgetPageIndex = p;
+                  if (annotItem && typeof annotItem.objectNumber === 'number') {
+                    widgetAnnotId = `${annotItem.objectNumber}R${annotItem.generationNumber || ''}`;
+                  }
                   break;
                 }
               }
@@ -555,8 +565,20 @@ async function extractPdfFormFieldsViaPdfLib(
           radioOptValue = options[wIdx];
         }
 
+        let initiallyHidden = false;
+        try {
+          const flagsNum = typeof widget.getFlags === 'function' ? widget.getFlags() : 0;
+          // PDF Annotation Flag Bit 2 = Hidden (2), Bit 6 = NoView (32)
+          initiallyHidden = (flagsNum & 34) !== 0;
+        } catch {
+          initiallyHidden = false;
+        }
+
+        const matchedAction = (widgetAnnotId ? actions.get(widgetAnnotId) : undefined) ?? actions.get(`name:${name}`);
+        const matchedFormat = (widgetAnnotId ? formatting.get(widgetAnnotId) : undefined) ?? formatting.get(`name:${name}`);
+
         extractedFields.push({
-          id: `field-${name}-${extractedFields.length}`,
+          id: `field-${name}-${widgetAnnotId || extractedFields.length}`,
           name,
           type: fieldType,
           pageNumber: widgetPageIndex + 1,
@@ -568,6 +590,12 @@ async function extractPdfFormFieldsViaPdfLib(
           value: radioOptValue,
           multiline: isMultiline,
           readOnly: (field as any).isReadOnly ? (field as any).isReadOnly() : false,
+          initiallyHidden,
+          action: matchedAction,
+          numberDecimals: matchedFormat?.numberDecimals,
+          sepStyle: matchedFormat?.sepStyle,
+          sumFields: matchedFormat?.sumFields,
+          defaultValue: initialVal,
         });
       }
     }

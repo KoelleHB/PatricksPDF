@@ -1096,10 +1096,18 @@ test('TextOverlay isolates floating toolbar and A+/A- buttons from double-tap / 
 });
 
 test('PDF export size optimization: XObject image deduplication, Object Streams, and Zero-Alpha RGB cleaning minimize file size', async () => {
-  const { isJpegBytes, computeImagePayloadFingerprint } = await import(
-    '../src/utils/pdfExportEngine'
-  );
-  const { cleanZeroAlphaRgbPixels } = await import('../src/utils/imageProcessor');
+  const {
+    isJpegBytes,
+    computeImagePayloadFingerprint,
+    areUint8ArraysEqual,
+    getOrEmbedPdfImage,
+  } = await import('../src/utils/pdfExportEngine');
+  const {
+    cleanZeroAlphaRgbPixels,
+    isContinuousTonePhoto,
+    isJpegDataUrl,
+    dataUrlToUint8Array,
+  } = await import('../src/utils/imageProcessor');
 
   // 1. Verify Zero-Alpha RGB Pre-Cleaning eliminates camera background noise on transparent pixels
   const rgba = new Uint8ClampedArray([
@@ -1118,10 +1126,66 @@ test('PDF export size optimization: XObject image deduplication, Object Streams,
   assert.equal(
     cleanZeroAlphaRgbPixels(opaqueRgba),
     false,
-    'Fully opaque image data must report hasTransparency = false for native JPEG encoding'
+    'Fully opaque image data must report hasTransparency = false'
   );
 
-  // 2. Verify JPEG vs PNG magic byte detection and payload fingerprinting
+  // 2. Verify sharp-edged graphic/stamp vs continuous-tone photo classification
+  const logoW = 60;
+  const logoH = 30;
+  const sharpLogoRgba = new Uint8ClampedArray(logoW * logoH * 4);
+  for (let y = 0; y < logoH; y++) {
+    for (let x = 0; x < logoW; x++) {
+      const idx = (y * logoW + x) * 4;
+      const isInk = x >= 15 && x <= 45 && y >= 8 && y <= 22;
+      sharpLogoRgba[idx] = isInk ? 20 : 255;
+      sharpLogoRgba[idx + 1] = isInk ? 40 : 255;
+      sharpLogoRgba[idx + 2] = isInk ? 160 : 255;
+      sharpLogoRgba[idx + 3] = 255;
+    }
+  }
+  assert.equal(
+    isContinuousTonePhoto(sharpLogoRgba, logoW, logoH),
+    false,
+    'Sharp two-color stamp/logo must be classified as non-photo so it stays lossless PNG'
+  );
+
+  const photoW = 80;
+  const photoH = 60;
+  const photoRgba = new Uint8ClampedArray(photoW * photoH * 4);
+  let pSeed = 42;
+  for (let y = 0; y < photoH; y++) {
+    for (let x = 0; x < photoW; x++) {
+      const idx = (y * photoW + x) * 4;
+      pSeed = (pSeed * 1664525 + 1013904223) >>> 0;
+      const noise = (pSeed & 0x07) - 3;
+      photoRgba[idx] = Math.max(0, Math.min(255, Math.round((x / photoW) * 200 + 20 + noise)));
+      photoRgba[idx + 1] = Math.max(0, Math.min(255, Math.round((y / photoH) * 180 + 30 + noise)));
+      photoRgba[idx + 2] = Math.max(
+        0,
+        Math.min(255, Math.round(((x + y) / (photoW + photoH)) * 210 + 15 - noise))
+      );
+      photoRgba[idx + 3] = 255;
+    }
+  }
+  assert.equal(
+    isContinuousTonePhoto(photoRgba, photoW, photoH),
+    true,
+    'Continuous-tone gradient with natural sensor variation must be classified as photo'
+  );
+
+  // 3. Verify 1:1 JPEG data URL passthrough helper
+  const rawJpegSample = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+  const jpegDataUrl = `data:image/jpeg;base64,${Buffer.from(rawJpegSample).toString('base64')}`;
+  assert.equal(isJpegDataUrl(jpegDataUrl), true);
+  assert.equal(isJpegDataUrl('data:image/png;base64,iVBORw0KGgo='), false);
+  const extractedJpeg = dataUrlToUint8Array(jpegDataUrl);
+  assert.equal(
+    areUint8ArraysEqual(extractedJpeg, rawJpegSample),
+    true,
+    'JPEG data URL passthrough must preserve exact original bytes 1:1 without re-encoding'
+  );
+
+  // 4. Verify JPEG vs PNG magic byte detection and payload fingerprinting
   const fakeJpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
   const fakePng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
   assert.equal(isJpegBytes(fakeJpeg), true);
@@ -1137,7 +1201,51 @@ test('PDF export size optimization: XObject image deduplication, Object Streams,
     'Different image payloads must produce distinct fingerprints'
   );
 
-  // 3. Build a 5-page PDF and a valid non-trivial PNG image buffer
+  // 5. Verify collision-safe getOrEmbedPdfImage bucket verification under a forced hash collision
+  const cacheMap = new Map();
+  let embedCallCount = 0;
+  const mockPdfDoc = {
+    embedPng: async (bytes: Uint8Array) => {
+      embedCallCount += 1;
+      return { id: `png-${embedCallCount}`, byteLength: bytes.byteLength, firstByte: bytes[0] };
+    },
+    embedJpg: async (bytes: Uint8Array) => {
+      embedCallCount += 1;
+      return { id: `jpg-${embedCallCount}`, byteLength: bytes.byteLength, firstByte: bytes[0] };
+    },
+  };
+  const payloadA = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x03]);
+  const payloadACopy = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x03]);
+  const payloadB = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x99]); // Same length, different byte
+
+  const forcedCollisionFingerprint = () => 'COLLISION_BUCKET_KEY';
+  const embeddedA1 = await getOrEmbedPdfImage(
+    mockPdfDoc,
+    cacheMap,
+    payloadA,
+    forcedCollisionFingerprint
+  );
+  const embeddedA2 = await getOrEmbedPdfImage(
+    mockPdfDoc,
+    cacheMap,
+    payloadACopy,
+    forcedCollisionFingerprint
+  );
+  const embeddedB = await getOrEmbedPdfImage(
+    mockPdfDoc,
+    cacheMap,
+    payloadB,
+    forcedCollisionFingerprint
+  );
+  assert.equal(embeddedA1, embeddedA2, 'Identical bytes must reuse the cached XObject');
+  assert.notEqual(
+    embeddedA1,
+    embeddedB,
+    'Distinct byte arrays sharing the same fingerprint bucket must NOT collide or return the wrong image'
+  );
+  assert.equal(embedCallCount, 2, 'embedPng must be called exactly twice (once for A, once for B)');
+
+  // 6. Build a 5-page PDF and a valid non-trivial PNG image buffer
   const doc = await PDFDocument.create();
   for (let i = 0; i < 5; i++) {
     const p = doc.addPage([595, 842]);
@@ -1239,7 +1347,31 @@ test('PDF export size optimization: XObject image deduplication, Object Streams,
     sizeDelta < 1200,
     `Expected 4 additional placements of identical signature to add < 1200 bytes via XObject deduplication, but added ${sizeDelta} bytes`
   );
+
+  // 7. Verify Caveat font subsetting embeds German umlauts and special characters cleanly
+  const fontkitModule = await import('@pdf-lib/fontkit');
+  const fontkit = (fontkitModule as any).default || fontkitModule;
+  const caveatBytes = fs.readFileSync(
+    path.resolve(process.cwd(), 'public/Caveat-Regular.ttf')
+  );
+  const fontTestDoc = await PDFDocument.create();
+  fontTestDoc.registerFontkit(fontkit);
+  const subsetCaveat = await fontTestDoc.embedFont(caveatBytes, { subset: true });
+  const fontPage = fontTestDoc.addPage([400, 200]);
+  const testString = 'Größe ÄÖÜ äöü ß € 1.234,56 § @ & () - / +';
+  fontPage.drawText(testString, {
+    x: 20,
+    y: 100,
+    size: 18,
+    font: subsetCaveat,
+  });
+  const subsetPdfBytes = await fontTestDoc.save({ useObjectStreams: true });
+  assert.ok(
+    subsetPdfBytes.byteLength < caveatBytes.byteLength,
+    `Subsetted PDF (${subsetPdfBytes.byteLength} B) must be smaller than raw Caveat TTF (${caveatBytes.byteLength} B)`
+  );
 });
+
 
 
 

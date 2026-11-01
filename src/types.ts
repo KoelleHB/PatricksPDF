@@ -119,6 +119,7 @@ export interface FormFieldItem {
 }
 
 export type FormValuesState = Record<string, string | boolean | string[]>;
+export type FormVisibilityState = Record<string, boolean>;
 
 export interface PageInfo {
   pageNumber: number;
@@ -201,6 +202,7 @@ export interface DocumentDraftRecord {
   signatures: SignatureItem[];
   textOverlays: TextOverlayItem[];
   formValues: FormValuesState;
+  formVisibility?: FormVisibilityState;
   formEditCount?: number;
 }
 
