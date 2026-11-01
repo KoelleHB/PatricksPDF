@@ -1,73 +1,100 @@
-# Isolate Text Overlay Double-Tap & Toolbar Event Handling
+# PDF Form Handling Hardening, Export Persistence & v2.4 Release (Completed)
 
-Prevent rapid clicks or double-taps on the floating text action bar (such as `A+` / `A-` font size buttons, font/color toggles, or precision nudge controls) from bubbling up and accidentally opening the inline text editor.
-
-## User Review & Critical Decisions
+Status: **COMPLETED & VERIFIED** (All 51 unit tests passing, clean TypeScript lint, Vite build green).
 
 > [!IMPORTANT]
-> No open questions require clarification—the root cause is event bubbling from the floating toolbar into the parent text container's double-click handler.
+> **Confirmed Scope & Architecture**:
+> - **Action & Format Resolution**: Support dual-key matching (`annot.id` reference string as primary, fully qualified field name as fallback) so actions and formatting are never missed if PDF.js generates synthetic annotation IDs.
+> - **Visibility Persistence in Export**: When fields are hidden via `/Hide` actions, persist the hidden status into the exported PDF by toggling the widget's `/F` annotation flag (`AnnotationFlags.Hidden` = bit 2), so that other PDF viewers (such as Adobe Acrobat) respect the hidden state.
+> - **International Number Formats**: Extend `parseSupportedFormFormatting` and `formatSupportedNumber` to support European formats (`sepStyle = 1` or `2`: dot as thousand separator, comma as decimal).
+> - **Release v2.4.0**: Bump version across `package.json`, `Header.tsx`, and `appError.ts`.
+> - **Documentation**: Synchronize `docs/PDF-FORMULAR-ANALYSE.md` to reflect implemented capabilities, test results, and residual constraints.
 
-- **Confirmed Scope**: Double-clicking or double-tapping **only** on the placed text box itself will open the inline text editor. Rapidly tapping `A+`, `A-`, or any other area of the dark floating toolbar or nudge popover will strictly execute the button action without triggering edit mode.
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        PatricksPDF v2.4 Workflow                       │
+└────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────┐   ┌──────────────────────────┐   ┌──────────────────────────┐
+│  pdfFormActions.ts      │   │  pdfFormFormatting.ts    │   │  pdfEngine.ts            │
+│  - Object ref ID        │   │  - US & EU number regex  │   │  - Annot ID lookup       │
+│  - Field name fallback  │   │  - Currency & dec styles │   │  - Field name fallback   │
+│  - /Hide & /ResetForm   │   │  - Cycle-safe SUM calc   │   │  - Dynamic visibility    │
+└────────────┬────────────┘   └────────────┬─────────────┘   └────────────┬─────────────┘
+             │                             │                              │
+             └──────────────────────┬──────┴──────────────────────────────┘
+                                    ▼
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│ Interactive Form Layer & State (InteractiveFormField.tsx, PdfViewer.tsx, App.tsx)     │
+│ - Live calculation & blur formatting (US/EU)                                         │
+│ - Dynamic /Hide & /ResetForm event handling with Undo/Redo integration                │
+└───────────────────────────────────┬───────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│ pdfExportEngine.ts (Save / Export / Print / Share)                                    │
+│ - Preserves choice export values (/V) while updating appearances                      │
+│ - Persists widget visibility flags (/F & AnnotationFlags.Hidden)                      │
+│ - Respects maxLen, comb, and multiselect /I indices                                   │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Decouples the floating action toolbar and precision nudge popover from the text box's double-click / double-tap edit trigger.
-- **Target Audience / Persona**: Mobile (PWA / Android APK) and desktop users who rapidly tap `A+` or `A-` to adjust text size from `14pt` up to `60pt` or quickly cycle through colors and fonts.
-- **Key Value**: Eliminates accidental transitions into the multiline text input modal when adjusting styling or position via the floating toolbar.
+* **What It Does**: Hardens interactive AcroForm form support by ensuring form actions (such as Reset and Hide) and calculations/formatting work across all PDF structures, even when PDF.js does not expose direct indirect object numbers. It ensures that changes made by `/Hide` buttons are persisted into the exported PDF binary, and enables European number inputs (`1.234,50`) alongside US standard formats.
+* **Target Audience**: Users filling out, signing, and exporting government, financial, and business PDF forms on desktop and mobile/Android devices.
+* **Key Value**: Guarantees zero data loss, exact PDF spec compliance for export values, persistent form visibility across third-party PDF viewers, and robust handling of international number formats.
 
 ---
 
-## 2. User Experience & Visual Design
+## 2. Detailed Technical Plan
 
-- **Key User Flows**:
-  1. **Rapid Font Size / Style Adjustments**: Selecting a text box and rapidly clicking or tapping `A+`, `A-`, `Script`, `Black`, or `Nudge` smoothly updates the text overlay in place without ever switching to the text input editor.
-  2. **Intentional Double-Tap / Double-Click to Edit**: Double-clicking (desktop) or double-tapping (touch devices) directly on the rendered text box content opens the inline text editor as expected, alongside the explicit `Edit` button in the toolbar.
-- **Visual Identity & Theme**:
-  - Preserves the existing high-contrast dark floating toolbar (`bg-slate-900/95`) and blue selection ring (`ring-blue-500`) without visual layout changes.
+### A. Fallback Matching for Form Actions & Formatting
+* In `src/utils/pdfFormActions.ts` and `src/utils/pdfFormFormatting.ts`:
+  * When reading page annotation dictionaries, retrieve both the object reference identifier (`${ref.objectNumber}R${ref.generationNumber || ''}`) and the widget's field name (resolving `/T` directly or via parent dictionary).
+  * Store entries in both maps under both the object ID key and the field name key (prefixed, e.g., `name:${fieldName}`).
+  * In `src/utils/pdfEngine.ts`, resolve actions and formatting with:
+    `actions.get(annot.id) ?? (annot.fieldName ? actions.get(`name:${annot.fieldName}`) : undefined)`
+
+### B. Hidden Field Persistence during PDF Export
+* Pass current `formVisibility` or set of hidden field names to `embedSignaturesIntoPdf` in `src/utils/pdfExportEngine.ts`.
+* For any field marked hidden in the active session:
+  * Iterate through its widget dictionaries.
+  * Update the `/F` (Flags) entry to set the `Hidden` bit (`1 << 1` = 2) or `Invisible` bit (`1 << 0` = 1).
+  * Clear the bit if explicitly unhidden.
+* This ensures that opening the exported document in Adobe Acrobat, PDF-XChange, or browser viewers maintains identical visibility to PatricksPDF.
+
+### C. European Number Formatting Support
+* In `src/utils/pdfFormFormatting.ts`:
+  * Extend regex to match both `sepStyle = 0` (US: `1,234.50`) and `sepStyle = 1` or `2` (EU: `1.234,50`).
+  * Extend `parseNumber` to handle comma-as-decimal when appropriate (e.g. `1.234,50` or `1234,50`), converting cleanly to JavaScript `number`.
+  * Adapt `formatSupportedNumber` to format using either en-US or de-DE conventions depending on the detected separator style.
+
+### D. Version Bump to v2.4.0 & Code Cleanup
+* Update `package.json` version to `2.4.0`.
+* Update `APP_VERSION` in `src/utils/appError.ts` to `2.4.0`.
+* Update version badge in `src/components/Header.tsx` to `v2.4`.
+* Clean up any dead or unused imports across the modified form modules.
+
+### E. Documentation Update
+* Update `docs/PDF-FORMULAR-ANALYSE.md`:
+  * Mark `/Hide` persistence in exported PDF as resolved.
+  * Document European number format support.
+  * Document dual-key lookup (ID + field name fallback).
+  * Record current test coverage and status for v2.4.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Verification & Test Plan
 
-- **Decision 1: Scope Double-Click / Double-Tap Strictly to the Text Content Box + Stop Toolbar Bubbling**
-  - *Chosen Approach*:
-    1. Guard the double-click handler so any event originating inside `[data-text-tools]`, `button`, `input`, or `textarea` is immediately ignored.
-    2. Attach explicit `onDoubleClick` and `onClick` propagation stops on both floating toolbars (the dark Selection Action Toolbar and the Precision Nudge Panel).
-    3. Bind the double-click and touch double-tap detector directly to the rendered text preview element rather than the outer wrapper that encloses the floating toolbars.
-  - *Why*: In React's synthetic event tree, child toolbars rendered inside the positioned overlay wrapper bubble `dblclick` events up to the parent container whenever a button like `A+` is pressed twice within ~300 ms. Stopping propagation at the toolbar boundary and scoping the edit trigger to the text surface eliminates the bug completely across mouse, stylus, and touch inputs.
-  - *Alternatives Considered*: Adding a debounce to `A+`/`A-` was rejected because users intentionally tap `A+`/`A-` rapidly to change font sizes in 2pt steps.
-
----
-
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
-
-### Architecture & Event Isolation Diagram
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ Outer Positioned Text Overlay Wrapper                                │
-│  • Handles drag start (ignores [data-text-tools] & buttons)          │
-├──────────────────────────────────────────────────────────────────────┤
-│  ├─► Dark Selection Action Toolbar ([data-text-tools="true"])        │
-│  │    • Stops propagation: onPointerDown, onClick, onDoubleClick     │
-│  │    • Controls: [Edit] [Script] [Color] [A- / A+] [Nudge] [Copy]   │
-│  │                                                                   │
-│  ├─► Extended Precision Nudge Panel ([data-text-tools="true"])       │
-│  │    • Stops propagation: onPointerDown, onClick, onDoubleClick     │
-│  │    • Controls: Directional arrows & horizontal center             │
-│  │                                                                   │
-│  └─► Rendered Text Surface                                           │
-│       • Triggers setIsEditing(true) on double-click / double-tap     │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Interactive Component & State Mapping
-
-- **Floating Toolbar & Precision Panel (`[data-text-tools="true"]`)**:
-  - Intercepts and halts `onPointerDown`, `onClick`, and `onDoubleClick` bubbling so rapid button taps only invoke their respective handler (`changeFontSize`, `toggleFont`, `toggleColor`, `nudge`).
-- **Rendered Text Surface**:
-  - Handles `onDoubleClick` (desktop/mouse) and a lightweight touch double-tap check (for mobile touch screens where `touch-action: none` is active) to transition `isEditing` to `true` only when the user double-taps the actual text box.
-- **Automated Verification**:
-  - Add a dedicated unit test verifying that rapid double-clicks on `A+`, `A-`, and the floating toolbar adjust font size without entering edit mode, while double-clicking the text surface opens edit mode.
+1. **Unit Tests**:
+   * Add test cases in `test/pdfFormActions.test.ts` for field-name fallback lookup and `/Hide` export persistence.
+   * Add test cases in `test/pdfFormFormatting.test.ts` for European number formats (`1.234,50`), thousand-separator parsing, and cyclic calculation safety.
+   * Run full test suite via `npm test` (all 50+ unit tests passing).
+2. **Type & Lint Check**:
+   * Run `npm run lint` (`tsc --noEmit`) to ensure 0 TypeScript diagnostic errors.
+3. **Application Build**:
+   * Run `compile_applet` (`npm run build`) to ensure clean production bundling.

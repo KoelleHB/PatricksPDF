@@ -55,7 +55,7 @@ export function createAppError(
 
 import { getRuntimeVersionInfo } from './nativeBridge';
 
-export const APP_VERSION = '2.3.0';
+export const APP_VERSION = '2.4.0';
 
 export function formatAppErrorReport(err?: AppError | null): string {
   const runtimeInfo = getRuntimeVersionInfo(APP_VERSION);

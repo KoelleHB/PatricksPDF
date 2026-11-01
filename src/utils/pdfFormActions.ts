@@ -17,6 +17,17 @@ export async function readFormActions(bytes: ArrayBuffer): Promise<Map<string, P
     }
     return names;
   };
+  const getWidgetFieldName = (widget: PDFDict): string | null => {
+    const t = decode(widget.lookup(PDFName.of('T')));
+    if (t) return t;
+    let parent = widget.lookup(PDFName.of('Parent'));
+    while (parent instanceof PDFDict) {
+      const pt = decode(parent.lookup(PDFName.of('T')));
+      if (pt) return pt;
+      parent = parent.lookup(PDFName.of('Parent'));
+    }
+    return null;
+  };
   for (const page of doc.getPages()) {
     const annots = page.node.Annots();
     if (!annots) continue;
@@ -37,7 +48,11 @@ export async function readFormActions(bytes: ArrayBuffer): Promise<Map<string, P
         const flags = action.lookup(PDFName.of('Flags'));
         if (fields && (!flags || flags instanceof PDFNumber)) parsed = { type: 'reset', fields, exclude: flags instanceof PDFNumber && (flags.asNumber() & 1) !== 0 };
       }
-      if (parsed) actions.set(`${ref.objectNumber}R${ref.generationNumber || ''}`, parsed);
+      if (parsed) {
+        actions.set(`${ref.objectNumber}R${ref.generationNumber || ''}`, parsed);
+        const fieldName = getWidgetFieldName(widget);
+        if (fieldName) actions.set(`name:${fieldName}`, parsed);
+      }
     }
   }
   return actions;

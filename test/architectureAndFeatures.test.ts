@@ -578,7 +578,7 @@ test('savePdfDocumentAs enforces requestId correlation, concurrency lock, timeou
   }
 });
 
-test('createAppError and formatAppErrorReport generate structured v2.3.0 diagnostics and info reports', () => {
+test('createAppError and formatAppErrorReport generate structured v2.4.0 diagnostics and info reports', () => {
   const err = createAppError(
     'PDF_EXPORT_FAILED',
     'Export failed',
@@ -587,14 +587,14 @@ test('createAppError and formatAppErrorReport generate structured v2.3.0 diagnos
     { pages: 4 }
   );
   const report = formatAppErrorReport(err);
-  assert.match(report, /PatricksPDF v2\.3\.0 Error Diagnostics/);
+  assert.match(report, /PatricksPDF v2\.4\.0 Error Diagnostics/);
   assert.match(report, /Build Version:/);
   assert.match(report, /PDF_EXPORT_FAILED/);
   assert.match(report, /Test stack error/);
   assert.match(report, /"pages":4/);
 
   const infoOnlyReport = formatAppErrorReport(null);
-  assert.match(infoOnlyReport, /PatricksPDF v2\.3\.0 Info & Diagnostics/);
+  assert.match(infoOnlyReport, /PatricksPDF v2\.4\.0 Info & Diagnostics/);
   assert.match(infoOnlyReport, /No active runtime errors logged/);
 });
 
@@ -716,26 +716,26 @@ test('PDF.js loader enforces enableScripting: false, isEvalSupported: false and 
   assert.match(indexHtml, /base-uri\s+'self'/);
 });
 
-test('Version 2.3.0 is strictly consistent across package.json, Header.tsx, appError.ts, build.gradle and CI workflow', () => {
+test('Version 2.4.0 is strictly consistent across package.json, Header.tsx, appError.ts, build.gradle and CI workflow', () => {
   const pkgJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'));
-  assert.equal(pkgJson.version, '2.3.0', 'package.json version must be 2.3.0');
+  assert.equal(pkgJson.version, '2.4.0', 'package.json version must be 2.4.0');
 
   const pkgLock = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'package-lock.json'), 'utf8'));
-  assert.equal(pkgLock.version, '2.3.0', 'package-lock.json version must be 2.3.0');
-  assert.equal(pkgLock.packages[''].version, '2.3.0', 'package-lock.json root package version must be 2.3.0');
+  assert.equal(pkgLock.version, '2.4.0', 'package-lock.json version must be 2.4.0');
+  assert.equal(pkgLock.packages[''].version, '2.4.0', 'package-lock.json root package version must be 2.4.0');
 
   const headerSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/Header.tsx'), 'utf8');
-  assert.match(headerSource, /v2\.3/, 'Header.tsx must display v2.3 badge');
+  assert.match(headerSource, /v2\.4/, 'Header.tsx must display v2.4 badge');
 
   const appErrorSource = fs.readFileSync(path.resolve(process.cwd(), 'src/utils/appError.ts'), 'utf8');
-  assert.match(appErrorSource, /export\s+const\s+APP_VERSION\s*=\s*'2\.3\.0';/, 'APP_VERSION must be 2.3.0');
+  assert.match(appErrorSource, /export\s+const\s+APP_VERSION\s*=\s*'2\.4\.0';/, 'APP_VERSION must be 2.4.0');
 
   const gradleSource = fs.readFileSync(path.resolve(process.cwd(), 'android/app/build.gradle'), 'utf8');
-  assert.match(gradleSource, /versionName\s*=\s*System\.getenv\("PATRICKSPDF_VERSION_NAME"\)\s*\?:\s*"2\.3\.0"/);
+  assert.match(gradleSource, /versionName\s*=\s*System\.getenv\("PATRICKSPDF_VERSION_NAME"\)\s*\?:\s*"2\.4\.0"/);
 
   const workflowSource = fs.readFileSync(path.resolve(process.cwd(), '.github/workflows/build-apk.yml'), 'utf8');
-  assert.match(workflowSource, /PATRICKSPDF_VERSION_NAME:\s*2\.3\.\$\{\{\s*github\.run_number\s*\}\}/);
-  assert.match(workflowSource, /PatricksPDF-release-v2\.3\.\$\{\{\s*github\.run_number\s*\}\}/);
+  assert.match(workflowSource, /PATRICKSPDF_VERSION_NAME:\s*2\.4\.\$\{\{\s*github\.run_number\s*\}\}/);
+  assert.match(workflowSource, /PatricksPDF-release-v2\.4\.\$\{\{\s*github\.run_number\s*\}\}/);
 });
 
 test('Mobile UI components, confirmed fullscreen, manual zoom preservation, live buffer size, and APK build info', async () => {

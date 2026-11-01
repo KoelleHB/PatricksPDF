@@ -79,6 +79,9 @@ interface PdfViewerProps {
   onRedo?: () => void;
   historyNotice?: { message: string; type: 'undo' | 'redo' } | null;
   onResetForm?: (field: FormFieldItem) => void;
+  formVisibility?: Record<string, boolean>;
+  onFormVisibilityChange?: (updater: (prev: Record<string, boolean>) => Record<string, boolean>) => void;
+  onFormAction?: (field: FormFieldItem) => void;
   isReaderMode?: boolean;
   onToggleReaderMode?: (enabled: boolean) => void;
   onRegisterViewportSnapshotGetter?: (getter: (() => ViewportPageSnapshot | null) | null) => void;
@@ -116,6 +119,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onFormFieldChange,
   onCommitFormField,
   onResetForm,
+  formVisibility,
+  onFormVisibilityChange,
+  onFormAction,
   onChangePage,
   onOpenPageManager,
   onOpenSignatureModal,
@@ -142,21 +148,28 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onOpenDiagnostics,
   onControlsVisibilityChange,
 }) => {
-  const [formVisibility, setFormVisibility] = useState<Record<string, boolean>>({});
-  useEffect(() => { setFormVisibility({}); }, [pdfState.arrayBuffer]);
+  const [internalFormVisibility, setInternalFormVisibility] = useState<Record<string, boolean>>({});
+  useEffect(() => { setInternalFormVisibility({}); }, [pdfState.arrayBuffer]);
+  const activeVisibility = formVisibility ?? internalFormVisibility;
+  const updateVisibility = onFormVisibilityChange ?? setInternalFormVisibility;
+
   const handleFormAction = (field: FormFieldItem) => {
+    if (onFormAction) {
+      onFormAction(field);
+      return;
+    }
     const action = field.action;
     if (!action) return;
     if (action.type === 'reset') { onResetForm?.(field); return; }
-    setFormVisibility(previous => {
+    updateVisibility(previous => {
       const next = { ...previous };
       for (const target of action.targets) next[target] = !action.hide;
       return next;
     });
   };
   const visibleFormFields = formFields.filter(field => {
-    const match = Object.keys(formVisibility).find(name => field.name === name || field.name.startsWith(`${name}.`));
-    return match ? formVisibility[match] : !field.initiallyHidden;
+    const match = Object.keys(activeVisibility).find(name => field.name === name || field.name.startsWith(`${name}.`));
+    return match ? activeVisibility[match] : !field.initiallyHidden;
   });
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainersRef = useRef<{ [pageNum: number]: HTMLDivElement | null }>({});

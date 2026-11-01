@@ -147,12 +147,12 @@ public class MainActivity extends BridgeActivity {
         public String getAppBuildInfo() {
             try {
                 PackageInfo pInfo = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
-                String vName = pInfo.versionName != null ? pInfo.versionName : "2.3.0";
+                String vName = pInfo.versionName != null ? pInfo.versionName : "2.4.0";
                 long vCode = PackageInfoCompat.getLongVersionCode(pInfo);
                 return vName + " (Code " + vCode + ")";
             } catch (Exception e) {
                 Log.w(TAG, "Could not resolve PackageInfo build info", e);
-                return "2.3.0";
+                return "2.4.0";
             }
         }
 

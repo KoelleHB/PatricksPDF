@@ -2,7 +2,25 @@
 
 Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilensteine von PatricksPDF.
 
-> **Versionskonvention (ab Version 2.3):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.3.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.3.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.3.<run_number>`). Der Header zeigt den Badge **`v2.3`**.
+> **Versionskonvention (ab Version 2.4):** `package.json`, `package-lock.json`, `src/utils/appError.ts` (`APP_VERSION`) sowie der Standard-Fallback in `android/app/build.gradle` tragen die Version **`2.4.0`**. Die Android-CI-Artefakte in `.github/workflows/build-apk.yml` verwenden das Schema **`2.4.<GitHub-Actions-Run-Nummer>`** (`PatricksPDF-release-v2.4.<run_number>`). Der Header zeigt den Badge **`v2.4`**.
+
+## 01.11.2026 – Version 2.4 (`2.4.0`) – AcroForm-Härtung, Export-Persistenz dynamischer Sichtbarkeiten & europäische Zahlenformate
+
+### 1. Dual-Key Lookup für Formularaktionen & Formatierungen (`src/utils/pdfFormActions.ts`, `src/utils/pdfFormFormatting.ts`, `src/utils/pdfEngine.ts`)
+- Mappen von Aktionen und Formatierungsregeln sowohl auf die Objekt-Referenz `${ref.objectNumber}R${ref.generationNumber}` als auch auf den vollqualifizierten Feldnamen `name:${fieldName}`.
+- Gewährleistet zuverlässige Funktionsweise von `/Hide`, `/ResetForm` und Berechnungen auch dann, wenn PDF.js synthetische IDs vergibt.
+
+### 2. Export-Persistenz dynamischer Sichtbarkeiten (`src/utils/pdfExportEngine.ts`, `src/components/PdfViewer.tsx`, `src/App.tsx`, `src/components/SaveModal.tsx`)
+- Beim Speichern, Drucken, Teilen und Exportieren von Formularen werden durch Schaltflächen ausgeblendete Felder über die Annotation-Flags `/F` (`Hidden` = 2, `NoView` = 32) im PDF-Binärdokument gesichert.
+- Beim PDF-Flattening werden ausgeblendete Widgets vorab aus dem Formularbaum entfernt, sodass sie nicht in den Seiteninhalt eingebrannt werden.
+
+### 3. Europäische Zahlenformate & zyklusfreie Summenberechnung (`src/utils/pdfFormFormatting.ts`)
+- Unterstützung für Adobe Acrobat Formatierungs-Signaturen mit `sepStyle = 1` und `3` (Punkt oder Leerzeichen als Tausender, Komma als Dezimaltrenner).
+- `parseNumber` und `formatSupportedNumber` unterstützen deutsches/europäisches Zahlenformat (`1.234,50`) sowie US-Format (`1,234.50`).
+
+### 4. Bereinigung von Repository-Altlasten & Dokumentation
+- Entfernung des obsoleten `bun.lock` (ausschließliche Nutzung von `package-lock.json` mit `npm ci`).
+- Aktualisierung von `docs/PDF-FORMULAR-ANALYSE.md`, `README.md`, `MILESTONES.md` und CI-Konfigurationen.
 
 ## 26.10.2026 – Version 2.3 (`2.3.0`) – Zoom-Erhalt im Vollbildmodus, bestätigter Fullscreen-Status, APK-Build-Diagnose & Code-Hygiene
 

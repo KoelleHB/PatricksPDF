@@ -97,7 +97,7 @@ export const Header: React.FC<HeaderProps> = ({
                 aria-label="Show App Info & Build Version"
                 className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
               >
-                v2.3
+                v2.4
               </button>
               <span className="hidden sm:inline-flex items-center text-xs font-medium text-emerald-700">
                 · 100% Client-Side Local

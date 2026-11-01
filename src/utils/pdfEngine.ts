@@ -398,9 +398,10 @@ export async function extractPdfFormFields(
           maxLen: annot.maxLen || undefined,
           readOnly: !!annot.readOnly,
           initiallyHidden: !!(annot.hidden || annot.noView),
-          action: actions.get(annot.id),
-          numberDecimals: formatting.get(annot.id)?.numberDecimals,
-          sumFields: formatting.get(annot.id)?.sumFields,
+          action: actions.get(annot.id) ?? (annot.fieldName ? actions.get(`name:${annot.fieldName}`) : undefined),
+          numberDecimals: (formatting.get(annot.id) ?? (annot.fieldName ? formatting.get(`name:${annot.fieldName}`) : undefined))?.numberDecimals,
+          sepStyle: (formatting.get(annot.id) ?? (annot.fieldName ? formatting.get(`name:${annot.fieldName}`) : undefined))?.sepStyle,
+          sumFields: (formatting.get(annot.id) ?? (annot.fieldName ? formatting.get(`name:${annot.fieldName}`) : undefined))?.sumFields,
           defaultValue: fieldType === 'checkbox'
             ? !!(annot.defaultFieldValue && annot.defaultFieldValue !== 'Off')
             : fieldType === 'radio'

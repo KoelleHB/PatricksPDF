@@ -73,6 +73,7 @@ export default function App() {
   // Native Form Fields metadata (structural fields from PDF)
   const [formFields, setFormFields] = useState<FormFieldItem[]>([]);
   const initialFormValuesRef = useRef<FormValuesState>({});
+  const [formVisibility, setFormVisibility] = useState<Record<string, boolean>>({});
 
   // Unified Document History Manager (Signatures, Text Overlays, Form Values, and deterministic Saved State)
   const {
@@ -410,6 +411,7 @@ export default function App() {
       setIsPasswordModalOpen(false);
       setPasswordPendingDoc(null);
       setHasPageModifications(restoredPageMod);
+      setFormVisibility({});
 
       // Non-blocking background generation of page 1 thumbnail for local document history
       const scheduleRecentDocPersist = () => {
@@ -829,7 +831,7 @@ export default function App() {
     flushPendingFormCommit();
     const field = formFields.find(item => item.name === fieldName && item.numberDecimals !== undefined);
     if (field && typeof value === 'string') {
-      const formatted = formatSupportedNumber(value, field.numberDecimals!);
+      const formatted = formatSupportedNumber(value, field.numberDecimals!, field.sepStyle);
       if (formatted !== value) commitAction({ formValues: calculateSupportedForms({ ...formValues, [fieldName]: formatted }, formFields) }, `Format ${fieldName}`, pdfState?.currentPage || 1);
     }
     markUnsaved();
@@ -853,6 +855,23 @@ export default function App() {
       pdfState?.currentPage || 1
     );
     markUnsaved();
+  };
+
+  const handleFormAction = (button: FormFieldItem) => {
+    const action = button.action;
+    if (!action) return;
+    if (action.type === 'reset') {
+      handleResetForm(button);
+      return;
+    }
+    if (action.type === 'hide') {
+      setFormVisibility(prev => {
+        const next = { ...prev };
+        for (const target of action.targets) next[target] = !action.hide;
+        return next;
+      });
+      markUnsaved();
+    }
   };
 
   // Undo action with automatic page navigation if the affected item was on another page
@@ -965,6 +984,7 @@ export default function App() {
     });
     setFormFields([]);
     initialFormValuesRef.current = {};
+    setFormVisibility({});
     setHasPageModifications(false);
     setIsReaderMode(false);
   };
@@ -1069,7 +1089,7 @@ export default function App() {
       // Directly transfer the final document when it contains no pending
       // signatures, text, or form fields. Avoid a costly full re-serialization.
       if (signatures.length === 0 && textOverlays.length === 0 &&
-          !isFormModified && formFields.length === 0) {
+          !isFormModified && Object.keys(formVisibility).length === 0 && formFields.length === 0) {
         return new Uint8Array(pdfState.arrayBuffer);
       }
       return await embedSignaturesIntoPdf(
@@ -1077,7 +1097,7 @@ export default function App() {
         signatures,
         textOverlays,
         formValues,
-        { flattenForm: true } // flatten for reliable printing / sharing
+        { flattenForm: true, formVisibility } // flatten for reliable printing / sharing
       );
     } catch (err) {
       console.error('Error generating composite PDF for print/share:', err);
@@ -1382,6 +1402,8 @@ export default function App() {
             onFormFieldChange={handleFormFieldChange}
             onCommitFormField={handleCommitFormField}
             onResetForm={handleResetForm}
+            formVisibility={formVisibility}
+            onFormAction={handleFormAction}
             onChangePage={handleChangePage}
             onOpenSignatureModal={() => {
               pendingPlacementSnapshotRef.current = viewportSnapshotGetterRef.current?.() ?? null;
@@ -1467,6 +1489,7 @@ export default function App() {
           signatures={exportOverrideSnapshot?.signatures || signatures}
           textOverlays={exportOverrideSnapshot?.textOverlays || textOverlays}
           formValues={formValues}
+          formVisibility={formVisibility}
           hasFormFields={formFields.length > 0}
           isFormModified={isFormModified}
           hasPageModifications={exportOverrideSnapshot ? true : hasPageModifications}

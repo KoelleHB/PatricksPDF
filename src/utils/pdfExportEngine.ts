@@ -5,6 +5,7 @@ import {
   PDFArray,
   PDFDict,
   PDFName,
+  PDFNumber,
   PDFRef,
   PDFDropdown,
   PDFOptionList,
@@ -143,6 +144,8 @@ export interface ExportPdfOptions {
   flattenForm?: boolean;
   /** Optional 1-based page numbers to include in the exported PDF (subset export) */
   selectedPages?: number[];
+  /** Optional form field visibility mapping to persist /Hide states into widget /F flags */
+  formVisibility?: Record<string, boolean>;
 }
 
 /**
@@ -491,6 +494,40 @@ export async function embedSignaturesIntoPdf(
     }
 
     let modifiedOrHasActiveFields = existingFields.length > excludedFieldNames.size;
+
+    if (options.formVisibility) {
+      for (const field of existingFields) {
+        const fName = field.getName();
+        const matchedKey = Object.keys(options.formVisibility).find(
+          (k) => k === fName || fName.startsWith(`${k}.`)
+        );
+        if (matchedKey !== undefined) {
+          const isVisible = options.formVisibility[matchedKey];
+          const widgets = (field as any).acroField?.getWidgets?.() || [];
+          if (!isVisible) {
+            modifiedOrHasActiveFields = true;
+            if (options.flattenForm) {
+              try {
+                form.removeField(field);
+                excludedFieldNames.add(fName);
+              } catch {}
+            } else {
+              for (const w of widgets) {
+                const rawF = w.dict.lookup(PDFName.of('F'));
+                const currentF = rawF instanceof PDFNumber ? rawF.asNumber() : 0;
+                w.dict.set(PDFName.of('F'), PDFNumber.of(currentF | 2 | 32));
+              }
+            }
+          } else {
+            for (const w of widgets) {
+              const rawF = w.dict.lookup(PDFName.of('F'));
+              const currentF = rawF instanceof PDFNumber ? rawF.asNumber() : 0;
+              w.dict.set(PDFName.of('F'), PDFNumber.of(currentF & ~34));
+            }
+          }
+        }
+      }
+    }
     // pdf-lib renders choice appearances using display labels. Restore the PDF
     // export values afterwards; its select() API otherwise writes the labels as /V.
     const choiceExports: Array<{ field: PDFDropdown | PDFOptionList; values: string[]; indices: number[] }> = [];

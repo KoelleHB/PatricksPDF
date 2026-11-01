@@ -114,6 +114,7 @@ export interface FormFieldItem {
   textAlignment?: 'left' | 'center' | 'right';
   textColor?: string;
   numberDecimals?: number;
+  sepStyle?: number;
   sumFields?: string[];
 }
 

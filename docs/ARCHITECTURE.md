@@ -1,6 +1,6 @@
-# Architektur – PatricksPDF (Version 2.3)
+# Architektur – PatricksPDF (Version 2.4)
 
-**Gilt für:** **Version 2.3 (`2.3.0`)** auf `main` (Stand: 26.10.2026). Diese Beschreibung bildet den aktuellen Code- und Sicherheitsstand ab. Sie ist keine Zusage vollständiger PDF-Standardkompatibilität.
+**Gilt für:** **Version 2.4 (`2.4.0`)** auf `main` (Stand: 01.11.2026). Diese Beschreibung bildet den aktuellen Code- und Sicherheitsstand ab. Sie ist keine Zusage vollständiger PDF-Standardkompatibilität.
 
 ## 1. Gesamtübersicht
 
@@ -53,7 +53,7 @@ PDF aus Datei / PWA Share Target / Android-Intent
 | `src/components/SaveModal.tsx` | Ausgabe vorbereiten (Gesamtdokument oder Seitenbereich), Dateinamens-Vorlagen anwenden und Download/Save-As/Share/Print veranlassen |
 | `src/utils/signatureLibrary.ts` / `SignatureModal.tsx` | Lokale IndexedDB-Unterschriftenbibliothek (`PatricksPDFSignaturesDB`) zum dauerhaften Speichern, Umbenennen und Wiederverwenden mehrerer Unterschriften |
 | `src/utils/exportSettings.ts` | Persistente Exporteinstellungen (Dateinamens-Schema, Suffix, Flattening-Standard) in `localStorage` |
-| `src/utils/appError.ts` / `ErrorDiagnosticsModal.tsx` | Strukturiertes `AppError`-Fehlermodell (`APP_VERSION = '2.3.0'`) sowie jederzeit aufrufbares Info- & Diagnose-Modal inklusive vollständiger APK-/Build-Version |
+| `src/utils/appError.ts` / `ErrorDiagnosticsModal.tsx` | Strukturiertes `AppError`-Fehlermodell (`APP_VERSION = '2.4.0'`) sowie jederzeit aufrufbares Info- & Diagnose-Modal inklusive vollständiger APK-/Build-Version |
 | `src/utils/nativeBridge.ts` / `androidPdfTransfer.ts` | Browser-/Android-Ausgabepfade, bestätigtes `setSystemFullscreen(enabled): Promise<boolean>`, `getRuntimeVersionInfo()`, korrelierter `save_as`-Dialog mit Request-ID & Timeout, sicheres Öffnen externer Links, binärer Loopback-Transfer |
 | `android/app/src/main/java/com/patrickspdf/app/MainActivity.java` | Android-WebView-Bridge (`setImmersiveFullscreen`, `getAppBuildInfo`), System-Intents, MediaStore/SAF (`ACTION_CREATE_DOCUMENT` mit `onSaveInstanceState`-Sicherung)/PrintManager/FileProvider |
 | `src/utils/recentDocuments.ts` | Lokale IndexedDB-v2-Historie kürzlich geöffneter Dokumente mit Metadaten-/Blob-Trennung und SHA-256-Fingerprint |
@@ -131,7 +131,7 @@ Werden Änderungen in der Seitenverwaltung regulär übernommen und wurden dabei
 - PDF-Link-Ziele (sowohl in Seiten-Annotationen als auch in Gliederungs-/Inhaltsverzeichnis-Einträgen) sind streng auf `http:` / `https:` mit gültigem Hostnamen beschränkt. Keine Ausführung von `javascript:`-, `data:`-, `content:`- oder `file:`-Links.
 - Keine geheimen PDF-Beispiele oder Keystores in Tests, öffentliche CI-Logs oder Repository aufnehmen.
 
-## 9. Build, Qualitätssicherung und Releases (Version 2.3)
+## 9. Build, Qualitätssicherung und Releases (Version 2.4)
 
 ```bash
 npm ci
@@ -144,8 +144,8 @@ npx cap sync android
 Für lokalen Android-Debug-Build anschließend `cd android && ./gradlew assembleDebug` (JDK 21, Android SDK erforderlich).
 
 [`.github/workflows/build-apk.yml`](../.github/workflows/build-apk.yml) prüft zusätzlich per Chrome eine künstlich erzeugte **AES-128-PDF** mit internen und externen Links. Danach folgt der APK-Build mit optionalem Release-Signing.
-- `package.json`, `src/utils/appError.ts` und der Default in `android/app/build.gradle` stehen auf **`2.3.0`**.
-- Die CI-APK-Version wird aus der **Workflow-Run-Nummer** gebildet: **`2.3.<run_number>`** (`PatricksPDF-release-v2.3.<run_number>`).
+- `package.json`, `src/utils/appError.ts` und der Default in `android/app/build.gradle` stehen auf **`2.4.0`**.
+- Die CI-APK-Version wird aus der **Workflow-Run-Nummer** gebildet: **`2.4.<run_number>`** (`PatricksPDF-release-v2.4.<run_number>`).
 
 Die synthetische PDF liegt unter `test/fixtures/encrypted-pdf-links.pdf`. Ein öffentlicher FRITZ!Box-Handbuch-Integrationstest existiert unter `test/publicFritzLinks.test.ts`, ist im regulären CI **ohne explizite Testdatei übersprungen**.
 

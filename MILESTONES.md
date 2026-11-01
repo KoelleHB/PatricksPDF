@@ -228,3 +228,29 @@ Dieser Meilenstein transformiert PatricksPDF auf Smartphones und in der Android-
 
 5. **Tailwind-`xs:`-Breakpoint & Barrierefreiheit**:
    - Definition von `--breakpoint-xs: 22.5rem;` in `src/index.css` sowie durchgängige `aria-label`-Attribute und sichtbare „Verwalten“-Beschriftung in der mobilen Seitenübersicht.
+
+---
+
+## 🏆 Meilenstein 7: Version 2.4 (`2.4.0`) – AcroForm-Härtung, Export-Persistenz & europäische Zahlenformate
+
+- **Datum**: 1. November 2026
+- **Version**: `2.4.0` (CI-Schema: `2.4.<github.run_number>`)
+- **Empfohlener Git-Tag**: `v2.4.0`
+
+### Zusammenfassung der Kernarchitektur:
+
+1. **Dual-Key Lookup für Formularaktionen & Formatierungen (`src/utils/pdfFormActions.ts`, `src/utils/pdfFormFormatting.ts`, `src/utils/pdfEngine.ts`)**:
+   - Assoziation von Aktionen (`/Hide`, `/ResetForm`) und Rechen-/Formatierungsregeln sowohl mit der Objekt-Referenz (`12R`) als auch mit dem Feldnamen (`name:Feldname`).
+   - Schützt gegen synthetische PDF.js-IDs und stellt sicher, dass Formularaktionen auf allen PDF-Strukturen greifen.
+
+2. **Persistierung dynamischer Sichtbarkeiten im PDF-Export (`src/utils/pdfExportEngine.ts`)**:
+   - Beim Exportieren / Speichern / Drucken / Teilen werden durch `/Hide`-Aktionen verborgene Formularfelder in den Annotation-Flags `/F` mit `Hidden` (`1 << 1`) und `NoView` (`1 << 5`) markiert.
+   - Beim Flattening werden verborgene Felder vor dem Rendern aus dem AcroForm-Baum entfernt, sodass sie nicht in den Seiteninhalt eingebrannt werden.
+
+3. **Europäische Zahlenformate & zyklusfreie Summenberechnung (`src/utils/pdfFormFormatting.ts`)**:
+   - Unterstützung für Adobe Acrobat Formatierungs-Signaturen mit `sepStyle = 1` und `3` (Punkt oder Leerzeichen als Tausender, Komma als Dezimaltrenner).
+   - Sauberes Parsen und Formatieren sowohl deutscher/europäischer (`1.234,50`) als auch US-amerikanischer Eingaben (`1,234.50`).
+
+4. **Repository-Bereinigung & 100% Testabdeckung**:
+   - Entfernung des fremden `bun.lock` (ausschließliche Nutzung von `package-lock.json` mit `npm ci`).
+   - 51 automatisierte Unit-Tests grün, vollständige Versionskonsistenz across all platforms.

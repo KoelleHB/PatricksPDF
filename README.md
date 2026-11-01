@@ -1,8 +1,8 @@
 # PatricksPDF
 
-Privater PDF-Editor und -Reader (**Version 2.3 / `2.3.0`**) als **Web-App/PWA** sowie **Android-App (Capacitor)**. Die eigentliche PDF-Verarbeitung erfolgt vollständig im Client. PatricksPDF kann PDFs lesen, durchsuchen, markieren bzw. Text kopieren, im aktuell sichtbaren Zoom-Ausschnitt unterschreiben und mit Text ergänzen, Formularfelder ausfüllen, Seiten verwalten sowie Dateien und Seiten-Teilmengen datenschutzsicher speichern, teilen und drucken.
+Privater PDF-Editor und -Reader (**Version 2.4 / `2.4.0`**) als **Web-App/PWA** sowie **Android-App (Capacitor)**. Die eigentliche PDF-Verarbeitung erfolgt vollständig im Client. PatricksPDF kann PDFs lesen, durchsuchen, markieren bzw. Text kopieren, im aktuell sichtbaren Zoom-Ausschnitt unterschreiben und mit Text ergänzen, Formularfelder ausfüllen, Seiten verwalten sowie Dateien und Seiten-Teilmengen datenschutzsicher speichern, teilen und drucken.
 
-**Dokumentationsstand:** 26. Oktober 2026 – **Version 2.3 (`2.3.0`)**. Diese Dokumentation beschreibt den vollständigen Code- und Architekturzustand von Version 2.3.
+**Dokumentationsstand:** 1. November 2026 – **Version 2.4 (`2.4.0`)**. Diese Dokumentation beschreibt den vollständigen Code- und Architekturzustand von Version 2.4.
 
 ## Funktionen
 
@@ -28,7 +28,7 @@ Privater PDF-Editor und -Reader (**Version 2.3 / `2.3.0`**) als **Web-App/PWA** 
 - **Speicherfreundliche Versionierung & Speicherstatus:** Undo/Redo arbeitet mit kompakten Änderungsoperationen und deduplizierten Dokument-Revisionen (max. 50 Einträge); der „Gespeichert“-Status wird deterministisch aus der Zustands-Signatur abgeleitet.
 - **Ausgabe & Exporteinstellungen:** Vollständiges PDF oder ausgewählte Seiten/Seitenbereiche speichern, teilen und drucken – inklusive dauerhaft gespeicherter Dateinamens-Vorlagen (Suffix, Datum, Originalname) und Formular-Flattening-Vorgabe. Unter Android stehen sowohl das schnelle Speichern in `Downloads` als auch ein gegen Activity-Neustarts, Timeouts und Parallelaufrufe abgesicherter System-Ordnerdialog (`ACTION_CREATE_DOCUMENT`) zur Verfügung.
 - **Zuletzt geöffnet & Performance:** lokale Historie über IndexedDB v2 mit getrennten Stores für leichte Metadaten (`recent_docs_meta`) und abrufbasierte PDF-Binärdaten (`recent_docs_blobs`) sowie kollisionssicherem SHA-256-Inhalts-Fingerprint. Nicht-blockierende Thumbnail-Generierung im Hintergrund via `requestIdleCallback` und WeakMap-gecachte 10-Seiten-Parallelauflösung.
-- **App-Info, APK-Build-Version & Fehlerdiagnose:** Strukturiertes `AppError`-Fehlermodell (`v2.3.0`) und jederzeit über das Drei-Punkte-Menü bzw. den `v2.3`-Header-Badge erreichbare „Info & Diagnose“-Ansicht (`ErrorDiagnosticsModal`) inklusive vollständiger Android-APK-Build-Version (`getAppBuildInfo()`).
+- **App-Info, APK-Build-Version & Fehlerdiagnose:** Strukturiertes `AppError`-Fehlermodell (`v2.4.0`) und jederzeit über das Drei-Punkte-Menü bzw. den `v2.4`-Header-Badge erreichbare „Info & Diagnose“-Ansicht (`ErrorDiagnosticsModal`) inklusive vollständiger Android-APK-Build-Version (`getAppBuildInfo()`).
 
 ## Wichtige Grenzen
 
@@ -85,12 +85,12 @@ cd android
 
 Die erzeugte Debug-APK liegt regulär unter `android/app/build/outputs/apk/debug/`. Für Windows ist die Gradle-Wrapper-Datei `gradlew.bat` vorgesehen. Für ein *signiertes Release* die GitHub-Action verwenden; keine privaten Keystore-Daten einchecken.
 
-## CI, Builds und Versionsnummern (Version 2.3)
+## CI, Builds und Versionsnummern (Version 2.4)
 
 Die Workflow-Datei [`build-apk.yml`](.github/workflows/build-apk.yml) führt auf den unterstützten Events `npm ci`, TypeScript-Prüfung, sämtliche Unit- und Architektur-Regressionstests (`npm test`), einen Browser-Smoke-Test mit einer **synthetischen verschlüsselten PDF**, den Web-Build, die Capacitor-Synchronisierung und den Android-Build aus.
 
-- **Version 2.3 (`2.3.0`):** Sowohl `package.json` als auch der lokale Android-Fallback in `android/app/build.gradle` und die Fehlerdiagnose (`APP_VERSION`) sind einheitlich auf **`2.3.0`** gesetzt.
-- Die APK-Version im CI-Workflow folgt dem Schema **`2.3.<github.run_number>`** (Artefaktname `PatricksPDF-release-v2.3.<run_number>` bzw. `PatricksPDF-debug-v2.3.<run_number>`).
+- **Version 2.4 (`2.4.0`):** Sowohl `package.json` als auch der lokale Android-Fallback in `android/app/build.gradle` und die Fehlerdiagnose (`APP_VERSION`) sind einheitlich auf **`2.4.0`** gesetzt.
+- Die APK-Version im CI-Workflow folgt dem Schema **`2.4.<github.run_number>`** (Artefaktname `PatricksPDF-release-v2.4.<run_number>` bzw. `PatricksPDF-debug-v2.4.<run_number>`).
 - Ein signiertes APK-Artefakt wird erzeugt, wenn die vier erforderlichen GitHub-Actions-Secrets eingerichtet sind; sonst baut die Action ein Debug-APK.
 - Signing-Secrets: `ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_STORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`, `ANDROID_RELEASE_KEY_PASSWORD`.
 - CI-Artefakte sind zeitlich begrenzt (Release-APK derzeit **30 Tage**). Sie sind nicht mit permanenten GitHub Releases gleichzusetzen.
@@ -109,10 +109,10 @@ Vertrauliche PDFs, Keystores, Anmeldedaten und reproduzierbare Fehlerbeispiele m
 
 ## Dokumentation und Tests
 
-- [CHANGELOG.md](CHANGELOG.md) – fachliche Änderungen und dokumentierter Stand bis Version 2.3.
+- [CHANGELOG.md](CHANGELOG.md) – fachliche Änderungen und dokumentierter Stand bis Version 2.4.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) – Datenfluss, State, Teil-Export-Isolation, Plattformgrenzen, Builds und Persistenz.
 - [docs/PDF-RENDERING.md](docs/PDF-RENDERING.md) – Rendering, Link-Regression nach PDF.js 6, Android-Schriftmetriken, Tests und Troubleshooting.
-- [MILESTONES.md](MILESTONES.md) – Projekt-Meilensteine von v1.0 bis v2.3.
+- [MILESTONES.md](MILESTONES.md) – Projekt-Meilensteine von v1.0 bis v2.4.
 - [ANDROID_RELEASE_SIGNING.md](ANDROID_RELEASE_SIGNING.md) – Anleitung für signierte Android-Releases.
 - [CI_MAINTENANCE.md](CI_MAINTENANCE.md) – CI- und Gradle-Wartungshinweise.
 

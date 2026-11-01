@@ -46,6 +46,7 @@ export interface SaveModalProps {
   isFormModified?: boolean;
   hasPageModifications?: boolean;
   initialSelectedPages?: number[] | null;
+  formVisibility?: Record<string, boolean>;
   onClose: () => void;
   onSaveSuccess?: (info: SaveSuccessInfo) => void;
   onExportSuccess?: (info: SaveSuccessInfo) => void; // backwards-compatible alias
@@ -61,6 +62,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   isFormModified = false,
   hasPageModifications = false,
   initialSelectedPages = null,
+  formVisibility,
   onClose,
   onSaveSuccess,
   onExportSuccess,
@@ -218,11 +220,13 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     try {
       const selectedPages = resolvedPageSelection.selectedPages;
       const isSubset = Boolean(selectedPages && selectedPages.length > 0);
+      const hasVisibilityChanges = Boolean(formVisibility && Object.keys(formVisibility).length > 0);
       const unchangedContents =
         !isSubset &&
         signatures.length === 0 &&
         textOverlays.length === 0 &&
         !isFormModified &&
+        !hasVisibilityChanges &&
         !flattenForm;
 
       const modifiedBytes = unchangedContents
@@ -232,7 +236,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
             signatures,
             textOverlays,
             formValues,
-            { flattenForm, selectedPages }
+            { flattenForm, selectedPages, formVisibility }
           );
 
       if (activeSessionRef.current !== sessionId) return;
