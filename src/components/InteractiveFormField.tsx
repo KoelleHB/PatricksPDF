@@ -1,6 +1,6 @@
 import React from 'react';
 import { FormFieldItem } from '../types';
-import { Check, ChevronDown, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 
 interface InteractiveFormFieldProps {
   field: FormFieldItem;
@@ -21,7 +21,6 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   zoomLevel = 100,
   onChange,
   onCommitField,
-  onReset,
 }) => {
   const scale = zoomLevel / 100;
   const pixelX = (field.xPercent / 100) * containerWidth;
@@ -42,6 +41,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         id={`form-field-${field.id}`}
         onClick={(e) => {
           e.stopPropagation();
+          if (field.readOnly) return;
           onChange(field.name, !isChecked, true);
         }}
         style={{
@@ -82,6 +82,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         id={`form-field-${field.id}`}
         onClick={(e) => {
           e.stopPropagation();
+          if (field.readOnly) return;
           onChange(field.name, field.value || 'Yes', true);
         }}
         style={{
@@ -135,6 +136,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         title={`Dropdown: ${field.name}`}
       >
         <select
+          disabled={field.readOnly}
           value={String(value || '')}
           onChange={(e) => {
             e.stopPropagation();
@@ -196,6 +198,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
               <button
                 key={opt}
                 type="button"
+                disabled={field.readOnly}
                 onClick={(e) => {
                   e.stopPropagation();
                   onChange(field.name, opt, true);
@@ -227,8 +230,6 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     const boxW = Math.max(20, pixelW);
     const boxH = Math.max(12, pixelH);
     const fontSize = Math.max(6, Math.min(16, boxH * 0.5));
-    const iconSize = Math.max(5, Math.min(14, boxH * 0.45));
-    const isReset = field.name.toLowerCase().includes('reset');
 
     return (
       <div
@@ -244,27 +245,14 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
       >
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isReset && onReset) {
-              onReset();
-            } else {
-              onChange(field.name, 'clicked', true);
-            }
-          }}
+          disabled
           style={{
             fontSize: `${fontSize}px`,
             borderRadius: `${Math.max(1, Math.min(4, boxH * 0.15))}px`,
           }}
           className="w-full h-full flex items-center justify-center gap-1 px-1 bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 border border-slate-400 font-semibold shadow-2xs transition cursor-pointer"
-          title={field.name}
+          title={`${field.name}: PDF-Aktion wird derzeit nicht unterstützt`}
         >
-          {isReset && (
-            <RotateCcw
-              style={{ width: `${iconSize}px`, height: `${iconSize}px` }}
-              className="text-slate-600 shrink-0"
-            />
-          )}
           <span className="truncate">{field.name || 'Action'}</span>
         </button>
       </div>
@@ -292,6 +280,8 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         title={field.name}
       >
         <textarea
+          readOnly={field.readOnly}
+          maxLength={field.maxLen}
           value={String(value ?? '')}
           onChange={(e) => onChange(field.name, e.target.value, false)}
           onBlur={(e) => onCommitField?.(field.name, e.target.value)}
@@ -335,6 +325,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
       >
         <input
           type="text"
+          readOnly={field.readOnly}
           maxLength={maxLen}
           value={strVal}
           onChange={(e) => onChange(field.name, e.target.value, false)}
@@ -374,6 +365,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     >
       <input
         type="text"
+        readOnly={field.readOnly}
         maxLength={field.maxLen}
         value={String(value ?? '')}
         onChange={(e) => onChange(field.name, e.target.value, false)}

@@ -342,7 +342,7 @@ export async function extractPdfFormFields(
             if (initialValues[name] === undefined) {
               initialValues[name] = isChecked;
             }
-          } else if (annot.pushbutton) {
+          } else if (annot.pushButton) {
             fieldType = 'button';
           }
         } else if (annot.fieldType === 'Ch') {
