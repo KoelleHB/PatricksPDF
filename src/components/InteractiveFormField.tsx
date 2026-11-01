@@ -1,6 +1,6 @@
 import React from 'react';
 import { FormFieldItem } from '../types';
-import { Check, ChevronDown, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 
 interface InteractiveFormFieldProps {
   field: FormFieldItem;
@@ -11,6 +11,7 @@ interface InteractiveFormFieldProps {
   onChange: (name: string, val: any, isDirectChoice?: boolean) => void;
   onCommitField?: (name: string, val: any) => void;
   onReset?: () => void;
+  onAction?: (field: FormFieldItem) => void;
 }
 
 export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
@@ -21,13 +22,21 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   zoomLevel = 100,
   onChange,
   onCommitField,
-  onReset,
+  onAction,
 }) => {
   const scale = zoomLevel / 100;
   const pixelX = (field.xPercent / 100) * containerWidth;
   const pixelY = (field.yPercent / 100) * containerHeight;
   const pixelW = (field.widthPercent / 100) * containerWidth;
   const pixelH = (field.heightPercent / 100) * containerHeight;
+  // Exported text appearances use Helvetica and the PDF's default font size.
+  const pdfFontSize = field.fontSizePercent ? field.fontSizePercent * containerWidth / 100 : undefined;
+  const textStyle = {
+    fontFamily: 'Helvetica, Arial, sans-serif',
+    fontWeight: 'normal',
+    textAlign: field.textAlignment || 'left',
+    color: field.textColor || '#000000',
+  } as const;
 
   // 1. Checkbox
   if (field.type === 'checkbox') {
@@ -42,6 +51,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         id={`form-field-${field.id}`}
         onClick={(e) => {
           e.stopPropagation();
+          if (field.readOnly) return;
           onChange(field.name, !isChecked, true);
         }}
         style={{
@@ -82,6 +92,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         id={`form-field-${field.id}`}
         onClick={(e) => {
           e.stopPropagation();
+          if (field.readOnly) return;
           onChange(field.name, field.value || 'Yes', true);
         }}
         style={{
@@ -121,6 +132,32 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     const paddingLeft = Math.max(2, Math.round(boxH * 0.15));
     const paddingRight = chevronSize + Math.max(3, Math.round(boxH * 0.15));
 
+    if (field.editableChoice) {
+      const selectedIndex = (field.options || []).indexOf(String(value ?? ''));
+      const display = selectedIndex >= 0 ? field.optionLabels?.[selectedIndex] ?? String(value ?? '') : String(value ?? '');
+      const listId = `choices-${field.id}`;
+      return (
+        <div data-form-field id={`form-field-${field.id}`} title={`Dropdown: ${field.name}`}
+          className="absolute z-20 pointer-events-auto"
+          style={{ left: pixelX, top: pixelY, width: boxW, height: boxH }}>
+          <input type="text" list={listId} readOnly={field.readOnly} value={display}
+            onChange={event => {
+              const index = field.optionLabels?.indexOf(event.target.value) ?? -1;
+              onChange(field.name, index >= 0 ? field.options?.[index] ?? event.target.value : event.target.value, false);
+            }}
+            onBlur={event => {
+              const index = field.optionLabels?.indexOf(event.target.value) ?? -1;
+              onCommitField?.(field.name, index >= 0 ? field.options?.[index] ?? event.target.value : event.target.value);
+            }}
+            onClick={event => event.stopPropagation()}
+            style={{ ...textStyle, fontSize: pdfFontSize ?? fontSize, paddingLeft }}
+            className="w-full h-full bg-blue-50/75 border border-blue-400 focus:bg-white focus:outline-hidden" />
+          <datalist id={listId}>{(field.options || []).map((opt, index) =>
+            <option key={`${index}-${opt}`} value={field.optionLabels?.[index] ?? opt} />)}</datalist>
+        </div>
+      );
+    }
+
     return (
       <div
         data-form-field
@@ -131,10 +168,11 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           width: `${boxW}px`,
           height: `${boxH}px`,
         }}
-        className="absolute z-20 relative pointer-events-auto"
+        className="absolute z-20 pointer-events-auto"
         title={`Dropdown: ${field.name}`}
       >
         <select
+          disabled={field.readOnly}
           value={String(value || '')}
           onChange={(e) => {
             e.stopPropagation();
@@ -149,9 +187,10 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           }}
           className="w-full h-full bg-blue-50/75 hover:bg-blue-100/90 focus:bg-white border border-blue-400 focus:border-blue-600 text-slate-900 focus:outline-hidden focus:ring-1 focus:ring-blue-500/50 cursor-pointer appearance-none font-medium shadow-2xs leading-none"
         >
-          {(field.options || []).map((opt) => (
+          <option value="" hidden />
+          {(field.options || []).map((opt, index) => (
             <option key={opt} value={opt} style={{ fontSize: '12px' }}>
-              {opt}
+              {field.optionLabels?.[index] ?? opt}
             </option>
           ))}
         </select>
@@ -190,15 +229,19 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         title={`List: ${field.name}`}
       >
         <div className="overflow-y-auto flex-1 p-0.5 space-y-0.5">
-          {(field.options || []).map((opt) => {
-            const isSelected = String(value) === opt;
+          {(field.options || []).map((opt, index) => {
+            const isSelected = Array.isArray(value) ? value.includes(opt) : String(value) === opt;
             return (
               <button
                 key={opt}
                 type="button"
+                disabled={field.readOnly}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onChange(field.name, opt, true);
+                  const current = Array.isArray(value) ? value : value ? [String(value)] : [];
+                  onChange(field.name, field.multiSelect
+                    ? isSelected ? current.filter(v => v !== opt) : [...current, opt]
+                    : opt, true);
                 }}
                 style={{
                   fontSize: `${fontSize}px`,
@@ -213,7 +256,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
                     : 'text-slate-800 hover:bg-blue-50'
                 }`}
               >
-                {opt}
+                {field.optionLabels?.[index] ?? opt}
               </button>
             );
           })}
@@ -227,8 +270,6 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     const boxW = Math.max(20, pixelW);
     const boxH = Math.max(12, pixelH);
     const fontSize = Math.max(6, Math.min(16, boxH * 0.5));
-    const iconSize = Math.max(5, Math.min(14, boxH * 0.45));
-    const isReset = field.name.toLowerCase().includes('reset');
 
     return (
       <div
@@ -244,27 +285,15 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
       >
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isReset && onReset) {
-              onReset();
-            } else {
-              onChange(field.name, 'clicked', true);
-            }
-          }}
+          disabled={!field.action || field.readOnly}
+          onClick={(event) => { event.stopPropagation(); onAction?.(field); }}
           style={{
             fontSize: `${fontSize}px`,
             borderRadius: `${Math.max(1, Math.min(4, boxH * 0.15))}px`,
           }}
           className="w-full h-full flex items-center justify-center gap-1 px-1 bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 border border-slate-400 font-semibold shadow-2xs transition cursor-pointer"
-          title={field.name}
+          title={field.action ? field.name : `${field.name}: PDF-Aktion wird derzeit nicht unterstützt`}
         >
-          {isReset && (
-            <RotateCcw
-              style={{ width: `${iconSize}px`, height: `${iconSize}px` }}
-              className="text-slate-600 shrink-0"
-            />
-          )}
           <span className="truncate">{field.name || 'Action'}</span>
         </button>
       </div>
@@ -272,11 +301,11 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   }
 
   // 6. Multiline Text Area (Notes, Comments, Address)
-  if (field.multiline || pixelH > 36) {
+  if (field.multiline) {
     const boxW = Math.max(14, pixelW);
     const boxH = Math.max(14, pixelH);
-    const fontSize = Math.max(6, Math.min(22, 11.5 * scale));
-    const padding = Math.max(2, Math.min(8, 4 * scale));
+    const fontSize = pdfFontSize ?? 11.5 * scale;
+    const padding = Math.max(0, 2 * scale);
 
     return (
       <div
@@ -292,11 +321,14 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         title={field.name}
       >
         <textarea
+          readOnly={field.readOnly}
+          maxLength={field.maxLen}
           value={String(value ?? '')}
           onChange={(e) => onChange(field.name, e.target.value, false)}
           onBlur={(e) => onCommitField?.(field.name, e.target.value)}
           onClick={(e) => e.stopPropagation()}
           style={{
+            ...textStyle,
             fontSize: `${fontSize}px`,
             padding: `${padding}px`,
             lineHeight: 1.25,
@@ -315,7 +347,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     const boxW = Math.max(14, pixelW);
     const boxH = Math.max(8, pixelH);
     const cellWidth = boxW / maxLen;
-    const fontSize = Math.max(6, Math.min(28, boxH * 0.7, cellWidth * 0.8));
+    const fontSize = pdfFontSize ?? Math.min(boxH * 0.7, cellWidth * 0.8);
     const charWidth = fontSize * 0.6;
     const letterSpacing = Math.max(0, cellWidth - charWidth);
     const paddingLeft = Math.max(0, (cellWidth - charWidth) / 2);
@@ -335,12 +367,14 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
       >
         <input
           type="text"
+          readOnly={field.readOnly}
           maxLength={maxLen}
           value={strVal}
           onChange={(e) => onChange(field.name, e.target.value, false)}
           onBlur={(e) => onCommitField?.(field.name, e.target.value)}
           onClick={(e) => e.stopPropagation()}
           style={{
+            ...textStyle,
             fontSize: `${fontSize}px`,
             letterSpacing: `${letterSpacing}px`,
             paddingLeft: `${paddingLeft}px`,
@@ -356,8 +390,8 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   // 8. Standard Single-line Text Input
   const boxW = Math.max(10, pixelW);
   const boxH = Math.max(8, pixelH);
-  const fontSize = Math.max(6, Math.min(32, boxH * 0.68));
-  const paddingX = Math.max(2, Math.min(8, Math.round(boxH * 0.15)));
+  const fontSize = pdfFontSize ?? boxH * 0.68;
+  const paddingX = Math.max(0, 2 * scale);
 
   return (
     <div
@@ -374,12 +408,14 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     >
       <input
         type="text"
+        readOnly={field.readOnly}
         maxLength={field.maxLen}
         value={String(value ?? '')}
         onChange={(e) => onChange(field.name, e.target.value, false)}
         onBlur={(e) => onCommitField?.(field.name, e.target.value)}
         onClick={(e) => e.stopPropagation()}
         style={{
+          ...textStyle,
           fontSize: `${fontSize}px`,
           paddingLeft: `${paddingX}px`,
           paddingRight: `${paddingX}px`,

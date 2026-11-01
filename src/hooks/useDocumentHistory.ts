@@ -361,9 +361,9 @@ export function useDocumentHistory(options: UseDocumentHistoryOptions = {}) {
   }, []);
 
   const liveUpdateFormValue = useCallback(
-    (fieldName: string, value: any, pageNumber: number = 1) => {
+    (fieldName: string, value: any, pageNumber: number = 1, relatedValues: FormValuesState = {}) => {
       setFormValues((prev) => {
-        const next = { ...prev, [fieldName]: value };
+        const next = { ...prev, [fieldName]: value, ...relatedValues };
         stateRef.current.formValues = next;
         return next;
       });

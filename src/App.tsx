@@ -28,6 +28,7 @@ import {
 } from './utils/recentDocuments';
 import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
+import { calculateSupportedForms, formatSupportedNumber } from './utils/pdfFormFormatting';
 import { usePwaShareTarget } from './hooks/usePwaShareTarget';
 import { AlertCircle, X, Loader2, Share2, FileQuestion, HelpCircle } from 'lucide-react';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
@@ -799,6 +800,7 @@ export default function App() {
   // Form Field Handlers with Undo/Redo tracking
   const handleFormFieldChange = (fieldName: string, value: any, isDirectChoice?: boolean) => {
     markUnsaved();
+    const calculated = calculateSupportedForms({ ...formValues, [fieldName]: value }, formFields);
     if (isDirectChoice) {
       // Discrete interactive actions (checkbox toggle, radio option, dropdown, listbox, button)
       const actionLabel =
@@ -810,29 +812,42 @@ export default function App() {
 
       commitAction(
         {
-          formValues: {
-            ...formValues,
-            [fieldName]: value,
-          },
+          formValues: calculated,
         },
         actionLabel,
         pdfState?.currentPage || 1
       );
     } else {
       // Continuous keyboard typing (text / textarea / comb): smooth live-update with debounced history commit
-      liveUpdateFormValue(fieldName, value, pdfState?.currentPage || 1);
+      const relatedValues: FormValuesState = {};
+      for (const field of formFields) if (field.sumFields && field.name in calculated) relatedValues[field.name] = calculated[field.name];
+      liveUpdateFormValue(fieldName, value, pdfState?.currentPage || 1, relatedValues);
     }
   };
 
-  const handleCommitFormField = (_fieldName: string, _value: any) => {
+  const handleCommitFormField = (fieldName: string, value: any) => {
     flushPendingFormCommit();
+    const field = formFields.find(item => item.name === fieldName && item.numberDecimals !== undefined);
+    if (field && typeof value === 'string') {
+      const formatted = formatSupportedNumber(value, field.numberDecimals!);
+      if (formatted !== value) commitAction({ formValues: calculateSupportedForms({ ...formValues, [fieldName]: formatted }, formFields) }, `Format ${fieldName}`, pdfState?.currentPage || 1);
+    }
     markUnsaved();
   };
 
-  const handleResetForm = () => {
+  const handleResetForm = (button: FormFieldItem) => {
+    if (button.action?.type !== 'reset') return;
+    const { fields, exclude } = button.action;
+    const resetValues = { ...formValues };
+    for (const field of formFields) {
+      if (field.type === 'button' || field.defaultValue === undefined) continue;
+      const matches = fields.some(name => field.name === name || field.name.startsWith(`${name}.`));
+      if (fields.length === 0 || (exclude ? !matches : matches)) resetValues[field.name] = field.defaultValue;
+    }
+    flushPendingFormCommit();
     commitAction(
       {
-        formValues: { ...initialFormValuesRef.current },
+        formValues: calculateSupportedForms(resetValues, formFields),
       },
       'Reset Form',
       pdfState?.currentPage || 1

@@ -15,6 +15,8 @@ import { PdfInlineTextHighlighter } from './pdfInlineTextHighlighter';
 import { compensatePdfTextLayerFonts } from './pdfTextMetrics';
 import { extractRawPdfLinks } from './pdfRawLinks';
 import { pdfRectToViewport } from './pdfViewportRect';
+import { readFormActions } from './pdfFormActions';
+import { readFormFormatting } from './pdfFormFormatting';
 import { loadPdfJsDoc, cancelCanvasRender, canvasPipelines } from './pdfDocumentLifecycle';
 
 /**
@@ -278,6 +280,8 @@ export async function extractPdfFormFields(
     const numPages = pdfDoc.numPages;
     const extractedFields: FormFieldItem[] = [];
     const initialValues: FormValuesState = {};
+    const actions = await readFormActions(pdfBytes).catch(() => new Map());
+    const formatting = await readFormFormatting(pdfBytes).catch(() => new Map());
 
     for (let p = 1; p <= numPages; p++) {
       const page = await pdfDoc.getPage(p);
@@ -295,7 +299,8 @@ export async function extractPdfFormFields(
           (annot.fieldType && annot.fieldType !== 'Sig');
 
         if (!isWidget) continue;
-        if (annot.hidden || annot.noView) continue;
+        // Navigation pushbuttons are handled by the link layer, not as form inputs.
+        if (annot.fieldType === 'Btn' && (annot.dest || annot.url || annot.unsafeUrl)) continue;
 
         const rect = annot.rect;
         if (!rect || rect.length < 4) continue;
@@ -318,6 +323,7 @@ export async function extractPdfFormFields(
         const name = annot.fieldName || `field_p${p}_${i}`;
         let fieldType: FormFieldType = 'text';
         let options: string[] | undefined = undefined;
+        let optionLabels: string[] | undefined = undefined;
         let optionValue: string | undefined = undefined;
 
         if (annot.fieldType === 'Btn') {
@@ -340,7 +346,7 @@ export async function extractPdfFormFields(
             if (initialValues[name] === undefined) {
               initialValues[name] = isChecked;
             }
-          } else if (annot.pushbutton) {
+          } else if (annot.pushButton) {
             fieldType = 'button';
           }
         } else if (annot.fieldType === 'Ch') {
@@ -348,8 +354,9 @@ export async function extractPdfFormFields(
           const rawOptions = annot.options || [];
           options = rawOptions.map((opt: any) => {
             if (typeof opt === 'string') return opt;
-            return opt.displayValue || opt.exportValue || String(opt);
+            return opt.exportValue ?? opt.displayValue ?? String(opt);
           });
+          optionLabels = rawOptions.map((opt: any) => typeof opt === 'string' ? opt : opt.displayValue ?? opt.exportValue ?? String(opt));
 
           if (annot.combo) {
             fieldType = 'dropdown';
@@ -358,12 +365,15 @@ export async function extractPdfFormFields(
           }
 
           if (initialValues[name] === undefined) {
-            initialValues[name] = annot.fieldValue || (options.length > 0 ? options[0] : '');
+            const selected = annot.fieldValue;
+            initialValues[name] = Array.isArray(selected)
+              ? (annot.multiSelect ? selected : selected[0] ?? '')
+              : typeof selected === 'string' ? selected : '';
           }
         } else if (annot.fieldType === 'Tx') {
           fieldType = 'text';
           if (initialValues[name] === undefined) {
-            initialValues[name] = annot.fieldValue || annot.defaultFieldValue || '';
+            initialValues[name] = annot.fieldValue ?? annot.defaultFieldValue ?? '';
           }
         } else {
           continue;
@@ -379,11 +389,30 @@ export async function extractPdfFormFields(
           widthPercent: Math.max(0.5, Math.min(100, widthPercent)),
           heightPercent: Math.max(0.5, Math.min(100, heightPercent)),
           options,
+          optionLabels,
+          multiSelect: !!annot.multiSelect,
+          editableChoice: fieldType === 'dropdown' && !!(annot.fieldFlags & (1 << 18)),
           value: optionValue,
-          multiline: !!annot.multiline,
+          multiline: !!annot.multiLine,
           comb: !!annot.comb,
           maxLen: annot.maxLen || undefined,
           readOnly: !!annot.readOnly,
+          initiallyHidden: !!(annot.hidden || annot.noView),
+          action: actions.get(annot.id),
+          numberDecimals: formatting.get(annot.id)?.numberDecimals,
+          sumFields: formatting.get(annot.id)?.sumFields,
+          defaultValue: fieldType === 'checkbox'
+            ? !!(annot.defaultFieldValue && annot.defaultFieldValue !== 'Off')
+            : fieldType === 'radio'
+              ? (annot.defaultFieldValue && annot.defaultFieldValue !== 'Off' ? annot.defaultFieldValue : '')
+              : fieldType === 'listbox' && annot.multiSelect
+                ? (Array.isArray(annot.defaultFieldValue) ? annot.defaultFieldValue : annot.defaultFieldValue ? [annot.defaultFieldValue] : [])
+                : (Array.isArray(annot.defaultFieldValue) ? annot.defaultFieldValue[0] ?? '' : annot.defaultFieldValue ?? ''),
+          fontSizePercent: annot.defaultAppearanceData?.fontSize > 0
+            ? annot.defaultAppearanceData.fontSize / viewport.width * 100 : undefined,
+          textAlignment: annot.textAlignment === 1 ? 'center' : annot.textAlignment === 2 ? 'right' : 'left',
+          textColor: annot.defaultAppearanceData?.fontColor?.length === 3
+            ? `rgb(${Array.from(annot.defaultAppearanceData.fontColor).join(', ')})` : undefined,
         });
       }
     }
@@ -969,7 +998,8 @@ export async function extractPageLinks(
 
     for (let i = 0; i < annotations.length; i++) {
       const annot = annotations[i];
-      if (annot.subtype !== 'Link') continue;
+      if (annot.subtype !== 'Link' && !(annot.subtype === 'Widget' && annot.fieldType === 'Btn')) continue;
+      if (annot.hidden || annot.noView) continue;
       if (!annot.rect || annot.rect.length < 4) continue;
 
       // Convert PDF coordinate rect to viewport display coordinates
@@ -1016,7 +1046,7 @@ export async function extractPageLinks(
 
       if (!targetPage && candidate) {
         if (candidate.startsWith('#')) {
-          const pageMatch = candidate.match(/^#(?:page=)?(\\d+)$/i);
+          const pageMatch = candidate.match(/^#(?:page=)?(\d+)$/i);
           if (pageMatch) {
             const candidatePage = Number(pageMatch[1]);
             if (candidatePage >= 1 && candidatePage <= doc.numPages) {
