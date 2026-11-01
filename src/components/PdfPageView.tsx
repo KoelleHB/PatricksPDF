@@ -354,8 +354,8 @@ export const PdfPageView = memo<PdfPageViewProps>(({
               key={field.id}
               field={field}
               value={formValues[field.name]}
-              containerWidth={pageWidth}
-              containerHeight={pageHeight}
+              containerWidth={Math.max(0, pageWidth - 2)}
+              containerHeight={Math.max(0, pageHeight - 2)}
               zoomLevel={zoomLevel}
               onChange={(name, val, isDirectChoice) => {
                 if (onFormFieldChange) onFormFieldChange(name, val, isDirectChoice);

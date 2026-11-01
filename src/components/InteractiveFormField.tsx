@@ -131,7 +131,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           width: `${boxW}px`,
           height: `${boxH}px`,
         }}
-        className="absolute z-20 relative pointer-events-auto"
+        className="absolute z-20 pointer-events-auto"
         title={`Dropdown: ${field.name}`}
       >
         <select
@@ -272,7 +272,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   }
 
   // 6. Multiline Text Area (Notes, Comments, Address)
-  if (field.multiline || pixelH > 36) {
+  if (field.multiline) {
     const boxW = Math.max(14, pixelW);
     const boxH = Math.max(14, pixelH);
     const fontSize = Math.max(6, Math.min(22, 11.5 * scale));

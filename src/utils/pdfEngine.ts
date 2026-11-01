@@ -296,6 +296,8 @@ export async function extractPdfFormFields(
 
         if (!isWidget) continue;
         if (annot.hidden || annot.noView) continue;
+        // Navigation pushbuttons are handled by the link layer, not as form inputs.
+        if (annot.fieldType === 'Btn' && (annot.dest || annot.url || annot.unsafeUrl)) continue;
 
         const rect = annot.rect;
         if (!rect || rect.length < 4) continue;
@@ -969,7 +971,8 @@ export async function extractPageLinks(
 
     for (let i = 0; i < annotations.length; i++) {
       const annot = annotations[i];
-      if (annot.subtype !== 'Link') continue;
+      if (annot.subtype !== 'Link' && !(annot.subtype === 'Widget' && annot.fieldType === 'Btn')) continue;
+      if (annot.hidden || annot.noView) continue;
       if (!annot.rect || annot.rect.length < 4) continue;
 
       // Convert PDF coordinate rect to viewport display coordinates
@@ -1016,7 +1019,7 @@ export async function extractPageLinks(
 
       if (!targetPage && candidate) {
         if (candidate.startsWith('#')) {
-          const pageMatch = candidate.match(/^#(?:page=)?(\\d+)$/i);
+          const pageMatch = candidate.match(/^#(?:page=)?(\d+)$/i);
           if (pageMatch) {
             const candidatePage = Number(pageMatch[1]);
             if (candidatePage >= 1 && candidatePage <= doc.numPages) {
