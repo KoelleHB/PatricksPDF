@@ -95,11 +95,15 @@ export interface FormFieldItem {
   widthPercent: number;
   heightPercent: number;
   options?: string[]; // for dropdown, listbox, or radio
+  multiSelect?: boolean;
   value?: string; // option export value (e.g. 'Male' or 'Female' for radio buttons)
   multiline?: boolean; // for textarea (e.g. Notes)
   comb?: boolean; // for comb text fields (e.g. ID with fixed character cells)
   maxLen?: number; // character limit for comb or text fields
   readOnly?: boolean;
+  fontSizePercent?: number; // PDF font size as percentage of the unscaled viewport width
+  textAlignment?: 'left' | 'center' | 'right';
+  textColor?: string;
 }
 
 export type FormValuesState = Record<string, string | boolean | string[]>;

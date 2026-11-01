@@ -360,7 +360,10 @@ export async function extractPdfFormFields(
           }
 
           if (initialValues[name] === undefined) {
-            initialValues[name] = annot.fieldValue || (options.length > 0 ? options[0] : '');
+            const selected = annot.fieldValue;
+            initialValues[name] = Array.isArray(selected)
+              ? (annot.multiSelect ? selected : selected[0] ?? '')
+              : typeof selected === 'string' ? selected : '';
           }
         } else if (annot.fieldType === 'Tx') {
           fieldType = 'text';
@@ -381,11 +384,17 @@ export async function extractPdfFormFields(
           widthPercent: Math.max(0.5, Math.min(100, widthPercent)),
           heightPercent: Math.max(0.5, Math.min(100, heightPercent)),
           options,
+          multiSelect: !!annot.multiSelect,
           value: optionValue,
-          multiline: !!annot.multiline,
+          multiline: !!annot.multiLine,
           comb: !!annot.comb,
           maxLen: annot.maxLen || undefined,
           readOnly: !!annot.readOnly,
+          fontSizePercent: annot.defaultAppearanceData?.fontSize > 0
+            ? annot.defaultAppearanceData.fontSize / viewport.width * 100 : undefined,
+          textAlignment: annot.textAlignment === 1 ? 'center' : annot.textAlignment === 2 ? 'right' : 'left',
+          textColor: annot.defaultAppearanceData?.fontColor?.length === 3
+            ? `rgb(${Array.from(annot.defaultAppearanceData.fontColor).join(', ')})` : undefined,
         });
       }
     }

@@ -547,6 +547,8 @@ export async function embedSignaturesIntoPdf(
                 `Option "${val}" does not exist in selection field "${name}".`
               );
             }
+          } else if (Array.isArray(val) && val.length === 0) {
+            if (typeof (field as any).clear === 'function') (field as any).clear();
           } else if (Array.isArray(val) && val.length > 0) {
             if (availableOptions && availableOptions.length > 0) {
               const invalid = val.filter((v) => !availableOptions.includes(v));

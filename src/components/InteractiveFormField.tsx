@@ -27,6 +27,14 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   const pixelY = (field.yPercent / 100) * containerHeight;
   const pixelW = (field.widthPercent / 100) * containerWidth;
   const pixelH = (field.heightPercent / 100) * containerHeight;
+  // Exported text appearances use Helvetica and the PDF's default font size.
+  const pdfFontSize = field.fontSizePercent ? field.fontSizePercent * containerWidth / 100 : undefined;
+  const textStyle = {
+    fontFamily: 'Helvetica, Arial, sans-serif',
+    fontWeight: 'normal',
+    textAlign: field.textAlignment || 'left',
+    color: field.textColor || '#000000',
+  } as const;
 
   // 1. Checkbox
   if (field.type === 'checkbox') {
@@ -193,7 +201,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
       >
         <div className="overflow-y-auto flex-1 p-0.5 space-y-0.5">
           {(field.options || []).map((opt) => {
-            const isSelected = String(value) === opt;
+            const isSelected = Array.isArray(value) ? value.includes(opt) : String(value) === opt;
             return (
               <button
                 key={opt}
@@ -201,7 +209,10 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
                 disabled={field.readOnly}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onChange(field.name, opt, true);
+                  const current = Array.isArray(value) ? value : value ? [String(value)] : [];
+                  onChange(field.name, field.multiSelect
+                    ? isSelected ? current.filter(v => v !== opt) : [...current, opt]
+                    : opt, true);
                 }}
                 style={{
                   fontSize: `${fontSize}px`,
@@ -263,8 +274,8 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   if (field.multiline) {
     const boxW = Math.max(14, pixelW);
     const boxH = Math.max(14, pixelH);
-    const fontSize = Math.max(6, Math.min(22, 11.5 * scale));
-    const padding = Math.max(2, Math.min(8, 4 * scale));
+    const fontSize = pdfFontSize ?? 11.5 * scale;
+    const padding = Math.max(0, 2 * scale);
 
     return (
       <div
@@ -287,6 +298,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           onBlur={(e) => onCommitField?.(field.name, e.target.value)}
           onClick={(e) => e.stopPropagation()}
           style={{
+            ...textStyle,
             fontSize: `${fontSize}px`,
             padding: `${padding}px`,
             lineHeight: 1.25,
@@ -305,7 +317,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     const boxW = Math.max(14, pixelW);
     const boxH = Math.max(8, pixelH);
     const cellWidth = boxW / maxLen;
-    const fontSize = Math.max(6, Math.min(28, boxH * 0.7, cellWidth * 0.8));
+    const fontSize = pdfFontSize ?? Math.min(boxH * 0.7, cellWidth * 0.8);
     const charWidth = fontSize * 0.6;
     const letterSpacing = Math.max(0, cellWidth - charWidth);
     const paddingLeft = Math.max(0, (cellWidth - charWidth) / 2);
@@ -332,6 +344,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           onBlur={(e) => onCommitField?.(field.name, e.target.value)}
           onClick={(e) => e.stopPropagation()}
           style={{
+            ...textStyle,
             fontSize: `${fontSize}px`,
             letterSpacing: `${letterSpacing}px`,
             paddingLeft: `${paddingLeft}px`,
@@ -347,8 +360,8 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   // 8. Standard Single-line Text Input
   const boxW = Math.max(10, pixelW);
   const boxH = Math.max(8, pixelH);
-  const fontSize = Math.max(6, Math.min(32, boxH * 0.68));
-  const paddingX = Math.max(2, Math.min(8, Math.round(boxH * 0.15)));
+  const fontSize = pdfFontSize ?? boxH * 0.68;
+  const paddingX = Math.max(0, 2 * scale);
 
   return (
     <div
@@ -372,6 +385,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         onBlur={(e) => onCommitField?.(field.name, e.target.value)}
         onClick={(e) => e.stopPropagation()}
         style={{
+          ...textStyle,
           fontSize: `${fontSize}px`,
           paddingLeft: `${paddingX}px`,
           paddingRight: `${paddingX}px`,
