@@ -6,6 +6,8 @@ import {
   PDFDict,
   PDFName,
   PDFRef,
+  PDFDropdown,
+  PDFOptionList,
   StandardFonts,
   rgb,
 } from 'pdf-lib';
@@ -489,6 +491,9 @@ export async function embedSignaturesIntoPdf(
     }
 
     let modifiedOrHasActiveFields = existingFields.length > excludedFieldNames.size;
+    // pdf-lib renders choice appearances using display labels. Restore the PDF
+    // export values afterwards; its select() API otherwise writes the labels as /V.
+    const choiceExports: Array<{ field: PDFDropdown | PDFOptionList; values: string[]; indices: number[] }> = [];
 
     for (const [name, val] of formEntries) {
       if (selectedPageSet && excludedFieldNames.has(name)) {
@@ -525,6 +530,20 @@ export async function embedSignaturesIntoPdf(
           } else {
             (field as any).uncheck();
           }
+        } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
+          const values = Array.isArray(val) ? val : val === '' ? [] : [String(val)];
+          const available = field.acroField.getOptions();
+          const indices = values.map(value => available.findIndex(option => option.value.decodeText() === value));
+          if (indices.some(index => index < 0) && !(field instanceof PDFDropdown && field.isEditable() && values.length === 1)) {
+            const invalid = values.filter((_, index) => indices[index] < 0);
+            throw new Error(Array.isArray(val)
+              ? `Invalid selection (${invalid.join(', ')}) for form field "${name}".`
+              : `Option "${invalid[0]}" does not exist in selection field "${name}".`);
+          }
+          if (values.length > 1 && !field.isMultiselect()) throw new Error(`Multiple selections are not allowed in "${name}".`);
+          if (values.length === 0) field.clear();
+          else field.select(indices.map((index, i) => index < 0 ? values[i] : (available[index].display ?? available[index].value).decodeText()));
+          choiceExports.push({ field, values, indices });
         } else if ('select' in field && typeof (field as any).select === 'function') {
           const availableOptions: string[] | null =
             typeof (field as any).getOptions === 'function'
@@ -581,6 +600,15 @@ export async function embedSignaturesIntoPdf(
           }`
         );
       }
+    }
+
+    for (const { field, values, indices } of choiceExports) {
+      const dict = field.acroField.dict;
+      if (values.length === 0) dict.delete(PDFName.of('V'));
+      else if (values.length === 1) dict.set(PDFName.of('V'), PDFHexString.fromText(values[0]));
+      else dict.set(PDFName.of('V'), pdfDoc.context.obj(values.map(PDFHexString.fromText)));
+      if (values.length > 1) dict.set(PDFName.of('I'), pdfDoc.context.obj([...indices].sort((a, b) => a - b)));
+      else dict.delete(PDFName.of('I'));
     }
 
     if (options.flattenForm && modifiedOrHasActiveFields && form.getFields().length > 0) {

@@ -46,6 +46,7 @@ interface PdfPageViewProps {
   onFormFieldChange?: (name: string, value: any, isDirectChoice?: boolean) => void;
   onCommitFormField?: (name: string, value: any) => void;
   onResetForm?: () => void;
+  onFormAction?: (field: FormFieldItem) => void;
   onNavigateToPage: (page: number) => void;
   isCurrentPage?: boolean;
   searchHighlight?: { query: string; ordinal: number };
@@ -76,6 +77,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
   onFormFieldChange,
   onCommitFormField,
   onResetForm,
+  onFormAction,
   onNavigateToPage,
   isCurrentPage = false,
   searchHighlight,
@@ -364,6 +366,7 @@ export const PdfPageView = memo<PdfPageViewProps>(({
                 if (onCommitFormField) onCommitFormField(name, val);
               }}
               onReset={onResetForm}
+              onAction={onFormAction}
             />
           ))}
         </div>

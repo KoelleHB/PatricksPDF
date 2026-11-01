@@ -6,7 +6,7 @@ Stand: Untersuchung von `formtest.pdf` und der Web-Implementierung. Bezug: ISO 3
 
 Die Datei hat drei Seiten und ein AcroForm. Auf Seite 1 stehen Textfelder, Optionsfelder, Checkboxen, Auswahllisten und Schaltflächen. Die Schaltflächen führen `/Hide` (ein- und ausblenden), `/ResetForm` (zwei verschiedene Feldmengen) und `/SubmitForm` (externe HTTPS-Adresse) aus. Seiten 2 und 3 nutzen `/GoTo` und `/URI`, die seit dem vorigen Testbranch als Formular-Schaltflächen erkannt werden.
 
-Die Zahlenfelder verwenden die JavaScript-Ereignisse `/F` und `/K` mit `AFNumber_Format` und `AFNumber_Keystroke`. Das schreibgeschützte Summenfeld nutzt `/C` mit `AFSimple_Calculate("SUM", ...)`. Die App führt eingebettetes JavaScript nicht aus; Zahlformatierung und Berechnung funktionieren daher nicht. Ein Formular-Skripting-System müsste Ereignisse, Berechnungsreihenfolge, API-Verfügbarkeit, Laufzeitisolation und Fehlerfälle abdecken; einfaches `eval` ist keine geeignete Lösung.
+Die Zahlenfelder verwenden die JavaScript-Ereignisse `/F` und `/K` mit `AFNumber_Format` und `AFNumber_Keystroke`. Das schreibgeschützte Summenfeld nutzt `/C` mit `AFSimple_Calculate("SUM", ...)`. Die App führt eingebettetes JavaScript nicht aus. Für die im Beispiel verwendeten, exakt erkannten Formen von `AFNumber_Format` und `AFSimple_Calculate("SUM", ...)` gibt es eine begrenzte deklarative Auswertung; andere Skripte bleiben nicht unterstützt. Ein Formular-Skripting-System müsste Ereignisse, Berechnungsreihenfolge, API-Verfügbarkeit, Laufzeitisolation und Fehlerfälle abdecken; einfaches `eval` ist keine geeignete Lösung.
 
 ## Status
 
@@ -14,14 +14,14 @@ Die Zahlenfelder verwenden die JavaScript-Ereignisse `/F` und `/K` mit `AFNumber
 | --- | --- |
 | Text, mehrzeilig, Comb, MaxLen | Eingaben grundsätzlich vorhanden; `MaxLen` wird berücksichtigt. PDF-Textformatierung, Validierung, Passwort- und weitere Feldflags sind nicht vollständig umgesetzt. |
 | Checkbox und Radio | Einfache Fälle vorhanden. Exportwerte und Erscheinungszustände, insbesondere gemeinsame Namen und andere On-Werte als `Yes`, benötigen zusätzliche Tests. |
-| Auswahlfelder | Anzeige einfacher Listen und Dropdowns vorhanden. Unterschiedliche Anzeige- und Exportwerte werden nicht getrennt modelliert; Mehrfachauswahl und editierbare Comboboxen fehlen. Initiale PDF.js-Werte können Arrays sein. |
+| Auswahlfelder | Anzeige einfacher Listen und Dropdowns vorhanden. Anzeige- und Exportwerte, einfache Mehrfachauswahl sowie editierbare Comboboxen werden unterstützt. Sonderfälle wie doppelte Beschriftungen und komplexe Erscheinungsbilder benötigen weitere Tests. |
 | Schreibschutz | PDF.js-Flag wird extrahiert; Eingaben werden mit der vorliegenden Änderung gesperrt. Schreibschutz im Fallback und über alle Zustandsänderungen hinweg benötigt weitere Tests. |
 | Pflichtfelder | Ein Pflichtfeld wird nicht vollständig vor dem Absenden validiert. |
-| Schaltflächenaktionen | Navigation `/GoTo` und sichere HTTP(S)-`/URI` funktionieren grundsätzlich. `/Hide`, `/ResetForm` und `/SubmitForm` werden nicht ausgeführt; Schaltflächen sind mit der vorliegenden Änderung sichtbar, aber deaktiviert. Vorher wurden sie wegen eines falsch geschriebenen PDF.js-Feldnamens übersehen. |
-| Reset | PDF-Rücksetzen muss `/DV`, Feldhierarchie, `/Fields` und das Exclude-Flag berücksichtigen; der bisherige App-Reset auf beim Öffnen gelesene Werte ist dafür nicht gleichwertig. |
+| Schaltflächenaktionen | Navigation `/GoTo` und sichere HTTP(S)-`/URI` funktionieren grundsätzlich. `/Hide` und `/ResetForm` mit Feldnamen werden unterstützt; Ziele als Objektverweise, Aktionsketten und `/SubmitForm` bleiben offen. Nicht unterstützte Schaltflächen sind deaktiviert. |
+| Reset | `/DV`, Feldnamen, Feldhierarchie sowie `/Fields` und das Exclude-Flag werden für benannte Felder berücksichtigt. Feld- und Widget-Referenzen in der Aktionsliste sind noch nicht unterstützt. |
 | Submit | Benötigt Interpretation von Ziel, Feldmenge, Flags, Datenformat und explizite Nutzerentscheidung vor Übertragung. Eine reguläre externe URL zu öffnen ersetzt das Absenden nicht. |
-| Ein-/Ausblenden | `/Hide` kann mehrere Ziele und Widgets betreffen; Anzeigezustand darf Feldwerte nicht löschen und muss mit Drucken und Speichern abgestimmt werden. |
-| Berechnung/Formatierung/Validierung | Eingebettete PDF-Skripte werden nicht ausgeführt. Ohne geeignete isolierte Laufzeit oder eine explizit begrenzte, verifizierte Teilimplementierung funktionieren diese Formulare nicht vollständig. |
+| Ein-/Ausblenden | `/Hide` unterstützt benannte Ziele und Feldhierarchien in der Anzeige. Die Sichtbarkeit wird noch nicht im gespeicherten PDF oder beim Drucken persistiert; Widget-Referenzen und Undo bleiben offen. |
+| Berechnung/Formatierung/Validierung | Eine begrenzte Teilmenge für das Zahlenformat und die Summenberechnung im Beispiel wird ohne Skriptausführung erkannt. Allgemeine Berechnung, Validierung, Tastatureingaben und sonstige Acrobat-Skripte werden nicht ausgeführt. |
 | Speichern und Flatten | Export nutzt pdf-lib, setzt Werte und unterstützt optionales Flatten. Fehler bei Feldänderungen werden gemeldet. Dynamische Aktionen, Erscheinungsbilder, Schriftarten und alle Kombinationen von Feldflags sind damit nicht automatisch korrekt. |
 | XFA und digitale Signaturen | XFA wird beim PDF.js-Laden angefordert, aber die AcroForm-Oberfläche implementiert keine vollständige XFA-Laufzeit. Eine gezeichnete Unterschrift ist keine kryptografische PDF-Digitalsignatur. |
 | Geometrie | PDF.js-Koordinaten mit CropBox und Drehung; der pdf-lib-Fallback berücksichtigt Drehung nicht vollständig und begrenzt Koordinaten. Unterschiedliche Widgets und Seitenoperationen brauchen gezielte Regressionstests. |

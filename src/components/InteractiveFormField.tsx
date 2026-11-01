@@ -11,6 +11,7 @@ interface InteractiveFormFieldProps {
   onChange: (name: string, val: any, isDirectChoice?: boolean) => void;
   onCommitField?: (name: string, val: any) => void;
   onReset?: () => void;
+  onAction?: (field: FormFieldItem) => void;
 }
 
 export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
@@ -21,6 +22,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
   zoomLevel = 100,
   onChange,
   onCommitField,
+  onAction,
 }) => {
   const scale = zoomLevel / 100;
   const pixelX = (field.xPercent / 100) * containerWidth;
@@ -130,6 +132,32 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
     const paddingLeft = Math.max(2, Math.round(boxH * 0.15));
     const paddingRight = chevronSize + Math.max(3, Math.round(boxH * 0.15));
 
+    if (field.editableChoice) {
+      const selectedIndex = (field.options || []).indexOf(String(value ?? ''));
+      const display = selectedIndex >= 0 ? field.optionLabels?.[selectedIndex] ?? String(value ?? '') : String(value ?? '');
+      const listId = `choices-${field.id}`;
+      return (
+        <div data-form-field id={`form-field-${field.id}`} title={`Dropdown: ${field.name}`}
+          className="absolute z-20 pointer-events-auto"
+          style={{ left: pixelX, top: pixelY, width: boxW, height: boxH }}>
+          <input type="text" list={listId} readOnly={field.readOnly} value={display}
+            onChange={event => {
+              const index = field.optionLabels?.indexOf(event.target.value) ?? -1;
+              onChange(field.name, index >= 0 ? field.options?.[index] ?? event.target.value : event.target.value, false);
+            }}
+            onBlur={event => {
+              const index = field.optionLabels?.indexOf(event.target.value) ?? -1;
+              onCommitField?.(field.name, index >= 0 ? field.options?.[index] ?? event.target.value : event.target.value);
+            }}
+            onClick={event => event.stopPropagation()}
+            style={{ ...textStyle, fontSize: pdfFontSize ?? fontSize, paddingLeft }}
+            className="w-full h-full bg-blue-50/75 border border-blue-400 focus:bg-white focus:outline-hidden" />
+          <datalist id={listId}>{(field.options || []).map((opt, index) =>
+            <option key={`${index}-${opt}`} value={field.optionLabels?.[index] ?? opt} />)}</datalist>
+        </div>
+      );
+    }
+
     return (
       <div
         data-form-field
@@ -159,9 +187,10 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
           }}
           className="w-full h-full bg-blue-50/75 hover:bg-blue-100/90 focus:bg-white border border-blue-400 focus:border-blue-600 text-slate-900 focus:outline-hidden focus:ring-1 focus:ring-blue-500/50 cursor-pointer appearance-none font-medium shadow-2xs leading-none"
         >
-          {(field.options || []).map((opt) => (
+          <option value="" hidden />
+          {(field.options || []).map((opt, index) => (
             <option key={opt} value={opt} style={{ fontSize: '12px' }}>
-              {opt}
+              {field.optionLabels?.[index] ?? opt}
             </option>
           ))}
         </select>
@@ -200,7 +229,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
         title={`List: ${field.name}`}
       >
         <div className="overflow-y-auto flex-1 p-0.5 space-y-0.5">
-          {(field.options || []).map((opt) => {
+          {(field.options || []).map((opt, index) => {
             const isSelected = Array.isArray(value) ? value.includes(opt) : String(value) === opt;
             return (
               <button
@@ -227,7 +256,7 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
                     : 'text-slate-800 hover:bg-blue-50'
                 }`}
               >
-                {opt}
+                {field.optionLabels?.[index] ?? opt}
               </button>
             );
           })}
@@ -256,13 +285,14 @@ export const InteractiveFormField: React.FC<InteractiveFormFieldProps> = ({
       >
         <button
           type="button"
-          disabled
+          disabled={!field.action || field.readOnly}
+          onClick={(event) => { event.stopPropagation(); onAction?.(field); }}
           style={{
             fontSize: `${fontSize}px`,
             borderRadius: `${Math.max(1, Math.min(4, boxH * 0.15))}px`,
           }}
           className="w-full h-full flex items-center justify-center gap-1 px-1 bg-slate-200 hover:bg-slate-300 active:bg-slate-400 text-slate-800 border border-slate-400 font-semibold shadow-2xs transition cursor-pointer"
-          title={`${field.name}: PDF-Aktion wird derzeit nicht unterstützt`}
+          title={field.action ? field.name : `${field.name}: PDF-Aktion wird derzeit nicht unterstützt`}
         >
           <span className="truncate">{field.name || 'Action'}</span>
         </button>

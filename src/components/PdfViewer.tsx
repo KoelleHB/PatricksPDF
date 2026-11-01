@@ -78,7 +78,7 @@ interface PdfViewerProps {
   onUndo?: () => void;
   onRedo?: () => void;
   historyNotice?: { message: string; type: 'undo' | 'redo' } | null;
-  onResetForm?: () => void;
+  onResetForm?: (field: FormFieldItem) => void;
   isReaderMode?: boolean;
   onToggleReaderMode?: (enabled: boolean) => void;
   onRegisterViewportSnapshotGetter?: (getter: (() => ViewportPageSnapshot | null) | null) => void;
@@ -142,6 +142,22 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onOpenDiagnostics,
   onControlsVisibilityChange,
 }) => {
+  const [formVisibility, setFormVisibility] = useState<Record<string, boolean>>({});
+  useEffect(() => { setFormVisibility({}); }, [pdfState.arrayBuffer]);
+  const handleFormAction = (field: FormFieldItem) => {
+    const action = field.action;
+    if (!action) return;
+    if (action.type === 'reset') { onResetForm?.(field); return; }
+    setFormVisibility(previous => {
+      const next = { ...previous };
+      for (const target of action.targets) next[target] = !action.hide;
+      return next;
+    });
+  };
+  const visibleFormFields = formFields.filter(field => {
+    const match = Object.keys(formVisibility).find(name => field.name === name || field.name.startsWith(`${name}.`));
+    return match ? formVisibility[match] : !field.initiallyHidden;
+  });
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainersRef = useRef<{ [pageNum: number]: HTMLDivElement | null }>({});
 
@@ -2014,7 +2030,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   selectedSignatureId={selectedSignatureId}
                   textOverlays={textOverlays}
                   selectedTextId={selectedTextId}
-                  formFields={formFields}
+                  formFields={visibleFormFields}
                   formValues={formValues}
                   onSelectSignature={onSelectSignature}
                   onUpdateSignature={onUpdateSignature}
@@ -2028,7 +2044,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   onDuplicateText={onDuplicateText}
                   onFormFieldChange={onFormFieldChange}
                   onCommitFormField={onCommitFormField}
-                  onResetForm={onResetForm}
+                  onFormAction={handleFormAction}
                   onNavigateToPage={scrollToPage}
                   isCurrentPage={pageNum === pdfState.currentPage}
                   searchHighlight={activeSearchMatch?.pageNumber === pageNum ? activeSearchMatch : undefined}

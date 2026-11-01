@@ -51,6 +51,17 @@ try {
   const emptyChoice=form.createDropdown('emptyChoice');
   emptyChoice.addOptions(['First','Second']);
   emptyChoice.addToPage(source,{x:140,y:280,width:100,height:20});
+  const labeledChoice=form.createDropdown('labeledChoice');
+  labeledChoice.addToPage(source,{x:140,y:320,width:100,height:20});
+  labeledChoice.acroField.dict.set(PDFName.of('Opt'), synthetic.context.obj([
+    [PDFString.of('code-a'), PDFString.of('Alpha')],
+    [PDFString.of('code-b'), PDFString.of('Beta')],
+  ]));
+  labeledChoice.acroField.dict.set(PDFName.of('V'), PDFString.of('code-b'));
+  const editableChoice=form.createDropdown('editableChoice');
+  editableChoice.addOptions(['Alpha', 'Beta']);
+  editableChoice.enableEditing();
+  editableChoice.addToPage(source,{x:140,y:350,width:100,height:20});
   const multiChoice=form.createOptionList('multiChoice');
   multiChoice.addOptions(['Alpha','Beta','Gamma']);
   multiChoice.enableMultiselect();
@@ -64,6 +75,9 @@ try {
   const notes=extractedForm.fields.find(field=>field.name==='notes');
   result.choiceValue=extractedForm.initialValues.choice==='Second';
   result.emptyChoice=extractedForm.initialValues.emptyChoice==='';
+  const labeled=extractedForm.fields.find(field=>field.name==='labeledChoice');
+  result.labeledChoice=extractedForm.initialValues.labeledChoice==='code-b' && labeled?.options?.[1]==='code-b' && labeled?.optionLabels?.[1]==='Beta';
+  result.editableChoice=extractedForm.fields.find(field=>field.name==='editableChoice')?.editableChoice===true;
   result.multiChoice=JSON.stringify(extractedForm.initialValues.multiChoice)===JSON.stringify(['Alpha','Gamma']) && extractedForm.fields.find(field=>field.name==='multiChoice')?.multiSelect===true;
   result.formMultiline=notes?.multiline===true;
   result.formFontSize=Math.abs((notes?.fontSizePercent ?? 0)*300/100-12)<0.01;
@@ -81,7 +95,7 @@ try {
     result.rawAnnotations===2 && result.processedLinks===2 &&
     result.rawDest===1 && result.rawUrl===1 &&
     result.targetIdx===1 && result.hasInternal && result.hasExternal &&
-    result.widgetInternal && result.widgetExternal && result.formMultiline && result.formFontSize && result.formRoundTrip && result.choiceValue && result.emptyChoice && result.multiChoice && result.multiRoundTrip && result.multiClear
+    result.widgetInternal && result.widgetExternal && result.formMultiline && result.formFontSize && result.formRoundTrip && result.choiceValue && result.emptyChoice && result.labeledChoice && result.editableChoice && result.multiChoice && result.multiRoundTrip && result.multiClear
       ? 'pass':'fail';
   out.textContent=JSON.stringify(result);
 } catch(error) {

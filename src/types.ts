@@ -85,6 +85,10 @@ export type FormFieldType =
   | 'button'
   | 'other';
 
+export type PdfFormAction =
+  | { type: 'hide'; targets: string[]; hide: boolean }
+  | { type: 'reset'; fields: string[]; exclude: boolean };
+
 export interface FormFieldItem {
   id: string;
   name: string;
@@ -95,15 +99,22 @@ export interface FormFieldItem {
   widthPercent: number;
   heightPercent: number;
   options?: string[]; // for dropdown, listbox, or radio
+  optionLabels?: string[]; // display labels corresponding to export values in options
   multiSelect?: boolean;
+  editableChoice?: boolean;
   value?: string; // option export value (e.g. 'Male' or 'Female' for radio buttons)
   multiline?: boolean; // for textarea (e.g. Notes)
   comb?: boolean; // for comb text fields (e.g. ID with fixed character cells)
   maxLen?: number; // character limit for comb or text fields
   readOnly?: boolean;
+  initiallyHidden?: boolean;
+  defaultValue?: string | boolean | string[];
+  action?: PdfFormAction;
   fontSizePercent?: number; // PDF font size as percentage of the unscaled viewport width
   textAlignment?: 'left' | 'center' | 'right';
   textColor?: string;
+  numberDecimals?: number;
+  sumFields?: string[];
 }
 
 export type FormValuesState = Record<string, string | boolean | string[]>;
