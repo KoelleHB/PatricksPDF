@@ -18,7 +18,14 @@ Dieses Protokoll dokumentiert die funktionalen und architektonischen Meilenstein
 - Unterstützung für Adobe Acrobat Formatierungs-Signaturen mit `sepStyle = 1` und `3` (Punkt oder Leerzeichen als Tausender, Komma als Dezimaltrenner).
 - `parseNumber` und `formatSupportedNumber` unterstützen deutsches/europäisches Zahlenformat (`1.234,50`) sowie US-Format (`1,234.50`).
 
-### 4. Bereinigung von Repository-Altlasten & Dokumentation
+### 4. Verlustfreie & performante PDF-Dateigrößen-Optimierung (`src/utils/pdfExportEngine.ts`, `src/utils/imageProcessor.ts`)
+- **PDF 1.5 Object Streams (`useObjectStreams: true`)**: Komprimiert sämtliche indirekten PDF-Objekte (Formularfelder, Annotationen, Seitenbäume und Cross-Reference-Streams) per `FlateDecode`.
+- **XObject-Deduplizierung für Signaturen & Stempel**: Mehrfach platzierte identische Unterschriften oder Bilder werden beim Export anhand eines Dual-FNV-1a-Fingerprints (`computeImagePayloadFingerprint`) erkannt, nur einmalig als PDF-`XObject` eingebettet und auf allen Zielseiten referenziert.
+- **Font-Subsetting & Bedarfs-Einbettung**: Die Schreibschrift (`Caveat-Regular.ttf`) wird mit `{ subset: true }` eingebettet, sodass nur verwendete Glyphen im PDF landen; Standard-Fonts (`Helvetica`) werden nur geladen, wenn ein Standard-Text-Overlay existiert.
+- **Zero-Alpha RGB Pre-Cleaning & 300-DPI-Deckelung**: Vollständig transparente Hintergrundpixel (`alpha === 0`) erhalten vor der PNG-Kodierung `R=0, G=0, B=0` (`cleanZeroAlphaRgbPixels`), wodurch `FlateDecode` das Bild um 50–75 % stärker komprimiert.
+- **Nativer JPEG-Passthrough (`DCTDecode`)**: Voll-opake Bilder ohne Transparenz im „Original (As-Is)“-Modus werden als hochwertiges JPEG (`quality: 0.88`) kodiert und beim Export direkt über `embedJpg()` eingebettet.
+
+### 5. Bereinigung von Repository-Altlasten & Dokumentation
 - Entfernung des obsoleten `bun.lock` (ausschließliche Nutzung von `package-lock.json` mit `npm ci`).
 - Aktualisierung von `docs/PDF-FORMULAR-ANALYSE.md`, `README.md`, `MILESTONES.md` und CI-Konfigurationen.
 

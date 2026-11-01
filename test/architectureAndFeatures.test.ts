@@ -1095,4 +1095,151 @@ test('TextOverlay isolates floating toolbar and A+/A- buttons from double-tap / 
   );
 });
 
+test('PDF export size optimization: XObject image deduplication, Object Streams, and Zero-Alpha RGB cleaning minimize file size', async () => {
+  const { isJpegBytes, computeImagePayloadFingerprint } = await import(
+    '../src/utils/pdfExportEngine'
+  );
+  const { cleanZeroAlphaRgbPixels } = await import('../src/utils/imageProcessor');
+
+  // 1. Verify Zero-Alpha RGB Pre-Cleaning eliminates camera background noise on transparent pixels
+  const rgba = new Uint8ClampedArray([
+    248, 251, 244, 0, // Transparent pixel with noisy RGB
+    12, 34, 56, 255, // Opaque ink pixel
+  ]);
+  const hasTransparency = cleanZeroAlphaRgbPixels(rgba);
+  assert.equal(hasTransparency, true, 'Must detect transparency when alpha < 250 exists');
+  assert.deepEqual(
+    Array.from(rgba),
+    [0, 0, 0, 0, 12, 34, 56, 255],
+    'Transparent pixel RGB channels must be zeroed out while opaque pixel RGB remains intact'
+  );
+
+  const opaqueRgba = new Uint8ClampedArray([100, 150, 200, 255, 50, 60, 70, 255]);
+  assert.equal(
+    cleanZeroAlphaRgbPixels(opaqueRgba),
+    false,
+    'Fully opaque image data must report hasTransparency = false for native JPEG encoding'
+  );
+
+  // 2. Verify JPEG vs PNG magic byte detection and payload fingerprinting
+  const fakeJpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+  const fakePng = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+  assert.equal(isJpegBytes(fakeJpeg), true);
+  assert.equal(isJpegBytes(fakePng), false);
+  assert.equal(
+    computeImagePayloadFingerprint(fakePng),
+    computeImagePayloadFingerprint(new Uint8Array(fakePng)),
+    'Identical image payloads must produce the exact same deduplication fingerprint'
+  );
+  assert.notEqual(
+    computeImagePayloadFingerprint(fakePng),
+    computeImagePayloadFingerprint(fakeJpeg),
+    'Different image payloads must produce distinct fingerprints'
+  );
+
+  // 3. Build a 5-page PDF and a valid non-trivial PNG image buffer
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 5; i++) {
+    const p = doc.addPage([595, 842]);
+    p.drawText(`Contract Page ${i + 1}`, { x: 50, y: 780, size: 14 });
+  }
+  const baseBytes = await doc.save({ useObjectStreams: false });
+  const baseBuffer = baseBytes.buffer.slice(
+    baseBytes.byteOffset,
+    baseBytes.byteOffset + baseBytes.byteLength
+  ) as ArrayBuffer;
+
+  // Create a synthetic 80x40 RGBA PNG with pseudo-random ink pattern so its compressed stream is several KB
+  const width = 80;
+  const height = 40;
+  const rawScanlines = Buffer.alloc(height * (1 + width * 4));
+  let seed = 1337;
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (1 + width * 4);
+    rawScanlines[rowStart] = 0; // filter type 0
+    for (let x = 0; x < width; x++) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const px = rowStart + 1 + x * 4;
+      rawScanlines[px] = seed & 0xff;
+      rawScanlines[px + 1] = (seed >> 8) & 0xff;
+      rawScanlines[px + 2] = (seed >> 16) & 0xff;
+      rawScanlines[px + 3] = 255;
+    }
+  }
+  const crc32 = (buf: Buffer): number => {
+    let c = 0xffffffff;
+    for (let i = 0; i < buf.length; i++) {
+      c ^= buf[i];
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const makeChunk = (type: string, data: Buffer): Buffer => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length, 0);
+    const typeBuf = Buffer.from(type, 'ascii');
+    const crcBuf = Buffer.alloc(4);
+    crcBuf.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
+    return Buffer.concat([len, typeBuf, data, crcBuf]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type RGBA
+  const pngBuffer = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    makeChunk('IHDR', ihdr),
+    makeChunk('IDAT', zlib.deflateSync(rawScanlines)),
+    makeChunk('IEND', Buffer.alloc(0)),
+  ]);
+  const pngBytes = new Uint8Array(pngBuffer);
+
+  // Export with 1 signature on Page 1
+  const singleSigPdf = await embedSignaturesIntoPdf(baseBuffer, [
+    {
+      id: 'sig-1',
+      name: 'Sign',
+      transparentDataUrl: '',
+      originalDataUrl: '',
+      pngBytes,
+      pageNumber: 1,
+      xPercent: 20,
+      yPercent: 70,
+      widthPercent: 25,
+      aspectRatio: 2,
+      opacity: 1,
+      rotation: 0,
+    },
+  ]);
+
+  // Export with the SAME signature placed across all 5 pages
+  const fiveSigsPdf = await embedSignaturesIntoPdf(
+    baseBuffer,
+    [1, 2, 3, 4, 5].map((pageNumber) => ({
+      id: `sig-${pageNumber}`,
+      name: 'Sign',
+      transparentDataUrl: '',
+      originalDataUrl: '',
+      pngBytes: new Uint8Array(pngBytes), // distinct Uint8Array instance with identical content
+      pageNumber,
+      xPercent: 20,
+      yPercent: 70,
+      widthPercent: 25,
+      aspectRatio: 2,
+      opacity: 1,
+      rotation: 0,
+    }))
+  );
+
+  // Without XObject deduplication, 4 additional placements would add ~4 * pngBytes.byteLength (> 25,000 bytes).
+  // With XObject deduplication, the 4 extra placements only add tiny page drawing operators (< 1,000 bytes).
+  const sizeDelta = fiveSigsPdf.byteLength - singleSigPdf.byteLength;
+  assert.ok(
+    sizeDelta < 1200,
+    `Expected 4 additional placements of identical signature to add < 1200 bytes via XObject deduplication, but added ${sizeDelta} bytes`
+  );
+});
+
+
 

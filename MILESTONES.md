@@ -251,6 +251,9 @@ Dieser Meilenstein transformiert PatricksPDF auf Smartphones und in der Android-
    - Unterstützung für Adobe Acrobat Formatierungs-Signaturen mit `sepStyle = 1` und `3` (Punkt oder Leerzeichen als Tausender, Komma als Dezimaltrenner).
    - Sauberes Parsen und Formatieren sowohl deutscher/europäischer (`1.234,50`) als auch US-amerikanischer Eingaben (`1,234.50`).
 
-4. **Repository-Bereinigung & 100% Testabdeckung**:
+4. **Verlustfreie & performante PDF-Dateigrößen-Optimierung (`src/utils/pdfExportEngine.ts`, `src/utils/imageProcessor.ts`)**:
+   - Aktivierung von PDF 1.5 Object Streams (`useObjectStreams: true`), XObject-Deduplizierung mehrfach platzierter Signaturen/Stempel (`computeImagePayloadFingerprint`), Font-Subsetting (`{ subset: true }`), Zero-Alpha RGB Pre-Cleaning (`cleanZeroAlphaRgbPixels`) und nativem JPEG-Passthrough (`embedJpg`) für voll-opake Fotos.
+
+5. **Repository-Bereinigung & 100% Testabdeckung**:
    - Entfernung des fremden `bun.lock` (ausschließliche Nutzung von `package-lock.json` mit `npm ci`).
-   - 51 automatisierte Unit-Tests grün, vollständige Versionskonsistenz across all platforms.
+   - 52 automatisierte Unit-Tests grün, vollständige Versionskonsistenz auf allen Plattformen.

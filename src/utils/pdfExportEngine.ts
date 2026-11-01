@@ -712,17 +712,27 @@ export async function embedSignaturesIntoPdf(
   );
 
   if (activeTextOverlays.length > 0) {
-    const helveticaFont = await targetDoc.embedFont(StandardFonts.Helvetica);
-    let scriptFont: any = null;
+    const hasStandard = activeTextOverlays.some((t) => t.fontFamily !== 'script');
     const hasScript = activeTextOverlays.some((t) => t.fontFamily === 'script');
+
+    let helveticaFont: any = null;
+    if (hasStandard) {
+      helveticaFont = await targetDoc.embedFont(StandardFonts.Helvetica);
+    }
+
+    let scriptFont: any = null;
     if (hasScript) {
       try {
         const fontBytes = await getScriptFontBytes();
-        scriptFont = await targetDoc.embedFont(fontBytes);
+        scriptFont = await targetDoc.embedFont(fontBytes, { subset: true });
       } catch (fontErr) {
         console.warn('Failed to embed script font, falling back to Times Roman:', fontErr);
         scriptFont = await targetDoc.embedFont(StandardFonts.TimesRomanItalic);
       }
+    }
+
+    if (!helveticaFont && !scriptFont) {
+      helveticaFont = await targetDoc.embedFont(StandardFonts.Helvetica);
     }
 
     const blackColor = rgb(0.04, 0.04, 0.05);
@@ -734,7 +744,10 @@ export async function embedSignaturesIntoPdf(
       if (targetPageIdx === undefined) continue;
 
       const page = targetDoc.getPage(targetPageIdx);
-      const font = textItem.fontFamily === 'script' && scriptFont ? scriptFont : helveticaFont;
+      const font =
+        textItem.fontFamily === 'script' && scriptFont
+          ? scriptFont
+          : helveticaFont || scriptFont;
       const color =
         textItem.color === 'red'
           ? redColor
@@ -772,12 +785,22 @@ export async function embedSignaturesIntoPdf(
     }
   }
 
-  // 4. Embed Transparent Signatures onto targetDoc (only for included pages)
+  // 4. Embed Signatures & Images onto targetDoc (only for included pages) with XObject deduplication
+  const embeddedImageCache = new Map<string, any>();
+
   for (const sig of signatures) {
     const targetPageIdx = origPageNumToTargetIdx.get(sig.pageNumber);
     if (targetPageIdx === undefined) continue;
 
-    const embeddedImage = await targetDoc.embedPng(sig.pngBytes);
+    const imgKey = computeImagePayloadFingerprint(sig.pngBytes);
+    let embeddedImage = embeddedImageCache.get(imgKey);
+    if (!embeddedImage) {
+      embeddedImage = isJpegBytes(sig.pngBytes)
+        ? await targetDoc.embedJpg(sig.pngBytes)
+        : await targetDoc.embedPng(sig.pngBytes);
+      embeddedImageCache.set(imgKey, embeddedImage);
+    }
+
     const page = targetDoc.getPage(targetPageIdx);
 
     const placement = calculatePdfImagePlacement(
@@ -835,8 +858,40 @@ export async function embedSignaturesIntoPdf(
   }
 
   return targetDoc.save({
-    useObjectStreams: false,
+    useObjectStreams: true,
   });
+}
+
+/**
+ * Checks whether a binary image payload starts with JPEG SOI/marker magic bytes (FF D8 FF).
+ */
+export function isJpegBytes(bytes: Uint8Array): boolean {
+  return (
+    bytes &&
+    bytes.byteLength >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  );
+}
+
+/**
+ * Computes a deterministic, collision-resistant fingerprint for an image byte buffer
+ * using dual 32-bit FNV-1a passes + byteLength so identical signatures/stamps across pages
+ * share a single embedded PDF XObject.
+ */
+export function computeImagePayloadFingerprint(bytes: Uint8Array): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    const b = bytes[i];
+    h1 ^= b;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= b ^ (i & 0xff);
+    h2 = Math.imul(h2, 0x811c9dc5);
+  }
+  return `${len}:${(h1 >>> 0).toString(16)}:${(h2 >>> 0).toString(16)}`;
 }
 
 async function loadUnencryptedPdfForModification(bytes: ArrayBuffer): Promise<PDFDocument> {
@@ -942,7 +997,7 @@ export async function applyPageModifications(
     }
 
     return freshDoc.save({
-      useObjectStreams: false,
+      useObjectStreams: true,
     });
   }
 
@@ -1004,7 +1059,7 @@ export async function applyPageModifications(
   }
 
   return pdfDoc.save({
-    useObjectStreams: false,
+    useObjectStreams: true,
   });
 }
 

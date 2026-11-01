@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for PDF form handling hardening, export persistence of hidden fields, European number format parsing, v2.4 release bump, and documentation updates.",
-  "updatedAt":  "2026-11-01T17:24:54.850221167Z",
+  "summary":  "Implementation plan for lossless & near-lossless PDF export size optimization in PatricksPDF (Object Streams, XObject Image Deduplication, Font Subsetting, Zero-Alpha RGB Pre-Cleaning, and Native JPEG Passthrough for Opaque Images) with unit tests and documentation updates.",
+  "updatedAt":  "2026-11-01T18:41:37.033170339Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

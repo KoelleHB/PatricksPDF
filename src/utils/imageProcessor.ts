@@ -42,6 +42,44 @@ export function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 /**
+ * Converts a fully opaque canvas to a high-quality JPEG Blob (for native DCTDecode PDF passthrough),
+ * falling back to PNG if JPEG encoding is unavailable.
+ */
+export function canvasToJpegBlob(canvas: HTMLCanvasElement, quality = 0.88): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else canvasToBlob(canvas).then(resolve, reject);
+      },
+      'image/jpeg',
+      quality
+    );
+  });
+}
+
+/**
+ * Zeroes out RGB channels on all fully transparent pixels (alpha === 0) to eliminate
+ * invisible background camera noise and maximize Deflate/FlateDecode compression ratios.
+ * Returns true if the image contains any translucent/transparent pixels (alpha < 250).
+ */
+export function cleanZeroAlphaRgbPixels(data: Uint8ClampedArray | Uint8Array): boolean {
+  let hasTransparency = false;
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3];
+    if (alpha < 250) {
+      hasTransparency = true;
+    }
+    if (alpha === 0) {
+      data[i] = 0;
+      data[i + 1] = 0;
+      data[i + 2] = 0;
+    }
+  }
+  return hasTransparency;
+}
+
+/**
  * Detects if an image source already contains transparency (e.g. transparent PNG or WebP)
  */
 export async function detectImageHasTransparency(imageSource: string): Promise<boolean> {
@@ -79,6 +117,8 @@ export async function detectImageHasTransparency(imageSource: string): Promise<b
 
 /**
  * Inserts an image as-is, preserving its original pixel colors and native transparency.
+ * Uses zero-alpha RGB cleaning for transparent PNGs and native JPEG encoding (q=0.88)
+ * when the image is 100% opaque.
  */
 export async function processAsIsImage(
   imageSource: string,
@@ -93,8 +133,8 @@ export async function processAsIsImage(
   canvas.width = img.naturalWidth || img.width;
   canvas.height = img.naturalHeight || img.height;
 
-  // Max dimension limit to keep mobile memory optimal while retaining crisp quality
-  const maxDim = 2000;
+  // Max dimension limit to keep mobile memory & PDF size optimal while retaining 300+ DPI quality
+  const maxDim = 1600;
   if (canvas.width > maxDim || canvas.height > maxDim) {
     const scale = maxDim / Math.max(canvas.width, canvas.height);
     canvas.width = Math.round(canvas.width * scale);
@@ -139,7 +179,7 @@ export async function processAsIsImage(
       const croppedCanvas = document.createElement('canvas');
       croppedCanvas.width = cropW;
       croppedCanvas.height = cropH;
-      const cropCtx = croppedCanvas.getContext('2d');
+      const cropCtx = croppedCanvas.getContext('2d', { willReadFrequently: true });
       if (cropCtx) {
         cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
         finalCanvas = croppedCanvas;
@@ -147,8 +187,20 @@ export async function processAsIsImage(
     }
   }
 
-  const transparentDataUrl = finalCanvas.toDataURL('image/png');
-  const blob = await canvasToBlob(finalCanvas);
+  const finalCtx = finalCanvas.getContext('2d', { willReadFrequently: true });
+  let hasTransparency = true;
+  if (finalCtx) {
+    const finalImgData = finalCtx.getImageData(0, 0, finalCanvas.width, finalCanvas.height);
+    hasTransparency = cleanZeroAlphaRgbPixels(finalImgData.data);
+    finalCtx.putImageData(finalImgData, 0, 0);
+  }
+
+  const transparentDataUrl = hasTransparency
+    ? finalCanvas.toDataURL('image/png')
+    : finalCanvas.toDataURL('image/jpeg', 0.88);
+  const blob = hasTransparency
+    ? await canvasToBlob(finalCanvas)
+    : await canvasToJpegBlob(finalCanvas, 0.88);
   const pngBytes = await blobToUint8Array(blob);
 
   return {
@@ -162,7 +214,8 @@ export async function processAsIsImage(
 
 /**
  * Removes white background from a signature JPG/PNG and returns a transparent PNG.
- * Preserves any existing transparency in the source image.
+ * Preserves any existing transparency in the source image and zeroes out RGB channels
+ * on transparent pixels for optimal Deflate compression.
  */
 export async function removeWhiteBackground(
   imageSource: string,
@@ -183,8 +236,8 @@ export async function removeWhiteBackground(
   canvas.width = img.naturalWidth || img.width;
   canvas.height = img.naturalHeight || img.height;
 
-  // Max dimension limit to keep mobile memory optimal while retaining crisp quality
-  const maxDim = 1600;
+  // Max dimension limit (1200px = 300 DPI at 4-inch / 10cm width) for optimal PDF size & crisp quality
+  const maxDim = 1200;
   if (canvas.width > maxDim || canvas.height > maxDim) {
     const scale = maxDim / Math.max(canvas.width, canvas.height);
     canvas.width = Math.round(canvas.width * scale);
@@ -209,8 +262,11 @@ export async function removeWhiteBackground(
     const origAlpha = data[i + 3];
 
     // CRITICAL: If the pixel in the source image is already transparent,
-    // preserve it as transparent! Never convert transparent pixels (RGB 0,0,0) into solid black.
+    // preserve it as transparent and zero RGB channels for maximum compression!
     if (origAlpha <= 10) {
+      data[i] = 0;
+      data[i + 1] = 0;
+      data[i + 2] = 0;
       data[i + 3] = 0;
       continue;
     }
@@ -248,7 +304,7 @@ export async function removeWhiteBackground(
     // Never make a pixel more opaque than its original alpha
     const alpha = Math.min(origAlpha, calculatedAlpha);
 
-    // Apply Ink Enhancement
+    // Apply Ink Enhancement or zero out transparent background RGB noise
     if (alpha > 0) {
       hasInkPixels = true;
       const pixelIndex = i / 4;
@@ -279,6 +335,10 @@ export async function removeWhiteBackground(
         data[i + 1] = Math.floor(50 + (1 - inkIntensity) * 60);
         data[i + 2] = Math.floor(180 + (1 - inkIntensity) * 40);
       }
+    } else {
+      data[i] = 0;
+      data[i + 1] = 0;
+      data[i + 2] = 0;
     }
 
     data[i + 3] = alpha;
