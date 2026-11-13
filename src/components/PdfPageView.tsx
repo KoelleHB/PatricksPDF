@@ -20,6 +20,7 @@ import { TextOverlay } from './TextOverlay';
 import { InteractiveFormField } from './InteractiveFormField';
 import { openPdfExternalLink, isNativeAndroid } from '../utils/nativeBridge';
 import { selectionTouchesPdfTextLayer } from '../utils/pdfSelection';
+import { computeCanvasRenderScale } from '../utils/pdfZoom';
 
 interface PdfPageViewProps {
   pageNumber: number;
@@ -191,13 +192,12 @@ export const PdfPageView = memo<PdfPageViewProps>(({
     let isCancelled = false;
     const canvas = canvasRef.current;
 
-    // Scale multiplier: maintain crisp high-DPI rendering without overloading the GPU
-    const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
-    const targetScale = Math.max(1.5, (zoomLevel / 100) * dpr);
-    // Guard against exceeding maximum canvas dimensions (keep max dimension <= 4096px)
-    const basePageDim = Math.max(pageWidth / Math.max(0.1, zoomLevel / 100), pageHeight / Math.max(0.1, zoomLevel / 100)) || 842;
-    const maxSafeScale = Math.min(4.0, 4096 / basePageDim);
-    const scaleMultiplier = Math.min(maxSafeScale, targetScale);
+    // Scale multiplier: support modern 3x smartphone screens while respecting GPU canvas limits
+    const rawDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const zoomRatio = Math.max(0.1, zoomLevel / 100);
+    const baseWidth = pageWidth / zoomRatio || 595;
+    const baseHeight = pageHeight / zoomRatio || 842;
+    const scaleMultiplier = computeCanvasRenderScale(zoomLevel, rawDpr, baseWidth, baseHeight);
 
     // Debounce re-rendering if page is already rendered to allow buttery smooth zoom animations
     const delay = isRendered ? 150 : 0;

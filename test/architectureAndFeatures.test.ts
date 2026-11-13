@@ -38,7 +38,9 @@ import {
   getRuntimeVersionInfo,
   resolveSystemBackAction,
   switchToPreviousApp,
+  shouldUseSystemFonts,
 } from '../src/utils/nativeBridge';
+import { computeCanvasRenderScale } from '../src/utils/pdfZoom';
 import { createAppError, formatAppErrorReport } from '../src/utils/appError';
 
 /**
@@ -1495,6 +1497,61 @@ test('Android Back navigation: resolves modal/overlay/document layers and switch
     'App.tsx must rely exclusively on Capacitor backButton listener so AppPlugin does not fire twice'
   );
 });
+
+test('Android serif font rendering uses bundled Foxit standard fonts and supports up to 3x DPR safely', () => {
+  // 1. Desktop uses system fonts; Android APK & Android browser/PWA disable useSystemFonts
+  // so PDF.js loads bundled /pdfjs/standard_fonts/FoxitSerif*.pfb instead of Noto Serif with mismatched widths.
+  assert.equal(shouldUseSystemFonts(true, ''), false);
+  assert.equal(
+    shouldUseSystemFonts(false, 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36'),
+    false
+  );
+  assert.equal(
+    shouldUseSystemFonts(false, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36'),
+    true
+  );
+
+  // 2. High-DPR smartphone canvas render scaling (A4 595x842)
+  assert.equal(computeCanvasRenderScale(58, 3, 595, 842), 2.0);
+  assert.equal(computeCanvasRenderScale(100, 3, 595, 842), 3.0);
+  assert.equal(computeCanvasRenderScale(150, 3, 595, 842), 4.5);
+  // 2x display keeps 1.5x minimum at overview zoom
+  assert.equal(computeCanvasRenderScale(58, 2, 595, 842), 1.5);
+  assert.equal(computeCanvasRenderScale(100, 2, 595, 842), 2.0);
+
+  // 3. Large CAD/poster page respects 4096px edge & 12 MP area GPU caps
+  const largeScale = computeCanvasRenderScale(150, 3, 3000, 4000);
+  assert.ok(largeScale * 4000 <= 4096.0001, 'Rendered max edge must stay within 4096px');
+  assert.ok((largeScale * 3000) * (largeScale * 4000) <= 12_000_001, 'Rendered pixel area must stay within 12 MP');
+
+  // 4. Verify lifecycle wiring & standard_fonts asset availability
+  const lifecycleSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/utils/pdfDocumentLifecycle.ts'),
+    'utf8'
+  );
+  const useSystemFontMatches = lifecycleSource.match(/useSystemFonts:\s*shouldUseSystemFonts\(\)/g) ?? [];
+  assert.equal(
+    useSystemFontMatches.length,
+    2,
+    'Both primaryInitParams and recoveryInitParams must configure useSystemFonts: shouldUseSystemFonts()'
+  );
+  assert.doesNotMatch(lifecycleSource, /useSystemFonts:\s*true/);
+
+  const pageViewSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/PdfPageView.tsx'),
+    'utf8'
+  );
+  assert.match(pageViewSource, /computeCanvasRenderScale/);
+
+  for (const fontFile of ['FoxitSerif.pfb', 'FoxitSerifBold.pfb', 'FoxitSerifItalic.pfb', 'FoxitSerifBoldItalic.pfb']) {
+    assert.equal(
+      fs.existsSync(path.resolve(process.cwd(), 'public/pdfjs/standard_fonts', fontFile)),
+      true,
+      `Bundled standard font ${fontFile} must exist in public/pdfjs/standard_fonts/`
+    );
+  }
+});
+
 
 
 

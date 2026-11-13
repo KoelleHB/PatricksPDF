@@ -26,6 +26,22 @@ export function isRunningInIframe(): boolean {
   }
 }
 
+/**
+ * Android does not ship desktop serif fonts (Times New Roman, Liberation Serif, Tinos).
+ * Keeping useSystemFonts=true on Android causes PDF.js to skip its bundled metric-exact
+ * standard fonts (/pdfjs/standard_fonts/FoxitSerif*.pfb) and fall back to Android's
+ * Noto Serif with mismatched glyph widths (cramped, uneven spacing at every zoom level).
+ */
+export function shouldUseSystemFonts(
+  isNativeAndroidApp: boolean = isNativeAndroid(),
+  userAgent: string = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+): boolean {
+  if (isNativeAndroidApp || /Android/i.test(userAgent)) {
+    return false;
+  }
+  return true;
+}
+
 export interface SystemBackState {
   showDiagnosticsModal: boolean;
   isUnsavedModalOpen: boolean;

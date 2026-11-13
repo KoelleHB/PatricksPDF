@@ -1,5 +1,6 @@
 import type { DocumentInitParameters } from 'pdfjs-dist/types/src/display/api';
 import { pdfjsLib } from './pdfWorker';
+import { shouldUseSystemFonts } from './nativeBridge';
 
 /**
  * Extended DocumentInitParameters that includes runtime-supported `enableScripting`
@@ -124,8 +125,8 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
     enableScripting: false,
     // Explicitly disable dynamic Function()/eval() compilation in PDF.js worker (mitigates CVE-2024-4367)
     isEvalSupported: false,
-    // Fallback to system fonts if non-embedded fonts are present
-    useSystemFonts: true,
+    // Use bundled metric-exact standard fonts on Android to avoid Noto Serif width mismatches
+    useSystemFonts: shouldUseSystemFonts(),
     // Unlimited image dimensions in object streams
     maxImageSize: -1,
     password: password || undefined,
@@ -157,7 +158,7 @@ export async function loadPdfJsDoc(data: ArrayBuffer, password?: string) {
       enableXfa: true,
       enableScripting: false,
       isEvalSupported: false,
-      useSystemFonts: true,
+      useSystemFonts: shouldUseSystemFonts(),
       maxImageSize: -1,
       disableStream: true,
       disableAutoFetch: true,
