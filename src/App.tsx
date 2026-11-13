@@ -26,7 +26,13 @@ import {
   reconcileEmergencyDraftFromLocalStorage,
   compileRecentDocumentPdfBytes,
 } from './utils/recentDocuments';
-import { sharePdfDocument, printPdfDocument } from './utils/nativeBridge';
+import {
+  sharePdfDocument,
+  printPdfDocument,
+  registerNativeBackButtonHandler,
+  resolveSystemBackAction,
+  switchToPreviousApp,
+} from './utils/nativeBridge';
 import { useDocumentHistory } from './hooks/useDocumentHistory';
 import { calculateSupportedForms, formatSupportedNumber } from './utils/pdfFormFormatting';
 import { applyHideActionToVisibility, isFormFieldVisible } from './utils/pdfFormActions';
@@ -62,11 +68,19 @@ export default function App() {
   const originalPdfBufferRef = useRef<ArrayBuffer | null>(null);
   const originalNumPagesRef = useRef<number>(1);
   const viewportSnapshotGetterRef = useRef<(() => ViewportPageSnapshot | null) | null>(null);
+  const viewerBackHandlerRef = useRef<(() => boolean) | null>(null);
   const pendingPlacementSnapshotRef = useRef<ViewportPageSnapshot | null>(null);
 
   const handleRegisterViewportSnapshotGetter = useCallback(
     (getter: (() => ViewportPageSnapshot | null) | null) => {
       viewportSnapshotGetterRef.current = getter;
+    },
+    []
+  );
+
+  const handleRegisterViewerBackHandler = useCallback(
+    (handler: (() => boolean) | null) => {
+      viewerBackHandlerRef.current = handler;
     },
     []
   );
@@ -1054,6 +1068,91 @@ export default function App() {
     }
   };
 
+  // Android system Back button / gesture handler:
+  // 1) Closes topmost modal if open
+  // 2) Closes active viewer sub-overlay/drawer/search/fullscreen if open
+  // 3) Closes the active PDF document (returning to the main view, or prompting if unsaved)
+  // 4) On the main view (!pdfState), immediately switches back to the previous app
+  const handleSystemBackPressRef = useRef<() => void>(() => {});
+  handleSystemBackPressRef.current = () => {
+    const modalAction = resolveSystemBackAction({
+      showDiagnosticsModal,
+      isUnsavedModalOpen,
+      isPasswordModalOpen,
+      isSaveModalOpen,
+      isPageManagerOpen,
+      isSignatureModalOpen,
+      isTextModalOpen,
+      isRecentModalOpen,
+      hasViewerOverlayOpen: false,
+      hasDocumentOpen: Boolean(pdfState),
+    });
+
+    switch (modalAction) {
+      case 'close_diagnostics_modal':
+        setShowDiagnosticsModal(false);
+        return;
+      case 'close_unsaved_modal':
+        setIsUnsavedModalOpen(false);
+        setPendingAction(null);
+        return;
+      case 'close_password_modal':
+        setIsPasswordModalOpen(false);
+        setPasswordPendingDoc(null);
+        return;
+      case 'close_save_modal':
+        setIsSaveModalOpen(false);
+        setExportSelectedPages(null);
+        setExportOverrideSnapshot(null);
+        return;
+      case 'close_page_manager':
+        setIsPageManagerOpen(false);
+        return;
+      case 'close_signature_modal':
+        setIsSignatureModalOpen(false);
+        return;
+      case 'close_text_modal':
+        setIsTextModalOpen(false);
+        return;
+      case 'close_recent_modal':
+        setIsRecentModalOpen(false);
+        return;
+      default:
+        break;
+    }
+
+    if (pdfState && viewerBackHandlerRef.current?.()) {
+      return;
+    }
+
+    const navigationAction = resolveSystemBackAction({
+      showDiagnosticsModal: false,
+      isUnsavedModalOpen: false,
+      isPasswordModalOpen: false,
+      isSaveModalOpen: false,
+      isPageManagerOpen: false,
+      isSignatureModalOpen: false,
+      isTextModalOpen: false,
+      isRecentModalOpen: false,
+      hasViewerOverlayOpen: false,
+      hasDocumentOpen: Boolean(pdfState),
+    });
+
+    if (navigationAction === 'close_document') {
+      flushPendingFormCommit();
+      handleRequestCloseDocument();
+      return;
+    }
+
+    void switchToPreviousApp();
+  };
+
+  useEffect(() => {
+    return registerNativeBackButtonHandler(() => {
+      handleSystemBackPressRef.current();
+    });
+  }, []);
+
   // Safe request to open / switch document with unsaved changes verification
   const handleRequestFileSelect = (file: File) => {
     if (hasUnsavedChanges) {
@@ -1449,6 +1548,7 @@ export default function App() {
             isReaderMode={isReaderMode}
             onToggleReaderMode={setIsReaderMode}
             onRegisterViewportSnapshotGetter={handleRegisterViewportSnapshotGetter}
+            onRegisterViewerBackHandler={handleRegisterViewerBackHandler}
             isMobile={isMobile}
             isSaved={isSaved}
             hasWorkingEdits={hasWorkingEdits}

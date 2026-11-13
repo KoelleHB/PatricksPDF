@@ -32,7 +32,13 @@ import {
   applyPageModifications,
   buildStagedPageExportSnapshot,
 } from '../src/utils/pdfExportEngine';
-import { savePdfDocumentAs, setSystemFullscreen, getRuntimeVersionInfo } from '../src/utils/nativeBridge';
+import {
+  savePdfDocumentAs,
+  setSystemFullscreen,
+  getRuntimeVersionInfo,
+  resolveSystemBackAction,
+  switchToPreviousApp,
+} from '../src/utils/nativeBridge';
 import { createAppError, formatAppErrorReport } from '../src/utils/appError';
 
 /**
@@ -1371,6 +1377,125 @@ test('PDF export size optimization: XObject image deduplication, Object Streams,
     `Subsetted PDF (${subsetPdfBytes.byteLength} B) must be smaller than raw Caveat TTF (${caveatBytes.byteLength} B)`
   );
 });
+
+test('Android Back navigation: resolves modal/overlay/document layers and switches back to previous app on main screen', async () => {
+  const baseBackState = {
+    showDiagnosticsModal: false,
+    isUnsavedModalOpen: false,
+    isPasswordModalOpen: false,
+    isSaveModalOpen: false,
+    isPageManagerOpen: false,
+    isSignatureModalOpen: false,
+    isTextModalOpen: false,
+    isRecentModalOpen: false,
+    hasViewerOverlayOpen: false,
+    hasDocumentOpen: false,
+  };
+
+  // 1. Main screen (EmptyState) with no open document or modals -> switch to previous app
+  assert.equal(resolveSystemBackAction(baseBackState), 'switch_to_previous_app');
+
+  // 2. Active document with no modals/overlays -> close document back to main screen
+  assert.equal(
+    resolveSystemBackAction({ ...baseBackState, hasDocumentOpen: true }),
+    'close_document'
+  );
+
+  // 3. Viewer sub-overlay (search, TOC, page grid, fullscreen, reflow, reader mode) closes before document
+  assert.equal(
+    resolveSystemBackAction({
+      ...baseBackState,
+      hasDocumentOpen: true,
+      hasViewerOverlayOpen: true,
+    }),
+    'close_viewer_overlay'
+  );
+
+  // 4. Stacked modals close in top-most priority order
+  assert.equal(
+    resolveSystemBackAction({
+      ...baseBackState,
+      hasDocumentOpen: true,
+      isPageManagerOpen: true,
+      isSaveModalOpen: true,
+    }),
+    'close_save_modal'
+  );
+  assert.equal(
+    resolveSystemBackAction({
+      ...baseBackState,
+      hasDocumentOpen: true,
+      isSaveModalOpen: true,
+      showDiagnosticsModal: true,
+    }),
+    'close_diagnostics_modal'
+  );
+  assert.equal(
+    resolveSystemBackAction({
+      ...baseBackState,
+      hasDocumentOpen: true,
+      isUnsavedModalOpen: true,
+    }),
+    'close_unsaved_modal'
+  );
+  assert.equal(
+    resolveSystemBackAction({
+      ...baseBackState,
+      isRecentModalOpen: true,
+    }),
+    'close_recent_modal'
+  );
+
+  // 5. Runtime unit test for switchToPreviousApp()
+  const origWindow = (globalThis as any).window;
+  try {
+    let minimizeCalled = false;
+    (globalThis as any).window = {
+      NativePdfBridge: {
+        minimizeApp: () => {
+          minimizeCalled = true;
+          return true;
+        },
+      },
+    };
+    const switched = await switchToPreviousApp();
+    assert.equal(switched, true, 'switchToPreviousApp must succeed when NativePdfBridge.minimizeApp returns true');
+    assert.equal(minimizeCalled, true, 'NativePdfBridge.minimizeApp must be invoked');
+
+    // Non-native Web environment safely returns false
+    (globalThis as any).window = {};
+    const webResult = await switchToPreviousApp();
+    assert.equal(webResult, false, 'switchToPreviousApp must return false outside native Android/Capacitor');
+  } finally {
+    (globalThis as any).window = origWindow;
+  }
+
+  // 6. Verify native MainActivity & App.tsx wiring without double-firing
+  const mainActivitySource = fs.readFileSync(
+    path.resolve(process.cwd(), 'android/app/src/main/java/com/patrickspdf/app/MainActivity.java'),
+    'utf8'
+  );
+  assert.match(
+    mainActivitySource,
+    /@JavascriptInterface[\s\S]*?public\s+boolean\s+minimizeApp\s*\(\)/,
+    'MainActivity must expose @JavascriptInterface minimizeApp()'
+  );
+  assert.match(
+    mainActivitySource,
+    /activity\.moveTaskToBack\(true\)/,
+    'minimizeApp() must call activity.moveTaskToBack(true) to switch to previous app'
+  );
+
+  const appSource = fs.readFileSync(path.resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+  assert.match(appSource, /registerNativeBackButtonHandler/);
+  assert.match(appSource, /switchToPreviousApp/);
+  assert.doesNotMatch(
+    appSource,
+    /addEventListener\(\s*['"]backbutton['"]/,
+    'App.tsx must rely exclusively on Capacitor backButton listener so AppPlugin does not fire twice'
+  );
+});
+
 
 
 

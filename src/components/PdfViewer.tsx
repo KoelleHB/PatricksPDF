@@ -86,6 +86,7 @@ interface PdfViewerProps {
   isReaderMode?: boolean;
   onToggleReaderMode?: (enabled: boolean) => void;
   onRegisterViewportSnapshotGetter?: (getter: (() => ViewportPageSnapshot | null) | null) => void;
+  onRegisterViewerBackHandler?: (handler: (() => boolean) | null) => void;
   isMobile?: boolean;
   isSaved?: boolean;
   hasWorkingEdits?: boolean;
@@ -137,6 +138,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   isReaderMode = false,
   onToggleReaderMode,
   onRegisterViewportSnapshotGetter,
+  onRegisterViewerBackHandler,
   isMobile = false,
   isSaved = true,
   hasWorkingEdits = false,
@@ -1473,6 +1475,57 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   // Navigation bars stay permanently visible in normal mode and hide only in confirmed fullscreen mode
   const isControlsVisible = !isMobileFullscreen;
+
+  const handleViewerBack = useCallback((): boolean => {
+    if (isMobilePageGridOpen) {
+      setIsMobilePageGridOpen(false);
+      return true;
+    }
+    if (isTocOpen) {
+      setIsTocOpen(false);
+      return true;
+    }
+    if (isSearchOpen) {
+      closeSearch();
+      return true;
+    }
+    if (isZoomMenuOpen) {
+      setIsZoomMenuOpen(false);
+      return true;
+    }
+    if (isMobileFullscreen) {
+      void handleToggleMobileFullscreen();
+      return true;
+    }
+    if (isReflowMode) {
+      setIsReflowMode(false);
+      return true;
+    }
+    if (isReaderMode && onToggleReaderMode) {
+      onToggleReaderMode(false);
+      return true;
+    }
+    return false;
+  }, [
+    isMobilePageGridOpen,
+    isTocOpen,
+    isSearchOpen,
+    closeSearch,
+    isZoomMenuOpen,
+    isMobileFullscreen,
+    handleToggleMobileFullscreen,
+    isReflowMode,
+    isReaderMode,
+    onToggleReaderMode,
+  ]);
+
+  useEffect(() => {
+    if (!onRegisterViewerBackHandler) return;
+    onRegisterViewerBackHandler(handleViewerBack);
+    return () => {
+      onRegisterViewerBackHandler(null);
+    };
+  }, [onRegisterViewerBackHandler, handleViewerBack]);
 
   const handleContainerClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;

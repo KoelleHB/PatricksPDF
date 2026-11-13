@@ -170,6 +170,24 @@ public class MainActivity extends BridgeActivity {
             }
         }
 
+        @JavascriptInterface
+        public boolean minimizeApp() {
+            try {
+                if (activity == null || activity.isFinishing()) {
+                    return false;
+                }
+                activity.runOnUiThread(() -> {
+                    if (!activity.moveTaskToBack(true)) {
+                        activity.finish();
+                    }
+                });
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "Failed moving app task to background", e);
+                return false;
+            }
+        }
+
         /**
          * PDF hyperlinks open in the user's external browser. Android
          * WebView's window.open() does not create a browser tab by default.

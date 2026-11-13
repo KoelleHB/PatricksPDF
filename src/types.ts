@@ -215,6 +215,7 @@ declare global {
       printPdf?: (documentName: string, base64Data: string) => boolean;
       savePdf?: (fileName: string, base64Data: string) => boolean;
       setImmersiveFullscreen?: (enabled: boolean) => boolean;
+      minimizeApp?: () => boolean;
       getAppBuildInfo?: () => string;
     };
     onNativePdfReceived?: (data: { name: string; base64: string }) => void;

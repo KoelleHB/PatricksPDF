@@ -1,6 +1,0 @@
-{
-  "summary":  "Implementation plan for lossless & near-lossless PDF export size optimization in PatricksPDF (Object Streams, XObject Image Deduplication, Font Subsetting, Zero-Alpha RGB Pre-Cleaning, and Native JPEG Passthrough for Opaque Images) with unit tests and documentation updates.",
-  "updatedAt":  "2026-11-01T18:41:37.033170339Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

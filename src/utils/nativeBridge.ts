@@ -3,6 +3,8 @@
  * Provides seamless Android Native Print & Share Sheet integration with fallback to Web APIs.
  */
 
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import { nativeFileAction } from './androidPdfTransfer';
 
 /**
@@ -22,6 +24,118 @@ export function isRunningInIframe(): boolean {
   } catch {
     return true;
   }
+}
+
+export interface SystemBackState {
+  showDiagnosticsModal: boolean;
+  isUnsavedModalOpen: boolean;
+  isPasswordModalOpen: boolean;
+  isSaveModalOpen: boolean;
+  isPageManagerOpen: boolean;
+  isSignatureModalOpen: boolean;
+  isTextModalOpen: boolean;
+  isRecentModalOpen: boolean;
+  hasViewerOverlayOpen: boolean;
+  hasDocumentOpen: boolean;
+}
+
+export type SystemBackAction =
+  | 'close_diagnostics_modal'
+  | 'close_unsaved_modal'
+  | 'close_password_modal'
+  | 'close_save_modal'
+  | 'close_page_manager'
+  | 'close_signature_modal'
+  | 'close_text_modal'
+  | 'close_recent_modal'
+  | 'close_viewer_overlay'
+  | 'close_document'
+  | 'switch_to_previous_app';
+
+/**
+ * Resolves the deterministic single action to run on an Android system Back press.
+ * Modals close top-most first, then viewer overlays/drawers, then open documents
+ * (returning to the main screen), and finally switches back to the previous app
+ * when already on the main screen.
+ */
+export function resolveSystemBackAction(state: SystemBackState): SystemBackAction {
+  if (state.showDiagnosticsModal) return 'close_diagnostics_modal';
+  if (state.isUnsavedModalOpen) return 'close_unsaved_modal';
+  if (state.isPasswordModalOpen) return 'close_password_modal';
+  if (state.isSaveModalOpen) return 'close_save_modal';
+  if (state.isPageManagerOpen) return 'close_page_manager';
+  if (state.isSignatureModalOpen) return 'close_signature_modal';
+  if (state.isTextModalOpen) return 'close_text_modal';
+  if (state.isRecentModalOpen) return 'close_recent_modal';
+  if (state.hasViewerOverlayOpen) return 'close_viewer_overlay';
+  if (state.hasDocumentOpen) return 'close_document';
+  return 'switch_to_previous_app';
+}
+
+/**
+ * Moves PatricksPDF behind the caller / previous Android app (using moveTaskToBack),
+ * preserving WebView state and local drafts while immediately returning the user to the previous app.
+ */
+export async function switchToPreviousApp(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+
+  try {
+    if (typeof window.NativePdfBridge?.minimizeApp === 'function') {
+      if (window.NativePdfBridge.minimizeApp() === true) {
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn('NativePdfBridge.minimizeApp warning:', err);
+  }
+
+  try {
+    if (Capacitor.isNativePlatform()) {
+      await CapacitorApp.minimizeApp();
+      return true;
+    }
+  } catch (err) {
+    console.warn('CapacitorApp.minimizeApp warning:', err);
+  }
+
+  return false;
+}
+
+/**
+ * Subscribes to Android hardware/gesture Back button events via @capacitor/app.
+ * Only registers CapacitorApp.addListener('backButton') (never also document 'backbutton',
+ * because AppPlugin fires both on a single press).
+ */
+export function registerNativeBackButtonHandler(onBack: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  if (!isNativeAndroid() && !Capacitor.isNativePlatform()) return () => {};
+
+  let cancelled = false;
+  let listenerHandle: { remove: () => Promise<void> } | null = null;
+
+  void CapacitorApp.addListener('backButton', () => {
+    if (!cancelled) {
+      onBack();
+    }
+  })
+    .then((handle) => {
+      if (cancelled) {
+        void handle.remove().catch(() => {});
+      } else {
+        listenerHandle = handle;
+      }
+    })
+    .catch((err) => {
+      console.warn('Failed registering Capacitor backButton listener:', err);
+    });
+
+  return () => {
+    cancelled = true;
+    if (listenerHandle) {
+      void listenerHandle.remove().catch(() => {});
+      listenerHandle = null;
+    }
+  };
 }
 
 /**
