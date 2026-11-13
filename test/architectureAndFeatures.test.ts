@@ -1543,13 +1543,20 @@ test('Android serif font rendering uses bundled Foxit standard fonts and support
   );
   assert.match(pageViewSource, /computeCanvasRenderScale/);
 
+  // Check the pinned pdfjs-dist source fonts (available immediately after npm ci);
+  // public/pdfjs/ is gitignored and populated later by Vite buildStart().
   for (const fontFile of ['FoxitSerif.pfb', 'FoxitSerifBold.pfb', 'FoxitSerifItalic.pfb', 'FoxitSerifBoldItalic.pfb']) {
     assert.equal(
-      fs.existsSync(path.resolve(process.cwd(), 'public/pdfjs/standard_fonts', fontFile)),
+      fs.existsSync(path.resolve(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts', fontFile)),
       true,
-      `Bundled standard font ${fontFile} must exist in public/pdfjs/standard_fonts/`
+      `Pinned pdfjs-dist standard font ${fontFile} must exist in node_modules/pdfjs-dist/standard_fonts/`
     );
   }
+
+  const viteConfigSource = fs.readFileSync(path.resolve(process.cwd(), 'vite.config.ts'), 'utf8');
+  assert.match(viteConfigSource, /'standard_fonts'/);
+  assert.match(viteConfigSource, /'public\/pdfjs'/);
+  assert.match(viteConfigSource, /\bpfb\b/);
 });
 
 
